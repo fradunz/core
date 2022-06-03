@@ -1920,7 +1920,7 @@ void PartyBotAI::UpdateInCombatAI_Hunter()
             if (m_spells.hunter.pCounterattack &&
                 CanTryToCastSpell(pVictim, m_spells.hunter.pCounterattack))
             {
-                if (DoCastSpell(pVictim, m_spells.hunter.pWingClip))
+                if (DoCastSpell(pVictim, m_spells.hunter.pCounterattack))
                     return;
             }
 
