@@ -103,6 +103,13 @@ template<class T> void AddUnitState(T* /*obj*/, CellPair const& /*cell_pair*/)
 {
 }
 
+template<> void AddUnitState(GameObject* obj, CellPair const& cell_pair)
+{
+    Cell cell(cell_pair);
+
+    obj->SetCurrentCell(cell);
+}
+
 template<> void AddUnitState(Creature* obj, CellPair const& cell_pair)
 {
     Cell cell(cell_pair);
@@ -147,8 +154,17 @@ void LoadHelper(CellGuidSet const& guid_set, CellPair& cell, GridRefManager<T>& 
         if (!IsEnabledOnMap<T>(map, guid))
             continue;
 
-        T* obj = new T;
-        //sLog.outString("DEBUG: LoadHelper from table: %s for (guid: %u) Loading",table,guid);
+        T* obj;
+        if (std::is_same<T, GameObject>::value) // TODO: When c++17 is added change to constexpr
+        {
+            GameObjectData const* data = sObjectMgr.GetGOData(guid);
+            MANGOS_ASSERT(data);
+            obj = (T*)GameObject::CreateGameObject(data->id);
+        }
+        else
+            obj = new T;
+
+        //sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "DEBUG: LoadHelper from table: %s for (guid: %u) Loading",table,guid);
         if (!obj->LoadFromDB(guid, map))
         {
             delete obj;
@@ -160,7 +176,7 @@ void LoadHelper(CellGuidSet const& guid_set, CellPair& cell, GridRefManager<T>& 
         AddUnitState(obj, cell);
         obj->SetMap(map);
         obj->AddToWorld();
-        if (obj->isActiveObject() && !map->IsUnloading())
+        if (obj->IsActiveObject() && !map->IsUnloading())
             map->AddToActive(obj);
 
         obj->GetViewPoint().Event_AddedToWorld(&grid);
@@ -193,7 +209,7 @@ void LoadHelper(CellCorpseSet const& cell_corpses, CellPair& cell, CorpseMapType
         AddUnitState(obj, cell);
         obj->SetMap(map);
         obj->AddToWorld();
-        if (obj->isActiveObject() && !map->IsUnloading())
+        if (obj->IsActiveObject() && !map->IsUnloading())
             map->AddToActive(obj);
 
         ++count;
@@ -207,12 +223,19 @@ ObjectGridLoader::Visit(GameObjectMapType& m)
     uint32 y = (i_cell.GridY() * MAX_NUMBER_OF_CELLS) + i_cell.CellY();
     CellPair cell_pair(x, y);
     uint32 cell_id = (cell_pair.y_coord * TOTAL_NUMBER_OF_CELLS_PER_MAP) + cell_pair.x_coord;
-
-    CellObjectGuids const& cell_guids = sObjectMgr.GetCellObjectGuids(i_map->GetId(), cell_id);
-
     GridType& grid = (*i_map->getNGrid(i_cell.GridX(), i_cell.GridY()))(i_cell.CellX(), i_cell.CellY());
-    LoadHelper(cell_guids.gameobjects, cell_pair, m, i_gameObjects, i_map, grid);
-    LoadHelper(i_map->GetPersistentState()->GetCellObjectGuids(cell_id).gameobjects, cell_pair, m, i_gameObjects, i_map, grid);
+
+    {
+        std::shared_lock<std::shared_timed_mutex> lock(sObjectMgr.GetCellLoadingObjectsMutex());
+        if (auto const& cellGuids = sObjectMgr.GetCellObjectGuids(i_map->GetId(), cell_id))
+            LoadHelper(cellGuids->gameobjects, cell_pair, m, i_gameObjects, i_map, grid);
+    }
+    
+    {
+        std::shared_lock<std::shared_timed_mutex> lock(i_map->GetPersistentState()->GetCellObjectGuidsMutex());
+        if (auto const& cellGuids = i_map->GetPersistentState()->GetCellObjectGuids(cell_id))
+            LoadHelper(cellGuids->gameobjects, cell_pair, m, i_gameObjects, i_map, grid);
+    }
 }
 
 void
@@ -222,12 +245,19 @@ ObjectGridLoader::Visit(CreatureMapType& m)
     uint32 y = (i_cell.GridY() * MAX_NUMBER_OF_CELLS) + i_cell.CellY();
     CellPair cell_pair(x, y);
     uint32 cell_id = (cell_pair.y_coord * TOTAL_NUMBER_OF_CELLS_PER_MAP) + cell_pair.x_coord;
-
-    CellObjectGuids const& cell_guids = sObjectMgr.GetCellObjectGuids(i_map->GetId(), cell_id);
-
     GridType& grid = (*i_map->getNGrid(i_cell.GridX(), i_cell.GridY()))(i_cell.CellX(), i_cell.CellY());
-    LoadHelper(cell_guids.creatures, cell_pair, m, i_creatures, i_map, grid);
-    LoadHelper(i_map->GetPersistentState()->GetCellObjectGuids(cell_id).creatures, cell_pair, m, i_creatures, i_map, grid);
+    
+    {
+        std::shared_lock<std::shared_timed_mutex> lock(sObjectMgr.GetCellLoadingObjectsMutex());
+        if (auto const& cellGuids = sObjectMgr.GetCellObjectGuids(i_map->GetId(), cell_id))
+            LoadHelper(cellGuids->creatures, cell_pair, m, i_creatures, i_map, grid);
+    }
+
+    {
+        std::shared_lock<std::shared_timed_mutex> lock(i_map->GetPersistentState()->GetCellObjectGuidsMutex());
+        if (auto const& cellGuids = i_map->GetPersistentState()->GetCellObjectGuids(cell_id))
+            LoadHelper(cellGuids->creatures, cell_pair, m, i_creatures, i_map, grid);
+    }
 }
 
 void
@@ -237,10 +267,13 @@ ObjectWorldLoader::Visit(CorpseMapType& m)
     uint32 y = (i_cell.GridY() * MAX_NUMBER_OF_CELLS) + i_cell.CellY();
     CellPair cell_pair(x, y);
     uint32 cell_id = (cell_pair.y_coord * TOTAL_NUMBER_OF_CELLS_PER_MAP) + cell_pair.x_coord;
-
-    CellObjectGuids const& cell_guids = sObjectMgr.GetCellObjectGuids(i_map->GetId(), cell_id);
     GridType& grid = (*i_map->getNGrid(i_cell.GridX(), i_cell.GridY()))(i_cell.CellX(), i_cell.CellY());
-    LoadHelper(cell_guids.corpses, cell_pair, m, i_corpses, i_map, grid);
+
+    {
+        std::shared_lock<std::shared_timed_mutex> lock(sObjectMgr.GetCellLoadingObjectsMutex());
+        if (auto const& cellGuids = sObjectMgr.GetCellObjectGuids(i_map->GetId(), cell_id))
+            LoadHelper(cellGuids->corpses, cell_pair, m, i_corpses, i_map, grid);
+    }
 }
 
 void
@@ -275,7 +308,7 @@ void ObjectGridLoader::LoadN(void)
             loader.Load(i_grid(x, y), *this);
         }
     }
-    DEBUG_LOG("%u GameObjects, %u Creatures, and %u Corpses/Bones loaded for grid %u on map %u", i_gameObjects, i_creatures, i_corpses, i_grid.GetGridId(), i_map->GetId());
+    sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "%u GameObjects, %u Creatures, and %u Corpses/Bones loaded for grid %u on map %u", i_gameObjects, i_creatures, i_corpses, i_grid.GetGridId(), i_map->GetId());
 }
 
 void ObjectGridUnloader::MoveToRespawnN()
@@ -307,14 +340,21 @@ ObjectGridUnloader::Visit(GridRefManager<T>& m)
 
     while (!m.isEmpty())
     {
-        T* obj = m.getFirst()->getSource();
+        auto link = m.getFirst();
+        T* obj = link->getSource();
+
         // if option set then object already saved at this moment
         if (!sWorld.getConfig(CONFIG_BOOL_SAVE_RESPAWN_TIME_IMMEDIATELY))
             obj->SaveRespawnTime();
-        ///- object must be out of world before delete
+
+        // object must be out of world before delete
         obj->RemoveFromWorld();
-        ///- object will get delinked from the manager when deleted
-        delete obj;
+
+        // Prevent double delete of object already in remove list. Can happen with DynamicObject.
+        if (obj->IsDeleted())
+            link->invalidate(); // unlink it manually, will be deleted later by map
+        else
+            delete obj; // object will get delinked from the manager when deleted
     }
 }
 

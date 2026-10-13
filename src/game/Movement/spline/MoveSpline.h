@@ -63,10 +63,12 @@ namespace Movement
             int32           point_Idx;
             int32           last_point_sent_Idx;
             int32           point_Idx_offset;
+            bool            m_uninterruptible;
             char const*     mvtOrigin; // For debug purposes
 
             void init_spline(MoveSplineInitArgs const& args);
             UpdateResult _updateState(int32& ms_time_diff);
+            Location ComputePosition(int32 lastIndex, int32 desiredTime) const;
 
         public:
 
@@ -106,10 +108,12 @@ namespace Movement
             }
 
             Location ComputePosition() const;
+            Location ComputePositionAfterTime(int32 duration) const;
 
             uint32 GetId() const { return m_Id;}
             bool Finalized() const { return splineflags.done; }
             bool isCyclic() const { return splineflags.cyclic;}
+            bool IsUninterruptible() const { return m_uninterruptible; }
             Vector3 FinalDestination() const { return Initialized() ? spline.getPoint(spline.last()) : Vector3();}
             Vector3 CurrentDestination() const { return Initialized() ? spline.getPoint(point_Idx + 1) : Vector3();}
             Vector3 PreviousDestination() const { return Initialized() ? spline.getPoint(point_Idx) : Vector3(); }

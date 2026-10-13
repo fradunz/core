@@ -26,11 +26,9 @@
 #include <queue>
 #include <unordered_set>
 
-#include "ace/Thread_Mutex.h"
-
 #include "Common.h"
 #include "ByteBuffer.h"
-
+#include "Policies/ThreadingModel.h"
 
 enum TypeID
 {
@@ -79,20 +77,14 @@ enum HighGuid
     HIGHGUID_MO_TRANSPORT   = 0x1FC0,                       // blizz 1FC0 (for GAMEOBJECT_TYPE_MO_TRANSPORT)
 };
 
-// NOSTALRIUS : Code supprime par MaNGOS. Eviter de l'utiliser.
+// NOSTALRIUS : Code removed by MaNGOS. Avoid using it.
 #define GUID_HIPART(x)   (uint32)((uint64(x) >> 48) & 0x0000FFFF)
 // We have different low and middle part size for different guid types
-#define _GUID_LOPART_2(x) (uint32)(uint64(x)         & UI64LIT(0x00000000FFFFFFFF))
-#define _GUID_LOPART_3(x) (uint32)(uint64(x)         & UI64LIT(0x0000000000FFFFFF))
+#define _GUID_LOPART_2(x) (uint32)(uint64(x)         & uint64(0x00000000FFFFFFFF))
+#define _GUID_LOPART_3(x) (uint32)(uint64(x)         & uint64(0x0000000000FFFFFF))
 
-// Pour les codes TrinityCore
-#define IS_EMPTY_GUID(g)       (g == 0)
-#define IS_CREATURE_GUID(g)    (GUID_HIPART(g) == HIGHGUID_UNIT)
-#define IS_PET_GUID(g)         (GUID_HIPART(g) == HIGHGUID_PET)
-#define IS_PLAYER_GUID(g)      (GUID_HIPART(g) == HIGHGUID_PLAYER && g != 0)
-#define IS_UNIT_GUID(g)        (IS_CREATURE_GUID(g) || IS_PLAYER_GUID(g))
-
-inline bool IsGuidHaveEnPart(uint64 const& guid)
+/// Some ObjectGuids only have a "counter", some "counter AND entry"
+inline bool DoesGuidHaveEntryPart(uint64 const& guid)
 {
     switch(GUID_HIPART(guid))
     {
@@ -110,7 +102,7 @@ inline bool IsGuidHaveEnPart(uint64 const& guid)
             return true;
     }
 }
-#define GUID_LOPART(x) (IsGuidHaveEnPart(x) ? _GUID_LOPART_3(x) : _GUID_LOPART_2(x))
+#define GUID_LOPART(x) (DoesGuidHaveEntryPart(x) ? _GUID_LOPART_3(x) : _GUID_LOPART_2(x))
 // FIN Nostalrius.
 
 
@@ -126,10 +118,12 @@ struct PackedGuidReader
 class ObjectGuid
 {
     public:                                                 // constructors
-        ObjectGuid() : m_guid(0) {}
-        ObjectGuid(uint64 const& guid) : m_guid(guid) {}    // temporary allowed implicit cast, really bad in connection with operator uint64()
-        ObjectGuid(HighGuid hi, uint32 entry, uint32 counter) : m_guid(counter ? uint64(counter) | (uint64(entry) << 24) | (uint64(hi) << 48) : 0) {}
-        ObjectGuid(HighGuid hi, uint32 counter) : m_guid(counter ? uint64(counter) | (uint64(hi) << 48) : 0) {}
+        constexpr ObjectGuid() : m_guid(0) {}
+        constexpr ObjectGuid(uint64 const& guid) : m_guid(guid) {}    // temporary allowed implicit cast, really bad in connection with operator uint64()
+        constexpr ObjectGuid(HighGuid hi, uint32 entry, uint32 counter) : m_guid(counter ? uint64(counter) | (uint64(entry) << 24) | (uint64(hi) << 48) : 0) {}
+        constexpr ObjectGuid(HighGuid hi, uint32 counter) : m_guid(counter ? uint64(counter) | (uint64(hi) << 48) : 0) {}
+
+        static ObjectGuid const Empty;
 
     //private:
         explicit ObjectGuid(uint32 const& lowGuid) : m_guid(lowGuid) {} // Besoin dans OutdoorPvP par exemple
@@ -140,17 +134,26 @@ class ObjectGuid
 
     public:                                                 // modifiers
         PackedGuidReader ReadAsPacked() { return PackedGuidReader(*this); }
+        PackedGuid WriteAsPacked() const;
+
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+        // TODO: Remove `ReadAsPacked` & `WriteAsPacked` when transformation is done
+        PackedGuidReader ReadAsPackedClientBuildAware() { return PackedGuidReader(*this); }
+        PackedGuid WriteAsPackedClientBuildAware() const;
+#else
+        ObjectGuid& ReadAsPackedClientBuildAware() { return *this; }
+        uint64 WriteAsPackedClientBuildAware() const { return GetRawValue(); }
+#endif
 
         void Set(uint64 const& guid);
         void Clear() { m_guid = 0; }
 
-        PackedGuid WriteAsPacked() const;
     public:                                                 // accessors
         uint64 const& GetRawValue() const { return m_guid; }
         static HighGuid GetHigh(uint64 guid) { return HighGuid((guid >> 48) & 0x0000FFFF); }
         static void ClampPlayerGuid(uint64& value);
         HighGuid GetHigh() const { return GetHigh(m_guid); }
-        uint32   GetEntry() const { return HasEntry() ? uint32((m_guid >> 24) & UI64LIT(0x0000000000FFFFFF)) : 0; }
+        uint32   GetEntry() const { return HasEntry() ? uint32((m_guid >> 24) & uint64(0x0000000000FFFFFF)) : 0; }
         uint32   GetCounter()  const
         {
             return GetCounter(m_guid, HasEntry());
@@ -159,8 +162,8 @@ class ObjectGuid
         static uint32 GetCounter(uint64 guid, bool hasEntry)
         {
             return hasEntry
-                ? uint32(guid & UI64LIT(0x0000000000FFFFFF))
-                : uint32(guid & UI64LIT(0x00000000FFFFFFFF));
+                ? uint32(guid & uint64(0x0000000000FFFFFF))
+                : uint32(guid & uint64(0x00000000FFFFFFFF));
         }
 
         static uint32 GetMaxCounter(HighGuid high)
@@ -242,18 +245,16 @@ class ObjectGuid
         uint64 m_guid;
 };
 
-namespace std {
-
+namespace std
+{
     template <>
     struct hash<ObjectGuid>
     {
         std::size_t operator()(ObjectGuid const& k) const
         {
-            using std::hash;
-            return hash<uint64>()(k.GetRawValue());
+            return std::hash<uint64>()(k.GetRawValue());
         }
     };
-
 }
 
 typedef std::unordered_set<ObjectGuid> ObjectGuidSet;
@@ -289,7 +290,8 @@ class ObjectGuidGenerator
         explicit ObjectGuidGenerator(uint32 start = 1) : m_nextGuid(start) {}
 
     public:                                                 // modifiers
-        void Set(uint32 val) { m_nextGuid = val; }
+        void LoadFromDB(char const* fieldName, char const* tableName);
+        void SetMaxUsedGuid(uint32 val, char const* guidType);
         uint32 Generate();
         void GenerateRange(uint32& first, uint32& last);
 
@@ -322,8 +324,8 @@ public:
         ObjectGuidGenerator<high>::GenerateRange(first, last);
     }
 protected:
-    typedef ACE_Thread_Mutex LockType;
-    typedef MaNGOS::GeneralLock<LockType > Guard;
+    using LockType = std::mutex;
+    using Guard = MaNGOS::GeneralLock<LockType>;
     LockType lock;
 };
 
@@ -334,5 +336,8 @@ ByteBuffer& operator<< (ByteBuffer& buf, PackedGuid const& guid);
 ByteBuffer& operator>> (ByteBuffer& buf, PackedGuidReader const& guid);
 
 inline PackedGuid ObjectGuid::WriteAsPacked() const { return PackedGuid(*this); }
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+inline PackedGuid ObjectGuid::WriteAsPackedClientBuildAware() const { return WriteAsPacked(); }
+#endif
 
 #endif

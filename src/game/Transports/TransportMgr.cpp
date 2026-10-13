@@ -1,95 +1,88 @@
 /*
- * Copyright (C) 2008-2014 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include "Policies/SingletonImp.h"
 #include "TransportMgr.h"
 #include "Transport.h"
-#include "MoveSpline.h"
+#include "Geometry.h"
+#include "MoveMap.h"
+#include "SQLStorages.h"
+#include "MoveSplineInitArgs.h"
+#include "Map.h"
 #include "MapManager.h"
 #include "ObjectMgr.h"
-#include "MoveMap.h"
-#include "World.h"
 
-TransportTemplate::~TransportTemplate()
+INSTANTIATE_SINGLETON_1(TransportMgr);
+
+void TransportMgr::LoadTransportAnimationAndRotation()
 {
-    // Collect shared pointers into a set to avoid deleting the same memory more than once
-    std::set<TransportSpline*> splines;
-    for (const auto& keyFrame : keyFrames)
-        splines.insert(keyFrame.Spline);
-
-    for (const auto& spline : splines)
-        delete spline;
+    for (uint32 i = 0; i < sTransportAnimationStore.GetNumRows(); ++i)
+        if (TransportAnimationEntry const* anim = sTransportAnimationStore.LookupEntry(i))
+            AddPathNodeToTransport(anim->TransportEntry, anim->TimeSeg, anim);
 }
 
-TransportMgr::TransportMgr() { }
-
-TransportMgr::~TransportMgr() { }
-
-void TransportMgr::Unload()
+TransportTemplate* TransportMgr::GetTransportTemplate(uint32 entry)
 {
-    _transportTemplates.clear();
+    auto itr = m_transportTemplates.find(entry);
+    if (itr != m_transportTemplates.end())
+        return &(*itr).second;
+
+    return nullptr;
 }
 
 void TransportMgr::LoadTransportTemplates()
 {
-    uint32 oldMSTime = WorldTimer::getMSTime();
-
-    QueryResult* result = WorldDatabase.PQuery("SELECT entry FROM gameobject_template t1 WHERE ((type = 15) && (patch=(SELECT max(patch) FROM gameobject_template t2 WHERE t1.entry=t2.entry && patch <= %u))) ORDER BY entry ASC", sWorld.GetWowPatch());
-
-    if (!result)
+    for (auto const& itr : sObjectMgr.GetGameObjectInfoMap())
     {
-        sLog.outString(">> Loaded 0 transport templates. DB table `gameobject_template` has no transports!");
-        return;
+        uint32 entry = itr.first;
+        auto const& data = itr.second;
+        if (data && data->type == GAMEOBJECT_TYPE_MO_TRANSPORT)
+        {
+            TransportTemplate& transportTemplate = m_transportTemplates[entry];
+            transportTemplate.entry = entry;
+            if (!GenerateWaypoints(data.get(), transportTemplate))
+                m_transportTemplates.erase(entry);
+        }
     }
 
-    uint32 count = 0;
-
-    do
+    // load period override from db since our algorithm is not perfect
+    if (std::unique_ptr<QueryResult> result = WorldDatabase.PQuery("SELECT `entry`, `period` FROM `transports` t1 WHERE `build`=(SELECT max(`build`) FROM `transports` t2 WHERE t1.`entry`=t2.`entry` && `build` <= %u)", SUPPORTED_CLIENT_BUILD))
     {
-        Field* fields = result->Fetch();
-        uint32 entry = fields[0].GetUInt32();
-        GameObjectInfo const* goInfo = ObjectMgr::GetGameObjectInfo(entry);
-        if (goInfo == nullptr)
+        do
         {
-            sLog.outErrorDb("Transport %u has no associated GameObjectTemplate from `gameobject_template` , skipped.", entry);
-            continue;
-        }
+            Field* fields = result->Fetch();
+            uint32 entry = fields[0].GetUInt32();
+            uint32 period = fields[1].GetUInt32();
 
-        if (goInfo->moTransport.taxiPathId >= sTaxiPathNodesByPath.size())
-        {
-            sLog.outErrorDb("Transport %u (name: %s) has an invalid path specified in `gameobject_template`.`data0` (%u) field, skipped.", entry, goInfo->name, goInfo->moTransport.taxiPathId);
-            continue;
-        }
+            if (TransportTemplate* tInfo = GetTransportTemplate(entry))
+            {
+                if (period)
+                {
+                    // Override calculated period with more accurate db value.
+                    tInfo->pathTime = period;
+                    tInfo->keyFrames.back().DepartureTime = period;
+                }
+            }
+            else
+                sLog.Out(LOG_DBERROR, LOG_LVL_ERROR, "Invalid gameobject %u in transport table.", entry);
 
-        // paths are generated per template, saves us from generating it again in case of instanced transports
-        TransportTemplate& transport = _transportTemplates[entry];
-        transport.entry = entry;
-        GeneratePath(goInfo, &transport);
-        MMAP::MMapFactory::createOrGetMMapManager()->loadGameObject(goInfo->displayId);
-
-        // transports in instance are only on one map
-        if (transport.inInstance)
-            _instanceTransports[*transport.mapsUsed.begin()].insert(entry);
-
-        ++count;
+        } while (result->NextRow());
     }
-    while (result->NextRow());
-
-    delete result;
-    sLog.outString(">> Loaded %u transport templates in %u ms", count, WorldTimer::getMSTimeDiffToNow(oldMSTime));
 }
 
 class SplineRawInitializer
@@ -109,11 +102,15 @@ public:
     Movement::PointsArray& _points;
 };
 
-void TransportMgr::GeneratePath(GameObjectInfo const* goInfo, TransportTemplate* transport)
+bool TransportMgr::GenerateWaypoints(GameObjectInfo const* goinfo, TransportTemplate& transportTemplate)
 {
-    uint32 pathId = goInfo->moTransport.taxiPathId;
+    uint32 pathid = goinfo->moTransport.taxiPathId;
+    if (pathid >= sTaxiPathNodesByPath.size())
+        return false;
+
+    uint32 pathId = goinfo->moTransport.taxiPathId;
     TaxiPathNodeList const& path = sTaxiPathNodesByPath[pathId];
-    std::vector<KeyFrame>& keyFrames = transport->keyFrames;
+    std::vector<KeyFrame>& keyFrames = transportTemplate.keyFrames;
     Movement::PointsArray splinePath, allPoints;
     bool mapChange = false;
     for (size_t i = 0; i < path.size(); ++i)
@@ -144,38 +141,38 @@ void TransportMgr::GeneratePath(GameObjectInfo const* goInfo, TransportTemplate*
                 KeyFrame k(node_i);
                 G3D::Vector3 h;
                 orientationSpline.evaluate_derivative(i + 1, 0.0f, h);
-                k.InitialOrientation = MapManager::NormalizeOrientation(atan2(h.y, h.x) + M_PI);
+                k.InitialOrientation = Geometry::NormalizeOrientation(atan2(h.y, h.x) + M_PI);
 
                 keyFrames.push_back(k);
                 splinePath.push_back(G3D::Vector3(node_i.x, node_i.y, node_i.z));
-                transport->mapsUsed.insert(k.Node->mapid);
+                transportTemplate.mapsUsed.insert(k.Node->mapid);
             }
         }
         else
             mapChange = false;
     }
 
-    ASSERT(!keyFrames.empty());
+    MANGOS_ASSERT(!keyFrames.empty());
 
-    if (transport->mapsUsed.size() > 1)
+    if (transportTemplate.mapsUsed.size() > 1)
     {
-        for (const auto itr : transport->mapsUsed)
-            ASSERT(!sMapStorage.LookupEntry<MapEntry>(itr)->Instanceable());
+        for (const auto itr : transportTemplate.mapsUsed)
+            MANGOS_ASSERT(!sMapStorage.LookupEntry<MapEntry>(itr)->Instanceable());
 
-        transport->inInstance = false;
+        transportTemplate.inInstance = false;
     }
     else
-        transport->inInstance = sMapStorage.LookupEntry<MapEntry>(*transport->mapsUsed.begin())->Instanceable();
+        transportTemplate.inInstance = sMapStorage.LookupEntry<MapEntry>(*transportTemplate.mapsUsed.begin())->Instanceable();
 
     // last to first is always "teleport", even for closed paths
     keyFrames.back().Teleport = true;
 
-    float const speed = float(goInfo->moTransport.moveSpeed);
-    float const accel = float(goInfo->moTransport.accelRate);
+    float const speed = float(goinfo->moTransport.moveSpeed);
+    float const accel = float(goinfo->moTransport.accelRate);
     float const accel_dist = 0.5f * speed * speed / accel;
 
-    transport->accelTime = speed / accel;
-    transport->accelDist = accel_dist;
+    transportTemplate.accelTime = speed / accel;
+    transportTemplate.accelDist = accel_dist;
 
     int32 firstStop = -1;
     int32 lastStop = -1;
@@ -302,7 +299,7 @@ void TransportMgr::GeneratePath(GameObjectInfo const* goInfo, TransportTemplate*
     if (keyFrames[0].IsStopFrame())
     {
         curPathTime = float(keyFrames[0].Node->delay);
-        keyFrames[0].DepartureTime = uint32(curPathTime * IN_MILLISECONDS);
+        keyFrames[0].DepartureTime = uint32(curPathTime * (uint32)IN_MILLISECONDS);
     }
 
     for (size_t i = 1; i < keyFrames.size(); ++i)
@@ -310,15 +307,15 @@ void TransportMgr::GeneratePath(GameObjectInfo const* goInfo, TransportTemplate*
         curPathTime += keyFrames[i - 1].TimeTo;
         if (keyFrames[i].IsStopFrame())
         {
-            keyFrames[i].ArriveTime = uint32(curPathTime * IN_MILLISECONDS);
+            keyFrames[i].ArriveTime = uint32(curPathTime * (uint32)IN_MILLISECONDS);
             keyFrames[i - 1].NextArriveTime = keyFrames[i].ArriveTime;
             curPathTime += float(keyFrames[i].Node->delay);
-            keyFrames[i].DepartureTime = uint32(curPathTime * IN_MILLISECONDS);
+            keyFrames[i].DepartureTime = uint32(curPathTime * (uint32)IN_MILLISECONDS);
         }
         else
         {
             curPathTime -= keyFrames[i].TimeTo;
-            keyFrames[i].ArriveTime = uint32(curPathTime * IN_MILLISECONDS);
+            keyFrames[i].ArriveTime = uint32(curPathTime * (uint32)IN_MILLISECONDS);
             keyFrames[i - 1].NextArriveTime = keyFrames[i].ArriveTime;
             keyFrames[i].DepartureTime = keyFrames[i].ArriveTime;
         }
@@ -329,101 +326,102 @@ void TransportMgr::GeneratePath(GameObjectInfo const* goInfo, TransportTemplate*
     // Feathermoon 303 & Teldrassil 293 ferries
     if (pathId == 303 || pathId == 293)
         keyFrames[12].Update = true;
-    transport->pathTime = keyFrames.back().DepartureTime;
+    transportTemplate.pathTime = keyFrames.back().DepartureTime;
+
+    return true;
 }
 
-Transport* TransportMgr::CreateTransport(uint32 entry, uint32 guid /*= 0*/, Map* map /*= nullptr*/)
+void TransportMgr::AddPathNodeToTransport(uint32 transportEntry, uint32 timeSeg, TransportAnimationEntry const* node)
 {
-    // instance case, execute GetGameObjectEntry hook
-    if (map && !entry)
-        return nullptr;
+    TransportAnimation& animNode = m_transportAnimations[transportEntry];
+    if (animNode.TotalTime < timeSeg)
+        animNode.TotalTime = timeSeg;
 
-    TransportTemplate const* tInfo = GetTransportTemplate(entry);
-    if (!tInfo)
+    animNode.Path[timeSeg] = node;
+}
+
+TransportAnimationEntry const* TransportAnimation::GetPrevAnimNode(uint32 time) const
+{
+    auto itr = Path.lower_bound(time);
+    if (itr != Path.end() && itr != Path.begin())
     {
-        sLog.outErrorDb("Transport %u will not be loaded, `transport_template` missing", entry);
-        return nullptr;
+        --itr;
+        return itr->second;
     }
 
-    // create transport...
-    Transport* trans = new Transport();
+    return nullptr;
+}
+
+TransportAnimationEntry const* TransportAnimation::GetNextAnimNode(uint32 time) const
+{
+    auto itr = Path.lower_bound(time);
+    if (itr != Path.end())
+        return itr->second;
+
+    return nullptr;
+}
+
+ShipTransport* TransportMgr::CreateTransport(uint32 entry, Map* map)
+{
+    MANGOS_ASSERT(map);
+    TransportTemplate const* tInfo = GetTransportTemplate(entry);
+    MANGOS_ASSERT(tInfo);
+
+    // find when transport is on this map
+    KeyFrameVec::const_iterator frameItr;
+    for (frameItr = tInfo->keyFrames.cbegin(); frameItr != tInfo->keyFrames.cend(); ++frameItr)
+    {
+        if ((*frameItr).Node->mapid == map->GetId())
+            break;
+    }
+    MANGOS_ASSERT(frameItr != tInfo->keyFrames.cend());
 
     // ...at first waypoint
-    TaxiPathNodeEntry const* startNode = tInfo->keyFrames.begin()->Node;
+    TaxiPathNodeEntry const* startNode = frameItr->Node;
     uint32 mapId = startNode->mapid;
     float x = startNode->x;
     float y = startNode->y;
     float z = startNode->z;
-    float o = tInfo->keyFrames.begin()->InitialOrientation;
+    float o = frameItr->InitialOrientation;
 
-    // initialize the gameobject base
-    // HIGHGUID_MO_TRANSPORT
-    uint32 guidLow = guid ? guid : sObjectMgr.GenerateStaticGameObjectLowGuid();
-    if (!trans->Create(guidLow, entry, mapId, x, y, z, o, 255))
+    // do not create it on the wrong continent instance
+    uint32 instanceId = sMapMgr.GetContinentInstanceId(mapId, x, y);
+    if (map->IsContinent() && instanceId != map->GetInstanceId())
+        return nullptr;
+
+    if (map->Instanceable() != tInfo->inInstance)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Transport %u attempted creation in instance map (id: %u) but it is not an instanced transport!", entry, mapId);
+        return nullptr;
+    }
+
+    // create transport...
+    ShipTransport* trans = new ShipTransport(*tInfo);
+    if (!trans->Create(entry, frameItr))
     {
         delete trans;
         return nullptr;
     }
 
-    if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(mapId))
-    {
-        if (mapEntry->Instanceable() != tInfo->inInstance)
-        {
-            sLog.outError("Transport %u (name: %s) attempted creation in instance map (id: %u) but it is not an instanced transport!", entry, trans->GetName(), mapId);
-            delete trans;
-            return nullptr;
-        }
-    }
+    trans->SetLocationInstanceId(instanceId);
+    trans->SetMap(map);
+    trans->GetMap()->Add<ShipTransport>(trans);
 
-    // use preset map for instances (need to know which instance)
-    trans->SetLocationInstanceId(sMapMgr.GetContinentInstanceId(mapId, x, y));
-    trans->SetMap(map ? map : sMapMgr.CreateMap(mapId, trans));
+    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "Created transport %u on map %u.", entry, mapId);
 
-    // Passengers will be loaded once a player is near
-    trans->GetMap()->Add<Transport>(trans);
     return trans;
 }
 
-void TransportMgr::SpawnContinentTransports()
+void TransportMgr::SpawnTransportsOnMap(Map* map)
 {
-    if (_transportTemplates.empty())
-        return;
-
-    uint32 oldMSTime = WorldTimer::getMSTime();
-
-    QueryResult* result = WorldDatabase.Query("SELECT guid, entry FROM transports");
-
-    uint32 count = 0;
-    if (result)
+    for (auto& itr : m_transportTemplates)
     {
-        do
-        {
-            Field* fields = result->Fetch();
-            uint32 guid = fields[0].GetUInt32();
-            uint32 entry = fields[1].GetUInt32();
+        // only spawn continent transports once
+        if (itr.second.spawned && !itr.second.inInstance)
+            continue;
 
-            if (TransportTemplate const* tInfo = GetTransportTemplate(entry))
-                if (!tInfo->inInstance)
-                    if (CreateTransport(entry, guid))
-                        ++count;
-
-        }
-        while (result->NextRow());
-        delete result;
+        if (itr.second.mapsUsed.find(map->GetId()) != itr.second.mapsUsed.end())
+            if (CreateTransport(itr.first, map))
+                itr.second.spawned = true;
     }
-
-    sLog.outString(">> Spawned %u continent transports in %u ms", count, WorldTimer::getMSTimeDiffToNow(oldMSTime));
-}
-
-void TransportMgr::CreateInstanceTransports(Map* map)
-{
-    TransportInstanceMap::const_iterator mapTransports = _instanceTransports.find(map->GetId());
-
-    // no transports here
-    if (mapTransports == _instanceTransports.end() || mapTransports->second.empty())
-        return;
-
-    // create transports
-    for (const auto itr : mapTransports->second)
-        CreateTransport(itr, 0, map);
 }

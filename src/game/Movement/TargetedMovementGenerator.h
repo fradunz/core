@@ -44,24 +44,25 @@ class TargetedMovementGeneratorMedium
             m_bReachable(true), m_fTargetLastX(0), m_fTargetLastY(0), m_fTargetLastZ(0), m_bTargetOnTransport(false)
         {
         }
-        ~TargetedMovementGeneratorMedium() {}
+        ~TargetedMovementGeneratorMedium() override {}
 
     public:
-        
+
         void UpdateAsync(T&, uint32 diff);
 
-        bool IsReachable() const
+        bool IsReachable() const override
         {
             return m_bReachable;
         }
 
         Unit* GetTarget() const { return i_target.getTarget(); }
 
-        void UnitSpeedChanged() { m_bRecalculateTravel=true; }
-        void UpdateFinalDistance(float fDistance);
+        void UnitSpeedChanged() override { m_bRecalculateTravel=true; }
+        void UpdateFinalDistance(float fDistance) override;
+        bool IsFarEnoughToMoveStationaryFollower(T&) const;
 
     protected:
-        void _setTargetLocation(T &);
+        virtual void _setTargetLocation(T &) = 0;
 
         ShortTimeTracker m_checkDistanceTimer;
 
@@ -85,9 +86,9 @@ class ChaseMovementGenerator : public TargetedMovementGeneratorMedium<T, ChaseMo
             : TargetedMovementGeneratorMedium<T, ChaseMovementGenerator<T> >(target) {}
         ChaseMovementGenerator(Unit &target, float offset, float angle)
             : TargetedMovementGeneratorMedium<T, ChaseMovementGenerator<T> >(target, offset, angle) {}
-        ~ChaseMovementGenerator() {}
+        ~ChaseMovementGenerator() override {}
 
-        MovementGeneratorType GetMovementGeneratorType() const { return CHASE_MOTION_TYPE; }
+        MovementGeneratorType GetMovementGeneratorType() const override { return CHASE_MOTION_TYPE; }
 
         bool Update(T &, uint32 const&);
         void Initialize(T &);
@@ -96,17 +97,19 @@ class ChaseMovementGenerator : public TargetedMovementGeneratorMedium<T, ChaseMo
         void Reset(T &);
         void MovementInform(T &);
 
-        static void _clearUnitStateMove(T &u) { u.ClearUnitState(UNIT_STAT_CHASE_MOVE); }
-        static void _addUnitStateMove(T &u)  { u.AddUnitState(UNIT_STAT_CHASE_MOVE); }
+        static void _clearUnitStateMove(T &u) { u.ClearUnitState(UNIT_STATE_CHASE_MOVE); }
+        static void _addUnitStateMove(T &u)  { u.AddUnitState(UNIT_STATE_CHASE_MOVE); }
         bool EnableWalking() const { return false;}
         bool _lostTarget(T &u) const { return u.GetVictim() != this->GetTarget(); }
         void _reachTarget(T &);
     private:
         ShortTimeTracker m_spreadTimer{ 0 };
+        ShortTimeTracker m_leashExtensionTimer{ 5000 };
         bool m_bIsSpreading = false;
         bool m_bCanSpread = true;
         uint8 m_uiSpreadAttempts = 0;
 
+        void _setTargetLocation(T &) final;
         void DoBackMovement(T &, Unit* target);
         void DoSpreadIfNeeded(T &, Unit* target);
         bool TargetDeepInBounds(T &, Unit* target) const;
@@ -123,6 +126,7 @@ class ChaseMovementGenerator : public TargetedMovementGeneratorMedium<T, ChaseMo
         using TargetedMovementGeneratorMedium<T, ChaseMovementGenerator<T> >::m_bTargetOnTransport;
         using TargetedMovementGeneratorMedium<T, ChaseMovementGenerator<T> >::m_bRecalculateTravel;
         using TargetedMovementGeneratorMedium<T, ChaseMovementGenerator<T> >::m_bTargetReached;
+        using TargetedMovementGeneratorMedium<T, ChaseMovementGenerator<T> >::m_bReachable;
 };
 
 template<class T>
@@ -144,13 +148,14 @@ class FollowMovementGenerator : public TargetedMovementGeneratorMedium<T, Follow
         void Reset(T &);
         void MovementInform(T &);
 
-        static void _clearUnitStateMove(T &u) { u.ClearUnitState(UNIT_STAT_FOLLOW_MOVE); }
-        static void _addUnitStateMove(T &u)  { u.AddUnitState(UNIT_STAT_FOLLOW_MOVE); }
+        static void _clearUnitStateMove(T &u) { u.ClearUnitState(UNIT_STATE_FOLLOW_MOVE); }
+        static void _addUnitStateMove(T &u)  { u.AddUnitState(UNIT_STATE_FOLLOW_MOVE); }
         bool EnableWalking() const;
         bool _lostTarget(T &) const { return false; }
         void _reachTarget(T &) {}
     private:
         void _updateSpeed(T &u);
+        void _setTargetLocation(T &) final;
 
         // Needed to compile with gcc for some reason.
         using TargetedMovementGeneratorMedium<T, FollowMovementGenerator<T> >::i_target;
@@ -163,6 +168,7 @@ class FollowMovementGenerator : public TargetedMovementGeneratorMedium<T, Follow
         using TargetedMovementGeneratorMedium<T, FollowMovementGenerator<T> >::m_bTargetOnTransport;
         using TargetedMovementGeneratorMedium<T, FollowMovementGenerator<T> >::m_bRecalculateTravel;
         using TargetedMovementGeneratorMedium<T, FollowMovementGenerator<T> >::m_bTargetReached;
+        using TargetedMovementGeneratorMedium<T, FollowMovementGenerator<T> >::m_bReachable;
 };
 
 #endif

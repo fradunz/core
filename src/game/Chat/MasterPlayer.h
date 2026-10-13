@@ -24,7 +24,7 @@ public:
     MasterPlayer(WorldSession* s);
     ~MasterPlayer();
 
-    void Create(Player* player);
+    void Create(ObjectGuid playerGuid, uint8 raceId, uint32 classId);
     void LoadPlayer(Player* player);
     void SaveToDB();
     void Update();
@@ -38,7 +38,7 @@ public:
 
     // CHAT SYSTEM
     void UpdateSpeakTime();
-    void Whisper(std::string const& text, uint32 language, MasterPlayer* receiver);
+    void Whisper(char const* text, uint32 language, MasterPlayer* receiver);
     void ToggleDND();
     void ToggleAFK();
     void JoinedChannel(Channel *c);
@@ -48,10 +48,10 @@ public:
     // SOCIAL SYSTEM
     PlayerSocial* GetSocial() const { return m_social; }
     void SetSocial(PlayerSocial* s) { m_social = s; }
-    void LoadSocial(QueryResult* result);
+    void LoadSocial(std::unique_ptr<QueryResult> result);
 
     // ACTIONS SYSTEM
-    void LoadActions(QueryResult* result);
+    void LoadActions(std::unique_ptr<QueryResult> result);
     void SaveActions();
     ActionButtonList& GetActionButtons() { return m_actionButtons; }
     void SendInitialActionButtons() const;
@@ -59,11 +59,9 @@ public:
     void removeActionButton(uint8 button);
 
     // MAIL SYSTEM
-    void LoadMailedItems(QueryResult* result);
-    void LoadMails(QueryResult* result);
+    void LoadMailedItems(std::unique_ptr<QueryResult> result);
+    void LoadMails(std::unique_ptr<QueryResult> result);
     void SaveMails();
-    void SendMailResult(uint32 mailId, MailResponseType mailAction, MailResponseResult mailError, uint32 equipError = 0, uint32 item_guid = 0, uint32 item_count = 0);
-    void SendNewMail();
     void UpdateNextMailTimeAndUnreads();
     void AddNewMailDeliverTime(time_t deliver_time);
     void RemoveMail(uint32 id);
@@ -134,26 +132,26 @@ public:
     std::string afkMsg;
     std::string dndMsg;
     uint8 m_chatTag;
-    time_t m_speakTime;
-    uint32 m_speakCount;
+    time_t m_speakTime = 0;
+    uint32 m_speakCount = 0;
     typedef std::list<Channel*> JoinedChannelsList;
     JoinedChannelsList m_channels;
     // GM system variables
     uint8 m_gmInvisibilityLevel;
     uint32 m_ExtraFlags;
-    std::set<ObjectGuid> m_allowedWhispers;
+    std::unordered_set<ObjectGuid> m_allowedWhispers;
 
     // TODO: Group ?
 
 protected:
 
-    PlayerSocial* m_social;
+    PlayerSocial* m_social = nullptr;
     ActionButtonList m_actionButtons;
     WorldSession* m_session;
 
-    bool m_mailsUpdated;
-    uint8 unReadMails;
-    time_t m_nextMailDelivereTime;
+    bool m_mailsUpdated = false;
+    uint8 unReadMails = 0;
+    time_t m_nextMailDelivereTime = 0;
     PlayerMails m_mail;
     ItemMap mMitems;
 };

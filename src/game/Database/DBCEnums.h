@@ -22,6 +22,8 @@
 #ifndef DBCENUMS_H
 #define DBCENUMS_H
 
+#include "Platform/Define.h"
+
 // Client expected level limitation, like as used in DBC item max levels for "until max player level"
 // use as default max player level, must be fit max level for used client
 // also see MAX_LEVEL and PLAYER_STRONG_MAX_LEVEL define
@@ -35,8 +37,11 @@
 // also see MAX_LEVEL and GT_MAX_LEVEL define
 #define PLAYER_STRONG_MAX_LEVEL 255
 
+// Max level for trial accounts.
+#define TRIAL_MAX_LEVEL 20
+
 // Max creature level in vanilla (included some bosses and elite) (no cls data above this level)
-#define CREATURE_MAX_LEVEL 65
+#define CREATURE_MAX_LEVEL 63
 
 enum AreaTeams
 {
@@ -47,24 +52,68 @@ enum AreaTeams
 
 enum AreaFlags
 {
-    AREA_FLAG_SNOW                  = 0x00000001,           // snow (only Dun Morogh, Naxxramas, Razorfen Downs and Winterspring)
-    AREA_FLAG_UNK1                  = 0x00000002,           // unknown, (only Naxxramas and Razorfen Downs)
+    AREA_FLAG_SNOW                  = 0x00000001,           // Has Breath Particles (only Dun Morogh, Naxxramas, Razorfen Downs and Winterspring)
+    AREA_FLAG_UNK1                  = 0x00000002,           // Override Parent Breath Particles (only Naxxramas and Razorfen Downs)
     AREA_FLAG_UNK2                  = 0x00000004,           // Only used on development map
-    AREA_FLAG_SLAVE_CAPITAL         = 0x00000008,           // slave capital city flag?
-    AREA_FLAG_UNK3                  = 0x00000010,           // unknown
-    AREA_FLAG_SLAVE_CAPITAL2        = 0x00000020,           // slave capital city flag?
-    AREA_FLAG_DUEL                  = 0x00000040,           // zones where duels allowed
-    AREA_FLAG_ARENA                 = 0x00000080,           // arena, both instanced and world arenas
-    AREA_FLAG_CAPITAL               = 0x00000100,           // main capital city flag
-    AREA_FLAG_CITY                  = 0x00000200,           // only for one zone named "City" (where it located?)
+    AREA_FLAG_SLAVE_CAPITAL         = 0x00000008,           // Allow trade channel
+    AREA_FLAG_UNK3                  = 0x00000010,           // Enemies PvP flagged
+    AREA_FLAG_SLAVE_CAPITAL2        = 0x00000020,           // Allow resting
+    AREA_FLAG_DUEL                  = 0x00000040,           // Zones where duels allowed
+    AREA_FLAG_ARENA                 = 0x00000080,           // Arena, both instanced and world arenas
+    AREA_FLAG_CAPITAL               = 0x00000100,           // Main capital city flag
+    AREA_FLAG_CITY                  = 0x00000200,           // Highest areaid with this flag will be name used on chat channels (e.g. Trade - City)
 };
 
 enum FactionTemplateFlags
 {
-    FACTION_TEMPLATE_FLAG_PVP               = 0x00000800,   // flagged for PvP
-    FACTION_TEMPLATE_FLAG_CONTESTED_GUARD   = 0x00001000,   // faction will attack players that were involved in PvP combats
-    FACTION_TEMPLATE_HOSTILE_BY_DEFAULT     = 0x00002000
+    FACTION_TEMPLATE_RESPOND_TO_CALL_FOR_HELP       = 0x00000001,
+    FACTION_TEMPLATE_BROADCAST_TO_ENEMIES_LOW_PRIO  = 0x00000002,
+    FACTION_TEMPLATE_BROADCAST_TO_ENEMIES_MED_PRIO  = 0x00000004,
+    FACTION_TEMPLATE_BROADCAST_TO_ENEMIES_HIG_PRIO  = 0x00000008,
+    FACTION_TEMPLATE_SEARCH_FOR_ENEMIES_LOW_PRIO    = 0x00000010,
+    FACTION_TEMPLATE_SEARCH_FOR_ENEMIES_MED_PRIO    = 0x00000020,
+    FACTION_TEMPLATE_SEARCH_FOR_ENEMIES_HIG_PRIO    = 0x00000040,
+    FACTION_TEMPLATE_SEARCH_FOR_FRIENDS_LOW_PRIO    = 0x00000080,
+    FACTION_TEMPLATE_SEARCH_FOR_FRIENDS_MED_PRIO    = 0x00000100,
+    FACTION_TEMPLATE_SEARCH_FOR_FRIENDS_HIG_PRIO    = 0x00000200,
+    FACTION_TEMPLATE_FLEE_FROM_CALL_FOR_HELP        = 0x00000400,
+    FACTION_TEMPLATE_FLAG_ASSIST_PLAYERS            = 0x00000800,   // flagged for PvP
+    FACTION_TEMPLATE_FLAG_ATTACK_PVP_ACTIVE_PLAYERS = 0x00001000,   // faction will attack players that were involved in PvP combat
 };
+
+static char const* FactionTemplateFlagToString(uint32 flag)
+{
+    switch (flag)
+    {
+        case FACTION_TEMPLATE_RESPOND_TO_CALL_FOR_HELP:
+            return "Respond To Call For Help";
+        case FACTION_TEMPLATE_BROADCAST_TO_ENEMIES_LOW_PRIO:
+            return "Broadcast To Enemies (Low Priority)";
+        case FACTION_TEMPLATE_BROADCAST_TO_ENEMIES_MED_PRIO:
+            return "Broadcast To Enemies (Medium Priority)";
+        case FACTION_TEMPLATE_BROADCAST_TO_ENEMIES_HIG_PRIO:
+            return "Broadcast To Enemies (High Priority)";
+        case FACTION_TEMPLATE_SEARCH_FOR_ENEMIES_LOW_PRIO:
+            return "Search For Enemies (Low Priority)";
+        case FACTION_TEMPLATE_SEARCH_FOR_ENEMIES_MED_PRIO:
+            return "Search For Enemies (Medium Priority)";
+        case FACTION_TEMPLATE_SEARCH_FOR_ENEMIES_HIG_PRIO:
+            return "Search For Enemies (High Priority)";
+        case FACTION_TEMPLATE_SEARCH_FOR_FRIENDS_LOW_PRIO:
+            return "Search For Friends (Low Priority)";
+        case FACTION_TEMPLATE_SEARCH_FOR_FRIENDS_MED_PRIO:
+            return "Search For Friends (Medium Priority)";
+        case FACTION_TEMPLATE_SEARCH_FOR_FRIENDS_HIG_PRIO:
+            return "Search For Friends (High Priority)";
+        case FACTION_TEMPLATE_FLEE_FROM_CALL_FOR_HELP:
+            return "Flee From Call For Help";
+        case FACTION_TEMPLATE_FLAG_ASSIST_PLAYERS:
+            return "Assist Players";
+        case FACTION_TEMPLATE_FLAG_ATTACK_PVP_ACTIVE_PLAYERS:
+            return "Attack PvP Active Players";
+    }
+    return "UNKNOWN";
+}
 
 enum FactionMasks
 {
@@ -74,6 +123,22 @@ enum FactionMasks
     FACTION_MASK_MONSTER  = 8                               // aggressive creature from monster team
     // if none flags set then non-aggressive creature
 };
+
+static char const* FactionMaskToString(uint32 flag)
+{
+    switch (flag)
+    {
+        case FACTION_MASK_PLAYER:
+            return "Player";
+        case FACTION_MASK_ALLIANCE:
+            return "Alliance";
+        case FACTION_MASK_HORDE:
+            return "Horde";
+        case FACTION_MASK_MONSTER:
+            return "Monster";
+    }
+    return "UNKNOWN";
+}
 
 enum MapTypes
 {
@@ -113,60 +178,6 @@ enum SkillRaceClassInfoFlags
     SKILL_FLAG_INCLUDE_IN_SORT          = 0x80,     // Spells belonging to a skill with this flag will additionally compare skill ids when sorting spellbook in client
     SKILL_FLAG_NOT_TRAINABLE            = 0x100,
     SKILL_FLAG_MONO_VALUE               = 0x400     // Skill always has value 1 - clientside display flag, real value can be different
-};
-
-// SpellEntry::Targets
-enum SpellCastTargetFlags
-{
-    TARGET_FLAG_SELF            = 0x00000000,
-    TARGET_FLAG_UNUSED1         = 0x00000001,               // not used in any spells (can be set dynamically)
-    TARGET_FLAG_UNIT            = 0x00000002,               // pguid
-    TARGET_FLAG_UNUSED2         = 0x00000004,               // not used in any spells (can be set dynamically)
-    TARGET_FLAG_UNUSED3         = 0x00000008,               // not used in any spells (can be set dynamically)
-    TARGET_FLAG_ITEM            = 0x00000010,               // pguid
-    TARGET_FLAG_SOURCE_LOCATION = 0x00000020,               // 3 float
-    TARGET_FLAG_DEST_LOCATION   = 0x00000040,               // 3 float
-    TARGET_FLAG_OBJECT_UNK      = 0x00000080,               // used in 7 spells only
-    TARGET_FLAG_UNIT_UNK        = 0x00000100,               // looks like self target (389 spells)
-    TARGET_FLAG_PVP_CORPSE      = 0x00000200,               // pguid
-    TARGET_FLAG_UNIT_CORPSE     = 0x00000400,               // 10 spells (gathering professions)
-    TARGET_FLAG_OBJECT          = 0x00000800,               // pguid, 0 spells
-    TARGET_FLAG_TRADE_ITEM      = 0x00001000,               // pguid, 0 spells
-    TARGET_FLAG_STRING          = 0x00002000,               // string, 0 spells
-    TARGET_FLAG_UNK1            = 0x00004000,               // 199 spells, opening object/lock
-    TARGET_FLAG_CORPSE          = 0x00008000,               // pguid, resurrection spells
-    TARGET_FLAG_UNK2            = 0x00010000,               // pguid, not used in any spells (can be set dynamically)
-};
-
-enum SpellEffectIndex
-{
-    EFFECT_INDEX_0     = 0,
-    EFFECT_INDEX_1     = 1,
-    EFFECT_INDEX_2     = 2
-};
-
-#define MAX_EFFECT_INDEX 3
-
-enum SpellFamily
-{
-    SPELLFAMILY_GENERIC     = 0,
-    SPELLFAMILY_UNK1        = 1,                            // events, holidays
-    // 2 - unused
-    SPELLFAMILY_MAGE        = 3,
-    SPELLFAMILY_WARRIOR     = 4,
-    SPELLFAMILY_WARLOCK     = 5,
-    SPELLFAMILY_PRIEST      = 6,
-    SPELLFAMILY_DRUID       = 7,
-    SPELLFAMILY_ROGUE       = 8,
-    SPELLFAMILY_HUNTER      = 9,
-    SPELLFAMILY_PALADIN     = 10,
-    SPELLFAMILY_SHAMAN      = 11,
-    SPELLFAMILY_UNK2        = 12,
-    SPELLFAMILY_POTION      = 13,
-    // 14 - unused
-    SPELLFAMILY_DEATHKNIGHT = 15,
-    // 16 - unused
-    SPELLFAMILY_UNK3        = 17
 };
 
 #endif

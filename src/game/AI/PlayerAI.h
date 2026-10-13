@@ -21,11 +21,7 @@
 #define MANGOS_PLAYERAI_H
 
 #include "Common.h"
-#include "Platform/Define.h"
-#include "Policies/Singleton.h"
-#include "Dynamic/ObjectRegistry.h"
-#include "Dynamic/FactoryHolder.h"
-#include "CreatureAI.h" // Pour 'enum CanCastResult'
+#include "ObjectGuid.h"
 
 class WorldObject;
 class Unit;
@@ -45,10 +41,10 @@ class PlayerAI
         virtual void UpdateAI(uint32 const /*diff*/);
         virtual void MovementInform(uint32 MovementType, uint32 Data = 0) {}
 
-        ///== Helpeurs =====================================
-        CanCastResult CanCastSpell(Unit* pTarget, SpellEntry const* pSpell, bool isTriggered, bool checkControlled = true);
+        // == Helpers =====================================
+        bool CanCastSpell(Unit* pTarget, SpellEntry const* pSpell, bool isTriggered, bool checkControlled = true);
 
-        ///== Fields =======================================
+        // == Fields =======================================
 
         // Pointer to controlled by AI player
         Player* me;
@@ -67,7 +63,7 @@ class PlayerControlledAI: public PlayerAI
         Unit* FindController();
         void UpdateTarget(Unit* victim);
 
-        ///== Fields =======================================
+        // == Fields =======================================
         ObjectGuid controllerGuid;
         uint32 uiGlobalCD;
         std::vector<uint32> usableSpells;

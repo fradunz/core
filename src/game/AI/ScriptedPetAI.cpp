@@ -21,17 +21,17 @@ void ScriptedPetAI::MoveInLineOfSight(Unit* pWho)
     if (m_creature->GetVictim())
         return;
 
-    if (!m_creature->GetCharmInfo() || !m_creature->GetCharmInfo()->HasReactState(REACT_AGGRESSIVE))
+    if (!m_creature->HasReactState(REACT_AGGRESSIVE))
         return;
 
-    if (!pWho || !m_creature->IsValidAttackTarget(pWho) || !pWho->IsVisibleForOrDetect(m_creature, m_creature, true) ||
+    if (!m_creature->IsValidAttackTarget(pWho) || !pWho->IsVisibleForOrDetect(m_creature, m_creature, true) ||
         !m_creature->CanInitiateAttack() || !pWho->IsInAccessablePlaceFor(m_creature) || !m_creature->CanAttack(pWho, true))
         return;
 
     if (!m_creature->CanFly() && m_creature->GetDistanceZ(pWho) > CREATURE_Z_ATTACK_RANGE)
         return;
 
-    if (m_creature->IsWithinDistInMap(pWho, m_creature->GetAttackDistance(pWho)) && m_creature->IsWithinLOSInMap(pWho))
+    if (m_creature->IsWithinDistInMap(pWho, m_creature->GetAttackDistance(pWho), true, SizeFactor::None) && m_creature->IsWithinLOSInMap(pWho))
     {
         //pWho->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
         AttackStart(pWho);
@@ -40,7 +40,7 @@ void ScriptedPetAI::MoveInLineOfSight(Unit* pWho)
 
 void ScriptedPetAI::AttackStart(Unit* pWho)
 {
-    if (pWho && m_creature->Attack(pWho, true))
+    if (m_creature->Attack(pWho, true))
         m_creature->GetMotionMaster()->MoveChase(pWho);
 }
 
@@ -49,7 +49,7 @@ void ScriptedPetAI::AttackedBy(Unit* pAttacker)
     if (m_creature->GetVictim())
         return;
 
-    if (m_creature->GetCharmInfo() && !m_creature->GetCharmInfo()->HasReactState(REACT_PASSIVE) &&
+    if (!m_creature->HasReactState(REACT_PASSIVE) &&
         m_creature->CanReachWithMeleeAutoAttack(pAttacker))
         AttackStart(pAttacker);
 }
@@ -70,7 +70,7 @@ void ScriptedPetAI::ResetPetCombat()
 
     m_creature->AttackStop();
 
-    DEBUG_LOG("ScriptedPetAI reset pet combat and stop attack.");
+    sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "ScriptedPetAI reset pet combat and stop attack.");
     Reset();
 }
 
@@ -98,7 +98,7 @@ void ScriptedPetAI::UpdateAI(uint32 const uiDiff)
 
     if (Unit* const pTarget = m_creature->GetVictim())                            // in combat
     {
-        if (!pTarget->IsTargetableForAttack())
+        if (!pTarget->IsTargetableBy(m_creature))
         {
             // target no longer valid for pet, so either attack stops or new target are selected
             // doesn't normally reach this, because of how petAi is designed in Mangos. CombatStop
@@ -106,9 +106,9 @@ void ScriptedPetAI::UpdateAI(uint32 const uiDiff)
             ResetPetCombat();
             return;
         }
-        else if (pTarget->HasAuraPetShouldAvoidBreaking() && m_creature->GetCharmInfo() && (m_creature->GetCharmInfo()->GetReactState() != REACT_AGGRESSIVE))
+        else if (pTarget->HasAuraPetShouldAvoidBreaking() && m_creature->GetCharmInfo() && (m_creature->GetReactState() != REACT_AGGRESSIVE))
         {
-            m_creature->CastStop();
+            m_creature->InterruptNonMeleeSpells(false);
             m_creature->AttackStop(true);
             return;
         }
@@ -123,7 +123,7 @@ void ScriptedPetAI::UpdateAI(uint32 const uiDiff)
         if (!pOwner)
             return;
 
-        if (pOwner->IsInCombat() && !m_creature->GetCharmInfo()->HasReactState(REACT_PASSIVE))
+        if (pOwner->IsInCombat() && !m_creature->HasReactState(REACT_PASSIVE))
         {
             // Not correct in all cases.
             // When mob initiate attack by spell, pet should not start attack before spell landed.
@@ -137,14 +137,14 @@ void ScriptedPetAI::UpdateAI(uint32 const uiDiff)
                     // Main target is CC-ed, so pick another attacker.
                     for (const auto pAttacker : pOwner->GetAttackers())
                     {
-                        if (pAttacker->IsInMap(m_creature) && pAttacker->IsTargetableForAttack() && !pAttacker->HasAuraPetShouldAvoidBreaking())
+                        if (pAttacker->IsInMap(m_creature) && pAttacker->IsTargetableBy(m_creature) && !pAttacker->HasAuraPetShouldAvoidBreaking())
                         { 
                             AttackStart(pAttacker);
                             return;
                         }
                     }
                     // If we are out of the FOR it means no valid targets, so follow master.
-                    if (!m_creature->HasUnitState(UNIT_STAT_FOLLOW))
+                    if (!m_creature->HasUnitState(UNIT_STATE_FOLLOW))
                         m_creature->GetMotionMaster()->MoveFollow(pOwner, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
                 }
             }
@@ -152,7 +152,7 @@ void ScriptedPetAI::UpdateAI(uint32 const uiDiff)
         else if (m_creature->GetCharmInfo()->HasCommandState(COMMAND_FOLLOW))
         {
             // not following, so start follow
-            if (!m_creature->HasUnitState(UNIT_STAT_FOLLOW))
+            if (!m_creature->HasUnitState(UNIT_STATE_FOLLOW))
                 m_creature->GetMotionMaster()->MoveFollow(pOwner, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
 
             // update when not in combat

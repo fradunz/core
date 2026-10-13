@@ -20,15 +20,13 @@
  */
 
 #include "Totem.h"
-#include "WorldPacket.h"
-#include "Log.h"
 #include "Group.h"
 #include "Player.h"
-#include "ObjectMgr.h"
 #include "SpellMgr.h"
-#include "DBCStores.h"
 #include "CreatureAI.h"
 #include "InstanceData.h"
+#include "ObjectAccessor.h"
+#include "Map.h"
 
 Totem::Totem() : Creature(CREATURE_SUBTYPE_TOTEM)
 {
@@ -68,7 +66,11 @@ bool Totem::Create(uint32 guidlow, CreatureCreatePos& cPos, CreatureInfo const* 
 void Totem::Update(uint32 update_diff, uint32 time)
 {
     Unit* owner = GetOwner();
-    if (!owner || !owner->IsAlive() || !IsAlive())
+    if (!owner || 
+        // Don't unsummon if owner is a creature - let them persist after creature death
+        (owner->GetTypeId() != TYPEID_UNIT && !owner->IsAlive()) || 
+        !IsAlive() || 
+        !IsWithinVisibilityDistanceOf(owner, owner))
     {
         UnSummon();                                         // remove self
         return;
@@ -85,8 +87,8 @@ void Totem::Update(uint32 update_diff, uint32 time)
         UnSummon();                                         // remove self
         return;
     }
-    else
-        m_duration -= update_diff;
+
+    m_duration -= update_diff;
 }
 
 void Totem::Summon(Unit* owner)
@@ -94,9 +96,7 @@ void Totem::Summon(Unit* owner)
     AIM_Initialize();
     owner->GetMap()->Add((Creature*)this);
 
-    WorldPacket data(SMSG_GAMEOBJECT_SPAWN_ANIM, 8);
-    data << GetObjectGuid();
-    SendObjectMessageToSet(&data, true);
+    SendObjectSpawnAnim();
 
     if (owner->GetTypeId() == TYPEID_UNIT && ((Creature*)owner)->AI())
         ((Creature*)owner)->AI()->JustSummoned((Creature*)this);
@@ -105,22 +105,15 @@ void Totem::Summon(Unit* owner)
     if (!GetSpell())
         return;
 
-    switch (m_type)
+    if (m_type==TOTEM_PASSIVE)
     {
-        case TOTEM_PASSIVE:
-            CastSpell(this, GetSpell(), true);
-            break;
-        case TOTEM_STATUE:
-            CastSpell(GetOwner(), GetSpell(), true);
-            break;
-        default:
-            break;
+        CastSpell(this, GetSpell(), true);
     }
 }
 
 void Totem::UnSummon()
 {
-    SendObjectDeSpawnAnim(GetObjectGuid());
+    SendObjectDeSpawnAnim();
 
     CombatStop();
     RemoveAurasDueToSpell(GetSpell());
@@ -179,27 +172,18 @@ void Totem::SetTypeBySummonSpell(SpellEntry const* spellProto)
     if (totemSpell)
     {
         // If spell have cast time -> so its active totem
-        if (totemSpell->GetCastTime())
+        if (totemSpell->GetCastTime(this))
             m_type = TOTEM_ACTIVE;
     }
-    if (spellProto->SpellIconID == 2056)
-        m_type = TOTEM_STATUE;                              //Jewelery statue
 }
 
 bool Totem::IsImmuneToSpellEffect(SpellEntry const* spellInfo, SpellEffectIndex index, bool castOnSelf) const
 {
-    // Check for Mana Spring & Healing Stream totems
-    switch (spellInfo->SpellFamilyName)
-    {
-        case SPELLFAMILY_SHAMAN:
-            if (spellInfo->IsFitToFamilyMask(UI64LIT(0x00000002000)) ||
-                    spellInfo->IsFitToFamilyMask(UI64LIT(0x00000004000)) ||
-                    spellInfo->IsFitToFamilyMask(UI64LIT(0x00004000000)))
-                return false;
-            break;
-        default:
-            break;
-    }
+    // Totem may affected by some specific spells
+    // Mana Spring, Healing stream, Mana tide
+    // Flags : 0x00000002000 | 0x00000004000 | 0x00004000000 -> 0x00004006000
+    if (spellInfo->SpellFamilyName == SPELLFAMILY_SHAMAN && spellInfo->IsFitToFamilyMask(uint64(0x00004006000)))
+        return false;
 
     // Totems should not be immune to self casted spells.
     if (castOnSelf)
@@ -231,4 +215,9 @@ bool Totem::IsImmuneToSpellEffect(SpellEntry const* spellInfo, SpellEffectIndex 
             return true;
     }
     return Creature::IsImmuneToSpellEffect(spellInfo, index, castOnSelf);
+}
+
+uint32 Totem::GetSpell() const
+{
+    return GetCreatureInfo()->totem_spell_id;
 }

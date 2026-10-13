@@ -25,12 +25,7 @@
 #include "Common.h"
 #include "Platform/Define.h"
 #include "Policies/Singleton.h"
-#include <ace/Thread_Mutex.h>
-#include <ace/RW_Thread_Mutex.h>
 #include "Policies/ThreadingModel.h"
-
-#include "UpdateData.h"
-
 #include "GridDefines.h"
 #include "Object.h"
 #include "Player.h"
@@ -52,9 +47,9 @@ class HashMapHolder
     public:
 
         typedef std::unordered_map<ObjectGuid, T*>   MapType;
-        typedef ACE_RW_Thread_Mutex LockType;
-        typedef ACE_Read_Guard<LockType> ReadGuard;
-        typedef ACE_Write_Guard<LockType> WriteGuard;
+        typedef std::shared_timed_mutex LockType;
+        typedef std::shared_lock<LockType> ReadGuard;
+        typedef std::unique_lock<LockType> WriteGuard;
 
         static void Insert(T* o)
         {
@@ -88,7 +83,7 @@ class HashMapHolder
         static MapType  m_objectMap;
 };
 
-class ObjectAccessor : public MaNGOS::Singleton<ObjectAccessor, MaNGOS::ClassLevelLockable<ObjectAccessor, ACE_Thread_Mutex> >
+class ObjectAccessor : public MaNGOS::Singleton<ObjectAccessor, MaNGOS::ClassLevelLockable<ObjectAccessor, std::mutex> >
 {
     friend class MaNGOS::OperatorNew<ObjectAccessor>;
 
@@ -142,25 +137,25 @@ class ObjectAccessor : public MaNGOS::Singleton<ObjectAccessor, MaNGOS::ClassLev
         static Corpse* GetCorpseInMap(ObjectGuid guid, uint32 mapid);
         void RemoveCorpse(Corpse* corpse);
         void AddCorpse(Corpse* corpse);
-        void AddCorpsesToGrid(GridPair const& gridpair,GridType& grid,Map* map);
-        void ConvertCorpseForPlayer(ObjectGuid player_guid, Player* looter = nullptr);
+        void AddCorpsesToGrid(GridPair const& gridpair,GridType& grid,Map const* map);
+        void ConvertCorpseForPlayer(ObjectGuid player_guid, Player const* looter = nullptr);
         void RemoveOldCorpses();
 
         // For call from Player/Corpse AddToWorld/RemoveFromWorld only
         void AddObject(Corpse* object) { HashMapHolder<Corpse>::Insert(object); }
         void AddObject(Player* object);
-        void AddObject(Transport* object) { HashMapHolder<Transport>::Insert(object); }
+        void AddObject(ShipTransport* object) { HashMapHolder<ShipTransport>::Insert(object); }
         void AddObject(MasterPlayer* object);
         void RemoveObject(Corpse* object) { HashMapHolder<Corpse>::Remove(object); }
         void RemoveObject(Player* object);
-        void RemoveObject(Transport* object) { HashMapHolder<Transport>::Remove(object); }
+        void RemoveObject(ShipTransport* object) { HashMapHolder<ShipTransport>::Remove(object); }
         void RemoveObject(MasterPlayer* object);
 
     private:
         Player2CorpsesMapType   i_player2corpse;
 
-        typedef ACE_Thread_Mutex LockType;
-        typedef MaNGOS::GeneralLock<LockType > Guard;
+        using LockType = std::mutex;
+        using Guard = MaNGOS::GeneralLock<LockType>;
 
         LockType i_playerGuard;
         LockType i_corpseGuard;

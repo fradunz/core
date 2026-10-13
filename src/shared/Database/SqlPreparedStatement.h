@@ -20,7 +20,6 @@
 #define SQLPREPAREDSTATEMENTS_H
 
 #include "Common.h"
-#include <ace/TSS_T.h>
 #include <vector>
 #include <stdexcept>
 
@@ -65,28 +64,28 @@ enum SqlStmtFieldType
 class SqlStmtFieldData
 {
     public:
-        SqlStmtFieldData() : m_type(FIELD_NONE) { m_binaryData.ui64 = 0; }
+        SqlStmtFieldData() {}
         ~SqlStmtFieldData() {}
 
         template<typename T>
-        SqlStmtFieldData(T param) { set(param); }
+        explicit SqlStmtFieldData(T param) { set(param); }
 
         template<typename T1>
         void set(T1 param1);
 
         //getters
-        bool toBool() const { MANGOS_ASSERT(m_type == FIELD_BOOL); return m_binaryData.boolean; }
-        uint8 toUint8() const { MANGOS_ASSERT(m_type == FIELD_UI8); return m_binaryData.ui8; }
-        int8 toInt8() const { MANGOS_ASSERT(m_type == FIELD_I8); return m_binaryData.i8; }
-        uint16 toUint16() const { MANGOS_ASSERT(m_type == FIELD_UI16); return m_binaryData.ui16; }
-        int16 toInt16() const { MANGOS_ASSERT(m_type == FIELD_I16); return m_binaryData.i16; }
-        uint32 toUint32() const { MANGOS_ASSERT(m_type == FIELD_UI32); return m_binaryData.ui32; }
-        int32 toInt32() const { MANGOS_ASSERT(m_type == FIELD_I32); return m_binaryData.i32; }
-        uint64 toUint64() const { MANGOS_ASSERT(m_type == FIELD_UI64); return m_binaryData.ui64; }
-        int64 toInt64() const { MANGOS_ASSERT(m_type == FIELD_I64); return m_binaryData.i64; }
-        float toFloat() const { MANGOS_ASSERT(m_type == FIELD_FLOAT); return m_binaryData.f; }
-        double toDouble() const { MANGOS_ASSERT(m_type == FIELD_DOUBLE); return m_binaryData.d; }
-        char const* toStr() const { MANGOS_ASSERT(m_type == FIELD_STRING); return m_szStringData.c_str(); }
+        bool toBool() const;
+        uint8 toUint8() const;
+        int8 toInt8() const;
+        uint16 toUint16() const;
+        int16 toInt16() const;
+        uint32 toUint32() const;
+        int32 toInt32() const;
+        uint64 toUint64() const;
+        int64 toInt64() const;
+        float toFloat() const;
+        double toDouble() const;
+        char const* toStr() const;
 
         //get type of data
         SqlStmtFieldType type() const { return m_type; }
@@ -118,12 +117,13 @@ class SqlStmtFieldData
         }
 
     private:
-        SqlStmtFieldType m_type;
-        SqlStmtField m_binaryData;
+        SqlStmtFieldType m_type = FIELD_NONE;
+        SqlStmtField m_binaryData{};
         std::string m_szStringData;
 };
 
 //template specialization
+template<> inline void SqlStmtFieldData::set(std::nullptr_t) { m_type = FIELD_NONE; }
 template<> inline void SqlStmtFieldData::set(bool val) { m_type = FIELD_BOOL; m_binaryData.boolean = val; }
 template<> inline void SqlStmtFieldData::set(uint8 val) { m_type = FIELD_UI8; m_binaryData.ui8 = val; }
 template<> inline void SqlStmtFieldData::set(int8 val) { m_type = FIELD_I8; m_binaryData.i8 = val; }
@@ -254,6 +254,7 @@ class SqlStatement
         }
 
         //bind parameters with specified type
+        void addNull() { arg(nullptr); }
         void addBool(bool var) { arg(var); }
         void addUInt8(uint8 var) { arg(var); }
         void addInt8(int8 var) { arg(var); }

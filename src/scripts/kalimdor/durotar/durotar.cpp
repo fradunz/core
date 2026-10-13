@@ -29,11 +29,10 @@ EndScriptData */
 enum LazyPeon
 {
     QUEST_LAZY_PEONS                              = 5441,
-    GO_LUMBERPILE                                 = 175784,        //300046,
+    GO_LUMBERPILE                                 = 175784,
     SPELL_BUFF_SLEEP                              = 17743,
     SPELL_AWAKEN_PEON                             = 19938,
-    SAY_SPELL_HIT                                 = -1000600,
-    SAY_SPELL_HIT2                                = -1000601, //Sleepy so sleepy
+    SAY_SPELL_HIT                                 = 5774,
     LAZY_PEON_ENTRY                               = 10556,
     EMOTE_WORKING                                 = 234,
     WORKING_DURATION                              = 120000
@@ -67,14 +66,14 @@ struct LazyPeonAI : public ScriptedAI
     uint8      state;
     ObjectGuid playerGuid;
 
-    void DoAction(uint32 const state) override
+    void OnScriptEventHappened(uint32 uiEvent, uint32 /*uiData*/, WorldObject* /*pInvoker*/) override
     {
-        this->state = state;
+        this->state = uiEvent;
     }
 
     void Reset() override {}
 
-    void SpellHit(Unit* caster, SpellEntry const* spell) override
+    void SpellHit(SpellCaster* caster, SpellEntry const* spell) override
     {
         if (spell->Id == SPELL_AWAKEN_PEON && m_creature->GetEntry() == LAZY_PEON_ENTRY && m_creature->HasAura(SPELL_BUFF_SLEEP))
         {
@@ -138,12 +137,8 @@ struct LazyPeonAI : public ScriptedAI
                     }
 
                     if (Player* player = m_creature->GetMap()->GetPlayer(playerGuid))
-                    {
-                        if (urand(0, 1))
-                            DoScriptText(SAY_SPELL_HIT,  m_creature, player);
-                        else
-                            DoScriptText(SAY_SPELL_HIT2, m_creature);
-                    }
+                        DoScriptText(SAY_SPELL_HIT,  m_creature, player);
+
                     state = STATE_MOVING_TO_LUMBERPILE;
                 }
                 else

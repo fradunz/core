@@ -23,8 +23,8 @@
 #define QUERYRESULT_H
 
 #include "Common.h"
-#include "Errors.h"
 #include "Field.h"
+#include <memory>
 
 class QueryResult
 {
@@ -54,8 +54,7 @@ typedef std::vector<std::string> QueryFieldNames;
 class QueryNamedResult
 {
     public:
-        explicit QueryNamedResult(QueryResult* query, QueryFieldNames const& names) : mQuery(query), mFieldNames(names) {}
-        ~QueryNamedResult() { delete mQuery; }
+        explicit QueryNamedResult(std::unique_ptr<QueryResult> query, QueryFieldNames names) : mQuery(std::move(query)), mFieldNames(std::move(names)) {}
 
         // compatible interface with QueryResult
         bool NextRow() { return mQuery->NextRow(); }
@@ -75,12 +74,12 @@ class QueryNamedResult
                 if(mFieldNames[idx] == name)
                     return idx;
             }
-            MANGOS_ASSERT(false && "unknown field name");
+            throw std::runtime_error("unknown field name");
             return uint32(-1);
         }
 
     protected:
-        QueryResult* mQuery;
+        std::unique_ptr<QueryResult> mQuery;
         QueryFieldNames mFieldNames;
 };
 

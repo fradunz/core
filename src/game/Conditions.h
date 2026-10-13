@@ -23,6 +23,9 @@
 
 #include "SharedDefines.h"
 
+class Map;
+class WorldObject;
+
 enum ConditionType
 {
     //                                                      // Legend:
@@ -77,10 +80,11 @@ enum ConditionType
                                                             // Value2: 0,1,2 for condition true while quest active (0 any state, 1 if quest incomplete, 2 if quest completed).
     CONDITION_AD_COMMISSION_AURA    = 10,                   // Returns true if the player has an argent dawn commission aura.
                                                             // Requirement: Player Target
-    CONDITION_WAR_EFFORT_STAGE      = 11,                   // Checks the current state of the War Effect event.
+    CONDITION_SAVED_VARIABLE        = 11,                   // Checks a global saved variable.
                                                             // Requirement: None
-                                                            // Value1: stage
-                                                            // Value2: 0 : ==, 1: >= 2 <=
+                                                            // Value1: index
+                                                            // Value2: data
+                                                            // Value3: 0, 1 or 2 (0: equal to, 1: equal or higher than, 2: equal or less than)
     CONDITION_ACTIVE_GAME_EVENT     = 12,                   // Checks if a given game event is currently active.
                                                             // Requirement: None
                                                             // Value1: event_id
@@ -97,6 +101,9 @@ enum ConditionType
     CONDITION_SOURCE_ENTRY          = 16,                   // Check's if the source's entry id matches the one specified.
                                                             // Requirement: WorldObject Source
                                                             // Value1: entry
+                                                            // Value2: entry (optional)
+                                                            // Value3: entry (optional)
+                                                            // Value4: entry (optional)
     CONDITION_SPELL                 = 17,                   // Checks if the player has learned the given spell.
                                                             // Requirement: Player Target
                                                             // Value1: spell_id
@@ -177,7 +184,7 @@ enum ConditionType
                                                             // Value1: event_id
     CONDITION_LINE_OF_SIGHT         = 37,                   // Returns true if the source and target are in line of sight of one another.
                                                             // Requirement: WorldObject Source, WorldObject Target
-    CONDITION_DISTANCE              = 38,                   // Checks the distance between the provided source and target.
+    CONDITION_DISTANCE_TO_TARGET    = 38,                   // Checks the distance between the provided source and target.
                                                             // Requirement: WorldObject Source, WorldObject Target
                                                             // Value1: distance
                                                             // Value2: 0, 1 or 2 (0: equal to, 1: equal or higher than, 2: equal or less than)
@@ -195,8 +202,10 @@ enum ConditionType
                                                             // Value2: 0, 1 or 2 (0: equal to, 1: equal or higher than, 2: equal or less than)
     CONDITION_IS_IN_COMBAT          = 43,                   // Checks if the target is currently in combat.
                                                             // Requirement: Unit Target
-    CONDITION_IS_HOSTILE_TO         = 44,                   // Returns true if the target is hostile to the source.
+    CONDITION_REACTION              = 44,                   // Returns true if the target's reaction to the source matches the criteria.
                                                             // Requirement: WorldObject Source, WorldObject Target
+                                                            // Value1: reaction (see enum ReputationRank)
+                                                            // Value2: 0, 1 or 2 (0: equal to, 1: equal or higher than, 2: equal or less than)
     CONDITION_IS_IN_GROUP           = 45,                   // Returns true if the player is in a group.
                                                             // Requirement: Player Target
     CONDITION_IS_ALIVE              = 46,                   // Returns true if the target is alive.
@@ -230,6 +239,27 @@ enum ConditionType
                                                             // Value2: start_minutes
                                                             // Value3: end_hour
                                                             // Value4: end_minutes
+    CONDITION_DISTANCE_TO_POSITION  = 54,                   // Checks if the target is within distance of the provided coordinates.
+                                                            // Requirement: WorldObject Target
+                                                            // Value1: x
+                                                            // Value2: y
+                                                            // Value3: z
+                                                            // Value4: distance
+    CONDITION_OBJECT_GO_STATE       = 55,                   // Checks the current go state of a GameObject.
+                                                            // Requirement: GameObject Target
+                                                            // Value1: go_state (see enum GOState)
+    CONDITION_NEARBY_PLAYER         = 56,                   // Checks if there is a player nearby.
+                                                            // Requirement: Unit Target
+                                                            // Value1: 0, 1, or 2 (0: any, 1: hostile, 2: friendly)
+                                                            // Value2: search_radius
+    CONDITION_CREATURE_GROUP_MEMBER = 57,                   // Checks if creature is part of a group.
+                                                            // Requirement: Creature Source
+                                                            // Value1: leader_guid (optional)
+    CONDITION_CREATURE_GROUP_DEAD   = 58,                   // Checks if creature's group is dead.
+                                                            // Requirement: Creature Source
+    CONDITION_AREA_EXPLORED         = 59,                   // Checks if the player has explored the specified area.
+                                                            // Requirement: Player Target
+                                                            // Value1: area_id
 };
 
 enum ConditionFlags
@@ -287,7 +317,7 @@ class ConditionEntry
         // Default constructor, required for SQL Storage (Will give errors if used elsewise)
         ConditionEntry() : m_entry(0), m_condition(CONDITION_AND), m_value1(0), m_value2(0), m_value3(0), m_value4(0), m_flags(0) {}
 
-        ConditionEntry(uint32 _entry, int16 _condition, uint32 _value1, uint32 _value2, uint32 _value3, uint32 _value4, uint8 _flags)
+        ConditionEntry(uint32 _entry, int16 _condition, int32 _value1, int32 _value2, int32 _value3, int32 _value4, uint8 _flags)
             : m_entry(_entry), m_condition(ConditionType(_condition)), m_value1(_value1), m_value2(_value2), m_value3(_value3), m_value4(_value4), m_flags(_flags) {}
 
         // Checks correctness of values
@@ -307,10 +337,10 @@ class ConditionEntry
         bool inline Evaluate(WorldObject const* target, Map const* map, WorldObject const* source, ConditionSource conditionSourceType) const;
         uint32 m_entry;                                     // entry of the condition
         ConditionType m_condition;                          // additional condition type
-        uint32 m_value1;                                    // data for the condition - see ConditionType definition
-        uint32 m_value2;
-        uint32 m_value3;
-        uint32 m_value4;
+        int32 m_value1;                                     // data for the condition - see ConditionType definition
+        int32 m_value2;
+        int32 m_value3;
+        int32 m_value4;
         uint8 m_flags;
 };
 

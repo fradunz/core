@@ -19,7 +19,7 @@
 #ifndef WDTFILE_H
 #define WDTFILE_H
 
-#include "mpq_libmpq04.h"
+#include "libmpq/mpq_libmpq.h"
 #include "wmo.h"
 #include <string>
 #include "stdlib.h"
@@ -33,7 +33,7 @@ class WDTFile
         ~WDTFile(void);
         bool init(char* map_id, unsigned int mapID);
 
-        string* gWmoInstansName;
+        std::vector<std::string> m_wmoNames;
         int gnWMO, nMaps;
 
         ADTFile* GetMap(int x, int z);

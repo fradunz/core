@@ -20,11 +20,15 @@
  */
 
 #include "QuestDef.h"
-#include "Player.h"
 #include "World.h"
+#include "Database/Field.h"
 
-Quest::Quest(Field* questRecord)
+void Quest::LoadFromDB(Field* questRecord)
 {
+    prevQuests.clear();
+    prevChainQuests.clear();
+    DependentBreadcrumbQuests.clear();
+
     QuestId = questRecord[0].GetUInt32();
     QuestMethod = questRecord[1].GetUInt32();
     ZoneOrSort = questRecord[2].GetInt32();
@@ -50,6 +54,7 @@ Quest::Quest(Field* questRecord)
     PrevQuestId = questRecord[20].GetInt32();
     NextQuestId = questRecord[21].GetInt32();
     ExclusiveGroup = questRecord[22].GetInt32();
+    BreadcrumbForQuestId = questRecord[129].GetInt32();
     NextQuestInChain = questRecord[23].GetUInt32();
     SrcItemId = questRecord[24].GetUInt32();
     SrcItemCount = questRecord[25].GetUInt32();
@@ -103,6 +108,7 @@ Quest::Quest(Field* questRecord)
     for (int i = 0; i < QUEST_REPUTATIONS_COUNT; ++i)
         RewRepValue[i] = questRecord[90 + i].GetInt32();
 
+    RewRepSpilloverMask = questRecord[130].GetUInt8();
     RewXP = questRecord[127].GetUInt32();
     RewOrReqMoney = questRecord[95].GetInt32();
     RewMoneyMaxLevel = questRecord[96].GetUInt32();
@@ -171,29 +177,26 @@ Quest::Quest(Field* questRecord)
     }
 }
 
-uint32 Quest::XPValue(Player* pPlayer) const
+uint32 Quest::XPValue(uint32 playerLevel) const
 {
-    if (pPlayer)
+    if (RewXP > 0)
     {
-        if (RewXP > 0)
-        {
-            uint32 pLevel = pPlayer->GetLevel();
-            uint32 qLevel = QuestLevel;
-            float fullxp = RewXP;
+        uint32 pLevel = playerLevel;
+        uint32 qLevel = QuestLevel;
+        float fullxp = RewXP;
 
-            if (pLevel <= qLevel +  5)
-                return uint32(ceilf(fullxp));
-            else if (pLevel == qLevel +  6)
-                return uint32(ceilf(fullxp * 0.8f));
-            else if (pLevel == qLevel +  7)
-                return uint32(ceilf(fullxp * 0.6f));
-            else if (pLevel == qLevel +  8)
-                return uint32(ceilf(fullxp * 0.4f));
-            else if (pLevel == qLevel +  9)
-                return uint32(ceilf(fullxp * 0.2f));
-            else
-                return uint32(ceilf(fullxp * 0.1f));
-        }
+        if (pLevel <= qLevel + 5)
+            return uint32(ceilf(fullxp));
+        else if (pLevel == qLevel + 6)
+            return uint32(ceilf(fullxp * 0.8f));
+        else if (pLevel == qLevel + 7)
+            return uint32(ceilf(fullxp * 0.6f));
+        else if (pLevel == qLevel + 8)
+            return uint32(ceilf(fullxp * 0.4f));
+        else if (pLevel == qLevel + 9)
+            return uint32(ceilf(fullxp * 0.2f));
+        else
+            return uint32(ceilf(fullxp * 0.1f));
     }
     return 0;
 }

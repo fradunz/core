@@ -14,6 +14,7 @@ npc_lord_ello_ebonlocke
 EndContentData */
 
 #include "scriptPCH.h"
+#include "CreatureGroups.h"
 
 enum NightmareCorruptionData
 {
@@ -42,14 +43,14 @@ void Handle_NightmareCorruption(/*const*/ Player* player)
 
         if (!corrupter)
         {
-            sLog.outError("Handle_NightmareCorruption: Could not summon creature %u for quest %u for player %s",
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Handle_NightmareCorruption: Could not summon creature %u for quest %u for player %s",
                 NPC_TWILIGHT_CORRUPTER, QUEST_NIGHTMARE_CORRUPTION, player->GetName());
             return;
         }
     }
 
     char message[200];
-    sprintf(message, "Come, %s. See what the Nightmare brings...", player->GetName());
+    snprintf(message, sizeof(message), "Come, %s. See what the Nightmare brings...", player->GetName());
 
     corrupter->MonsterWhisper(message, player);
 }
@@ -110,12 +111,10 @@ struct npc_twilight_corrupterAI : ScriptedAI
         ThreatList const& tList = m_creature->GetThreatManager().getThreatList();
         for (const auto i : tList)
         {
-            Unit* pUnit = m_creature->GetMap()->GetUnit(i->getUnitGuid());
-
-            if (pUnit && pUnit->IsPlayer())
+            if (i->getUnitGuid().IsPlayer())
                 for (uint64 & guid : GUIDs)
                     if (guid == 0)
-                        guid = pUnit->GetGUID();
+                        guid = i->getUnitGuid();
         }
     }
 
@@ -175,7 +174,7 @@ struct npc_twilight_corrupterAI : ScriptedAI
                     if (player->IsDead())
                     {
                         char eMessage[200];
-                        sprintf(eMessage, "Twilight Corrupter squeezes the last bit of life out of %s and swallows their soul.", player->GetName());
+                        snprintf(eMessage, sizeof(eMessage), "Twilight Corrupter squeezes the last bit of life out of %s and swallows their soul.", player->GetName());
                         m_creature->MonsterTextEmote(eMessage, nullptr, false);
                         m_creature->CastSpell(m_creature, SPELL_SWELL_OF_SOULS, true);
                         guid = 0;
@@ -203,7 +202,9 @@ CreatureAI* GetAI_npc_twilight_corrupter(Creature* pCreature)
 enum WatcherBlombergData
 {
     NPC_WATCHER_DODDS   = 888,
-    NPC_WATCHER_PAIGE   = 499
+    NPC_WATCHER_PAIGE   = 499,
+    SAY_LOOK_ALIVE      = 16,
+    FACTION_COMBAT      = 56
 };
 
 struct npc_watcher_blombergAI : ScriptedAI
@@ -216,8 +217,8 @@ struct npc_watcher_blombergAI : ScriptedAI
 
     bool m_bIsEngaged;
     uint32 m_uiSayTimer;
-    ObjectGuid m_DoddsGuid;
-    ObjectGuid m_PaigeGuid;
+    ObjectGuid m_doddsGuid;
+    ObjectGuid m_paigeGuid;
 
     void Reset() override
     {
@@ -230,26 +231,51 @@ struct npc_watcher_blombergAI : ScriptedAI
         m_uiSayTimer = 3000;
     }
 
+    void OnRemoveFromWorld() override
+    {
+        if (auto pDodds = m_creature->GetMap()->GetCreature(m_doddsGuid))
+        {
+            if (pDodds->IsAlive() && !pDodds->GetVictim())
+            {
+                pDodds->SetUInt32Value(UNIT_NPC_FLAGS, pDodds->GetCreatureInfo()->npc_flags);
+                pDodds->ClearTemporaryFaction();
+                pDodds->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
+                if (pDodds->GetMotionMaster()->GetCurrentMovementGeneratorType() != HOME_MOTION_TYPE)
+                    pDodds->GetMotionMaster()->MoveTargetedHome();
+            }
+        }
+        if (auto pPaige = m_creature->GetMap()->GetCreature(m_paigeGuid))
+        {
+            if (pPaige->IsAlive() && !pPaige->GetVictim())
+            {
+                if (pPaige->GetMotionMaster()->GetCurrentMovementGeneratorType() != HOME_MOTION_TYPE)
+                    pPaige->GetMotionMaster()->MoveTargetedHome();
+            }
+        }
+    }
+
     void UpdateAI(uint32 const uiDiff) override
     {
         if (!m_bIsEngaged)
         {
             if (m_uiSayTimer < uiDiff)
             {
-                m_creature->MonsterSay("The abomination is coming! Dodds! Paige! Come here and help us!");
+                DoScriptText(SAY_LOOK_ALIVE, m_creature);
                 m_bIsEngaged = true;
 
                 if (auto pDodds = m_creature->FindNearestCreature(NPC_WATCHER_DODDS, 200.0f))
                 {
-                    m_DoddsGuid = pDodds->GetObjectGuid();
-                    pDodds->GetMotionMaster()->MovePoint(0, -10903.043945f, -377.539124f, 40.065773f, MOVE_PATHFINDING, 0, 1.19f);                    
+                    pDodds->SetUInt32Value(UNIT_NPC_FLAGS, 0);
+                    pDodds->SetFactionTemporary(FACTION_COMBAT, TEMPFACTION_ALL);
+                    pDodds->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
+                    pDodds->GetMotionMaster()->MovePoint(0, -10903.043945f, -377.539124f, 40.065773f, MOVE_PATHFINDING, 0, 1.19f);
+                    m_doddsGuid = pDodds->GetObjectGuid();
                 }
-
 
                 if (auto pPaige = m_creature->FindNearestCreature(NPC_WATCHER_PAIGE, 200.0f))
                 {
-                    m_PaigeGuid = pPaige->GetObjectGuid();
-                    pPaige->GetMotionMaster()->MovePoint(0, -10906.221680f, -375.957214f, 39.960278f, MOVE_PATHFINDING, 0, 1.19f);                    
+                    pPaige->GetMotionMaster()->MovePoint(0, -10906.221680f, -375.957214f, 39.960278f, MOVE_PATHFINDING, 0, 1.19f);
+                    m_paigeGuid = pPaige->GetObjectGuid();
                 }
             }
             else
@@ -341,22 +367,22 @@ CreatureAI* GetAI_commanderFelstrom(Creature* pCreature)
 }
 
 /*
-* Lord Ello Ebonlocke
+* Sirra Von'Indi
 */
 
-enum LordElloEbonlockeData
+enum SiraVonIndiData
 {
     NPC_STITCHES = 412,
 
-    QUEST_TRANSLATION_TO_ELO = 252
+    QUEST_WAIT_FOR_SIRRA_TO_FINISH = 401
 };
 
-struct elloEbonlockeAI : ScriptedAI
+struct npc_sirra_vonindiAI : ScriptedAI
 {
-    explicit elloEbonlockeAI(Creature* pCreature) : ScriptedAI(pCreature)
+    explicit npc_sirra_vonindiAI(Creature* pCreature) : ScriptedAI(pCreature)
     {
-        elloEbonlockeAI::Reset();
-        elloEbonlockeAI::ResetCreature();
+        npc_sirra_vonindiAI::Reset();
+        npc_sirra_vonindiAI::ResetCreature();
     }
 
     ObjectGuid m_stitchesGuid;
@@ -453,8 +479,8 @@ struct npc_stitchesAI : npc_escortAI
         npc_stitchesAI::Reset();
     }
 
-    std::list<ObjectGuid> m_lWatchman;
-    ObjectGuid m_townCrierGuid, m_DoddsGuid, m_PaigeGuid, m_lordElloGuid;
+    ObjectGuidSet m_watchmenGuids;
+    ObjectGuid m_townCrierGuid, m_sirraVonIndiGuide;
     uint32 m_uiAuraOfRotTimer;
     uint32 m_uiLaunchTimer;
     bool m_bLaunchChecked;
@@ -472,18 +498,12 @@ struct npc_stitchesAI : npc_escortAI
         if (pTownCrier && pTownCrier->IsAlive())
             pTownCrier->MonsterYellToZone(TOWNCRIER_YELL_5);
 
-        DespawnWatcher();
+        DespawnWatchers();
 
-        if (auto pDodds = m_creature->GetMap()->GetCreature(m_DoddsGuid))
-            pDodds->GetMotionMaster()->MoveTargetedHome();
-
-        if (auto pPaige = m_creature->GetMap()->GetCreature(m_PaigeGuid))
-            pPaige->GetMotionMaster()->MoveTargetedHome();
-
-        if (auto pEllo = m_creature->GetMap()->GetCreature(m_lordElloGuid))
+        if (auto pSirra = m_creature->GetMap()->GetCreature(m_sirraVonIndiGuide))
         {
-            if (auto pElloAI = static_cast<elloEbonlockeAI*>(pEllo->AI()))
-                pElloAI->StitchesDied();
+            if (auto pSirraAI = static_cast<npc_sirra_vonindiAI*>(pSirra->AI()))
+                pSirraAI->StitchesDied();
         }
     }
 
@@ -497,25 +517,29 @@ struct npc_stitchesAI : npc_escortAI
         }
     }
 
-    void DespawnWatcher()
+    void DespawnWatchers()
     {
-        for (const auto& guid : m_lWatchman)
+        for (const auto& guid : m_watchmenGuids)
         {
             if (auto pWatchman = m_creature->GetMap()->GetCreature(guid))
-            {
-                if (pWatchman->IsAlive())
-                    pWatchman->DisappearAndDie();
-            }
+                pWatchman->DespawnOrUnsummon();
         }
+        m_watchmenGuids.clear();
     }
 
     Creature* SummonWatchman(uint8 index) const
     {
-        return m_creature->SummonCreature(Watchman[index].entry, 
+        Creature* pWatchman = m_creature->SummonCreature(Watchman[index].entry,
             Watchman[index].x,
             Watchman[index].y,
             Watchman[index].z,
-            Watchman[index].o, TEMPSUMMON_DEAD_DESPAWN, 10000, true);
+            Watchman[index].o, TEMPSUMMON_DEAD_DESPAWN, WEEK * IN_MILLISECONDS, true);
+        if (pWatchman)
+        {
+            pWatchman->SetCorpseDelay(HOUR);
+            pWatchman->SetRespawnDelay(WEEK);
+        }
+        return pWatchman;
     }
 
     void AddToFormation(Creature* pLeader, Creature* pAdd) const
@@ -529,7 +553,7 @@ struct npc_stitchesAI : npc_escortAI
 
     void JustSummoned(Creature* pSummoned) override
     {
-        m_lWatchman.push_back(pSummoned->GetObjectGuid());
+        m_watchmenGuids.insert(pSummoned->GetObjectGuid());
 
         switch (pSummoned->GetEntry())
         {
@@ -544,23 +568,6 @@ struct npc_stitchesAI : npc_escortAI
                 pSummoned->GetMotionMaster()->MovePoint(0, -10902.211914f, -375.488495f, 40.000954f, MOVE_PATHFINDING);
                 pSummoned->SetCombatStartPosition(-10902.211914f, -375.488495f, 40.000954f);
                 pSummoned->SetHomePosition(-10902.211914f, -375.488495f, 40.000954f, 0.0f);
-                if (auto pSummonedAI = static_cast<npc_watcher_blombergAI*>(pSummoned->AI()))
-                {
-                    m_DoddsGuid = pSummonedAI->m_DoddsGuid;
-                    m_PaigeGuid = pSummonedAI->m_PaigeGuid;
-                }
-                break;
-            case NPC_WATCHER_CUTFORD:
-                pSummoned->SetWalk(false);
-                if (pSummoned->GetDistance2d(m_creature) > 40.0f)
-                {
-                    pSummoned->GetMotionMaster()->MovePoint(0, -10904.632f, -425.087f, 42.189217f, MOVE_PATHFINDING);
-                    pSummoned->SetCombatStartPosition(-10904.632f, -425.087f, 42.189217f);
-                    pSummoned->SetHomePosition(-10904.632f, -425.087f, 42.189217f, 0.0f);
-                }
-                else
-                    pSummoned->AI()->AttackStart(m_creature);
-                pSummoned->MonsterYell(CUTFORD_YELL);
                 break;
             case NPC_WATCHER_SELKIN:
                 if (auto pSummonedAI = static_cast<npc_watcher_selkinAI*>(pSummoned->AI()))
@@ -571,7 +578,7 @@ struct npc_stitchesAI : npc_escortAI
 
     void SummonedCreatureJustDied(Creature* pSummoned) override
     {
-        m_lWatchman.remove(pSummoned->GetObjectGuid());
+        m_watchmenGuids.erase(pSummoned->GetObjectGuid());
     }
 
     void WaypointReached(uint32 uiPoint) override
@@ -594,7 +601,19 @@ struct npc_stitchesAI : npc_escortAI
                 SummonWatchman(1);
                 break;
             case 34:
-                SummonWatchman(2);
+                if (Creature* pCatford = m_creature->FindNearestCreature(NPC_WATCHER_CUTFORD, 300.0f))
+                {
+                    m_watchmenGuids.insert(pCatford->GetObjectGuid());
+                    pCatford->SetWalk(false);
+                    if (pCatford->GetDistance2d(m_creature) > 40.0f)
+                    {
+                        pCatford->GetMotionMaster()->MovePoint(0, -10904.632f, -425.087f, 42.189217f, MOVE_PATHFINDING);
+                        pCatford->SetCombatStartPosition(-10904.632f, -425.087f, 42.189217f);
+                        pCatford->SetHomePosition(-10904.632f, -425.087f, 42.189217f, 0.0f);
+                    }
+                    else
+                        pCatford->AI()->AttackStart(m_creature);
+                }
                 break;
             case 35:
             {
@@ -644,7 +663,7 @@ struct npc_stitchesAI : npc_escortAI
             {
                 if (!HasEscortState(STATE_ESCORT_ESCORTING))
                 {
-                    sLog.outError("[Duskwood.Stitches] Emergency launch.");
+                    sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "[Duskwood.Stitches] Emergency launch.");
                     Start();
                 }
 
@@ -676,10 +695,10 @@ CreatureAI* GetAI_stitches(Creature* pCreature)
 }
 
 /*
- * Lord Ello Ebonlocke
+ * Sirra Von'Indi
  */
 
-bool elloEbonlockeAI::SummonStitches()
+bool npc_sirra_vonindiAI::SummonStitches()
 {
     if (m_creature->GetMap()->GetCreature(m_stitchesGuid))
         return false;
@@ -700,39 +719,31 @@ bool elloEbonlockeAI::SummonStitches()
     return false;
 }
 
-void elloEbonlockeAI::LaunchStitches(Creature* pStitches) const
+void npc_sirra_vonindiAI::LaunchStitches(Creature* pStitches) const
 {
     if (auto stitchesAI = static_cast<npc_stitchesAI*>(pStitches->AI()))
     {
         if (auto pTownCrier = m_creature->FindNearestCreature(NPC_TOWN_CRIER, 400.0f))
             stitchesAI->m_townCrierGuid = pTownCrier->GetObjectGuid();
 
-        stitchesAI->m_lordElloGuid = m_creature->GetObjectGuid();
+        stitchesAI->m_sirraVonIndiGuide = m_creature->GetObjectGuid();
 
         stitchesAI->Start();
     }
     else
-        sLog.outError("[Duskwood.Stitches] Failed to cast AI.");
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "[Duskwood.Stitches] Failed to cast AI.");
 }
 
-CreatureAI* GetAI_ElloEbonlocke(Creature* pCreature)
+CreatureAI* GetAI_npc_sirra_vonindi(Creature* pCreature)
 {
-    return new elloEbonlockeAI(pCreature);
+    return new npc_sirra_vonindiAI(pCreature);
 }
 
-bool GossipHello_npc_lord_ello_ebonlocke(Player* pPlayer, Creature* pCreature)
+bool QuestRewarded_npc_sirra_vonindi(Player* pPlayer, Creature* pCreature, Quest const* pQuest)
 {
-    /** Show quest menu */
-    pPlayer->PrepareQuestMenu(pCreature->GetGUID());
-    pPlayer->SEND_GOSSIP_MENU(pPlayer->GetGossipTextId(pCreature), pCreature->GetObjectGuid());
-    return true;
-}
-
-bool QuestRewarded_npc_lord_ello_ebonlocke(Player* pPlayer, Creature* pCreature, Quest const* pQuest)
-{
-    if (pQuest->GetQuestId() == QUEST_TRANSLATION_TO_ELO)
+    if (pQuest->GetQuestId() == QUEST_WAIT_FOR_SIRRA_TO_FINISH)
     {
-        if (auto pCreatureAI = static_cast<elloEbonlockeAI*>(pCreature->AI()))
+        if (auto pCreatureAI = static_cast<npc_sirra_vonindiAI*>(pCreature->AI()))
             return !pCreatureAI->SummonStitches();
     }
 
@@ -764,10 +775,9 @@ void AddSC_duskwood()
     newscript->RegisterSelf();
 
     newscript = new Script;
-    newscript->Name = "npc_lord_ello_ebonlocke";
-    newscript->GetAI = &GetAI_ElloEbonlocke;
-    newscript->pQuestRewardedNPC = &QuestRewarded_npc_lord_ello_ebonlocke;
-    newscript->pGossipHello = &GossipHello_npc_lord_ello_ebonlocke;
+    newscript->Name = "npc_sirra_vonindi";
+    newscript->GetAI = &GetAI_npc_sirra_vonindi;
+    newscript->pQuestRewardedNPC = &QuestRewarded_npc_sirra_vonindi;
     newscript->RegisterSelf();
 
     newscript = new Script;

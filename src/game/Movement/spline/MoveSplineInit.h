@@ -33,7 +33,7 @@ namespace Movement
     {
         public:
 
-            explicit MoveSplineInit(Unit& m, char const* movementType = "Unknown");
+            explicit MoveSplineInit(Unit& m, char const* movementType);
 
             /* Final pass of initialization that launches spline movement.
              * @return duration - estimated travel time
@@ -122,6 +122,7 @@ namespace Movement
 
     inline void MoveSplineInit::MoveTo(Vector3 const& dest, uint32 options)
     {
+        args.uninterruptible = (options & MOVE_FORCE_DESTINATION);
         if (options & MOVE_PATHFINDING)
         {
             PathFinder path(&unit);

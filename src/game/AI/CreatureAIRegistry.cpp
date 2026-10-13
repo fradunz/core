@@ -20,8 +20,7 @@
  */
 
 #include "NullCreatureAI.h"
-#include "ReactorAI.h"
-#include "AggressorAI.h"
+#include "BasicAI.h"
 #include "CritterAI.h"
 #include "GuardAI.h"
 #include "GuardEventAI.h"
@@ -34,14 +33,14 @@
 #include "MovementGeneratorImpl.h"
 #include "CreatureAIRegistry.h"
 #include "WaypointMovementGenerator.h"
+#include "CyclicMovementGenerator.h"
 
 namespace AIRegistry
 {
 void Initialize()
 {
     (new CreatureAIFactory<NullCreatureAI>("NullAI"))->RegisterSelf();
-    (new CreatureAIFactory<AggressorAI>("AggressorAI"))->RegisterSelf();
-    (new CreatureAIFactory<ReactorAI>("ReactorAI"))->RegisterSelf();
+    (new CreatureAIFactory<BasicAI>("BasicAI"))->RegisterSelf();
     (new CreatureAIFactory<CritterAI>("CritterAI"))->RegisterSelf();
     (new CreatureAIFactory<GuardAI>("GuardAI"))->RegisterSelf();
     (new CreatureAIFactory<PetAI>("PetAI"))->RegisterSelf();
@@ -53,6 +52,7 @@ void Initialize()
 
     (new MovementGeneratorFactory<RandomMovementGenerator>(RANDOM_MOTION_TYPE))->RegisterSelf();
     (new MovementGeneratorFactory<WaypointMovementGenerator<Creature> >(WAYPOINT_MOTION_TYPE))->RegisterSelf();
+    (new MovementGeneratorFactory<CyclicMovementGenerator<Creature> >(CYCLIC_MOTION_TYPE))->RegisterSelf();
     (new MovementGeneratorFactory<PatrolMovementGenerator>(PATROL_MOTION_TYPE))->RegisterSelf();
 }
 }

@@ -17,146 +17,15 @@
 /* ScriptData
 SDName: Felwood
 SD%Complete: 95
-SDComment: Quest support: related to 4101/4102 (To obtain Cenarion Beacon), 4506
+SDComment: Quest support: related to 4101/4102 (To obtain Cenarion Beacon)
 SDCategory: Felwood
 EndScriptData */
 
 /* ContentData
-npc_kitten
 npcs_riverbreeze_and_silversky
 EndContentData */
 
 #include "scriptPCH.h"
-
-/*####
-# npc_kitten
-####*/
-
-enum
-{
-    EMOTE_SAB_JUMP              = -1000541,
-    EMOTE_SAB_FOLLOW            = -1000542,
-
-    SPELL_CORRUPT_SABER_VISUAL  = 16510,
-
-    QUEST_CORRUPT_SABER         = 4506,
-    NPC_WINNA                   = 9996,
-    NPC_CORRUPT_SABER           = 10042
-};
-
-#define GOSSIP_ITEM_RELEASE     "I want to release the corrupted saber to Winna."
-
-struct npc_kittenAI : public FollowerAI
-{
-    npc_kittenAI(Creature* pCreature) : FollowerAI(pCreature)
-    {
-        if (pCreature->GetOwner() && pCreature->GetOwner()->GetTypeId() == TYPEID_PLAYER)
-        {
-            StartFollow((Player*)pCreature->GetOwner());
-            SetFollowPaused(true);
-            DoScriptText(EMOTE_SAB_JUMP, m_creature);
-
-            pCreature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
-
-            //find a decent way to move to center of moonwell
-        }
-
-        m_uiMoonwellCooldown = 7500;
-        Reset();
-    }
-
-    uint32 m_uiMoonwellCooldown;
-
-    void Reset() override { }
-
-    void MoveInLineOfSight(Unit* pWho) override
-    {
-        //should not have npc_flags by default, so set when expected
-        if (!m_creature->GetVictim() && !m_creature->HasFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP) && HasFollowState(STATE_FOLLOW_INPROGRESS) && pWho->GetEntry() == NPC_WINNA)
-        {
-            if (m_creature->IsWithinDistInMap(pWho, INTERACTION_DISTANCE))
-                m_creature->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-        }
-    }
-
-    void UpdateFollowerAI(uint32 const uiDiff) override
-    {
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-        {
-            if (HasFollowState(STATE_FOLLOW_PAUSED))
-            {
-                if (m_uiMoonwellCooldown < uiDiff)
-                {
-                    m_creature->CastSpell(m_creature, SPELL_CORRUPT_SABER_VISUAL, false);
-                    SetFollowPaused(false);
-                }
-                else
-                    m_uiMoonwellCooldown -= uiDiff;
-            }
-
-            return;
-        }
-
-        DoMeleeAttackIfReady();
-    }
-};
-
-CreatureAI* GetAI_npc_kitten(Creature* pCreature)
-{
-    return new npc_kittenAI(pCreature);
-}
-
-bool EffectDummyCreature_npc_kitten(WorldObject* /*pCaster*/, uint32 uiSpellId, SpellEffectIndex effIndex, Creature* pCreatureTarget)
-{
-    //always check spellid and effectindex
-    if (uiSpellId == SPELL_CORRUPT_SABER_VISUAL && effIndex == EFFECT_INDEX_0)
-    {
-        // Not nice way, however using UpdateEntry will not be correct.
-        if (CreatureInfo const* pTemp = sObjectMgr.GetCreatureTemplate(NPC_CORRUPT_SABER))
-        {
-            float scale;
-            uint32 displayId = Creature::ChooseDisplayId(pTemp, nullptr, nullptr, nullptr, &scale);
-            pCreatureTarget->SetEntry(pTemp->entry);
-            pCreatureTarget->SetDisplayId(displayId);
-            pCreatureTarget->SetName(pTemp->name);
-            pCreatureTarget->SetFloatValue(OBJECT_FIELD_SCALE_X, scale);
-        }
-
-        if (Unit* pOwner = pCreatureTarget->GetOwner())
-            DoScriptText(EMOTE_SAB_FOLLOW, pCreatureTarget, pOwner);
-
-        //always return true when we are handling this spell and effect
-        return true;
-    }
-    return false;
-}
-
-bool GossipHello_npc_corrupt_saber(Player* pPlayer, Creature* pCreature)
-{
-    if (pPlayer->GetQuestStatus(QUEST_CORRUPT_SABER) == QUEST_STATUS_INCOMPLETE)
-    {
-        if (GetClosestCreatureWithEntry(pCreature, NPC_WINNA, INTERACTION_DISTANCE))
-            pPlayer->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, GOSSIP_ITEM_RELEASE, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
-    }
-
-    pPlayer->SEND_GOSSIP_MENU(pPlayer->GetGossipTextId(pCreature), pCreature->GetGUID());
-    return true;
-}
-
-bool GossipSelect_npc_corrupt_saber(Player* pPlayer, Creature* pCreature, uint32 uiSender, uint32 uiAction)
-{
-    if (uiAction == GOSSIP_ACTION_INFO_DEF + 1)
-    {
-        pPlayer->CLOSE_GOSSIP_MENU();
-
-        if (npc_kittenAI* pKittenAI = dynamic_cast<npc_kittenAI*>(pCreature->AI()))
-            pKittenAI->SetFollowComplete();
-
-        pPlayer->AreaExploredOrEventHappens(QUEST_CORRUPT_SABER);
-    }
-
-    return true;
-}
 
 enum
 {
@@ -177,7 +46,7 @@ struct npc_cursed_oozeAI : public ScriptedAI
         Reset();
     }
     uint32 SpellTimer;
-    void SpellHit(Unit *caster, SpellEntry const* spell) override
+    void SpellHit(SpellCaster* caster, SpellEntry const* spell) override
     {
         if (spell && spell->Id == SPELL_QUEST_CURSED_JAR)
             m_creature->ForcedDespawn();
@@ -217,7 +86,7 @@ struct npc_tainted_oozeAI : public ScriptedAI
         Reset();
     }
     uint32 SpellTimer;
-    void SpellHit(Unit *caster, SpellEntry const* spell) override
+    void SpellHit(SpellCaster* caster, SpellEntry const* spell) override
     {
         if (spell && spell->Id == SPELL_QUEST_TAINTED_JAR)
             m_creature->ForcedDespawn();
@@ -254,19 +123,19 @@ CreatureAI* GetAI_npc_tainted_ooze(Creature* pCreature)
 
 enum
 {
-    SAY_ESCORT_START                = -1001148,
-    SAY_FIRST_STOP                  = -1001149,
-    SAY_SECOND_STOP                 = -1001150,
-    SAY_AGGRO                       = -1001151,
-    SAY_FOUND_EQUIPMENT             = -1001152,
-    SAY_ESCAPE_DEMONS               = -1001153,
-    SAY_FRESH_AIR                   = -1001154,
-    SAY_TREY_BETRAYER               = -1001155,
-    SAY_TREY                        = -1001156,
-    SAY_TREY_ATTACK                 = -1001157,
-    SAY_ESCORT_COMPLETE             = -1001158,
+    SAY_ESCORT_START                = 6433,
+    SAY_FIRST_STOP                  = 6456,
+    SAY_SECOND_STOP                 = 6457,
+    SAY_AGGRO                       = 6801,
+    SAY_FOUND_EQUIPMENT             = 6458,
+    SAY_ESCAPE_DEMONS               = 6460,
+    SAY_FRESH_AIR                   = 6461,
+    SAY_TREY_BETRAYER               = 6466,
+    SAY_TREY                        = 6463,
+    SAY_TREY_ATTACK                 = 6802,
+    SAY_ESCORT_COMPLETE             = 6468,
 
-    SPELL_STRENGHT_ARKONARIN        = 18163,
+    SPELL_STRENGTH_ARKONARIN        = 18163,
     SPELL_MORTAL_STRIKE             = 16856,
     SPELL_CLEAVE                    = 15496,
 
@@ -348,7 +217,7 @@ struct npc_captured_arkonarinAI : npc_escortAI
                 m_creature->HandleEmote(EMOTE_ONESHOT_KNEEL);
                 break;
             case 39:
-                DoCastSpellIfCan(m_creature, SPELL_STRENGHT_ARKONARIN);
+                DoCastSpellIfCan(m_creature, SPELL_STRENGTH_ARKONARIN);
                 break;
             case 40:
                 if (Player* pPlayer = GetPlayerForEscort())
@@ -452,15 +321,15 @@ bool QuestAccept_npc_captured_arkonarin(Player* pPlayer, Creature* pCreature, Qu
 
 enum
 {
-    SAY_AREI_ESCORT_START           = -1001159,
-    SAY_ATTACK_IRONTREE             = -1001160,
-    SAY_ATTACK_TOXIC_HORROR         = -1001161,
-    SAY_EXIT_WOODS                  = -1001162,
-    SAY_CLEAR_PATH                  = -1001163,//NPC_AREI,   4000
-    SAY_ASHENVALE                   = -1001164,
-    SAY_TRANSFORM                   = -1001165,
-    SAY_LIFT_CURSE                  = -1001166,
-    SAY_AREI_ESCORT_COMPLETE        = -1001167,
+    SAY_AREI_ESCORT_START           = 5004,
+    SAY_ATTACK_IRONTREE             = 5474,
+    SAY_ATTACK_TOXIC_HORROR         = 5005,
+    SAY_EXIT_WOODS                  = 5473,
+    SAY_CLEAR_PATH                  = 5008,//NPC_AREI,   4000
+    SAY_ASHENVALE                   = 5023,
+    SAY_TRANSFORM                   = 5026,
+    SAY_LIFT_CURSE                  = 5029,
+    SAY_AREI_ESCORT_COMPLETE        = 5036,
 
     SPELL_WITHER_STRIKE             = 5337,//5000
     SPELL_AREI_TRANSFORM            = 14888,
@@ -634,7 +503,7 @@ bool QuestAccept_npc_arei(Player* pPlayer, Creature* pCreature, Quest const* pQu
         if (npc_areiAI* pEscortAI = dynamic_cast<npc_areiAI*>(pCreature->AI()))
         {
             pEscortAI->Start(false, pPlayer->GetGUID(), pQuest);
-            pCreature->SetFactionTemporary(FACTION_ESCORT_N_NEUTRAL_PASSIVE, TEMPFACTION_RESTORE_RESPAWN);
+            pCreature->SetFactionTemporary(FACTION_ESCORT_A_NEUTRAL_PASSIVE, TEMPFACTION_RESTORE_RESPAWN);
             DoScriptText(SAY_AREI_ESCORT_START, pCreature, pPlayer);
         }
     }
@@ -709,7 +578,8 @@ public:
         if (GameObject* cleansed = me->SummonGameObject(cleansedEntry, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), 0.0, 0.0, 0.0, 0.0, 0.0, CLEANSED_PLANT_RESPAWN_TIMER))
         {
             cleansedGuid = cleansed->GetObjectGuid();
-            cleansed->SetSpawnedByDefault(true);
+            if (sWorld.GetWowPatch() >= WOW_PATCH_109)
+                cleansed->SetSpawnedByDefault(true);
         }
 
         if (GameObjectData const* data = me->GetGOData())
@@ -770,21 +640,30 @@ bool AreaTrigger_at_irontree_wood(Player* pPlayer, AreaTriggerEntry const* pAt)
     return false;
 }
 
+// 6946 - Curse of the Bleakheart
+struct CurseOfTheBleakheartScript : public AuraScript
+{
+    void OnBeforeApply(Aura* aura, bool apply) final
+    {
+        if (apply && aura->GetEffIndex() == EFFECT_INDEX_0)
+            aura->SetPeriodicTimer(5 * IN_MILLISECONDS);
+    }
+
+    void OnPeriodicDummy(Aura* aura) final
+    {
+        if (roll_chance_i(5))
+            aura->GetTarget()->CastSpell(aura->GetTarget(), 6945, true, nullptr, aura);
+    }
+};
+
+AuraScript* GetScript_CurseOfTheBleakheart(SpellEntry const*)
+{
+    return new CurseOfTheBleakheartScript();
+}
+
 void AddSC_felwood()
 {
     Script* newscript;
-
-    newscript = new Script;
-    newscript->Name = "npc_kitten";
-    newscript->GetAI = &GetAI_npc_kitten;
-    newscript->pEffectDummyCreature = &EffectDummyCreature_npc_kitten;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
-    newscript->Name = "npc_corrupt_saber";
-    newscript->pGossipHello = &GossipHello_npc_corrupt_saber;
-    newscript->pGossipSelect = &GossipSelect_npc_corrupt_saber;
-    newscript->RegisterSelf();
 
     newscript = new Script;
     newscript->Name = "npc_cursed_ooze";
@@ -819,4 +698,8 @@ void AddSC_felwood()
     newscript->pAreaTrigger = &AreaTrigger_at_irontree_wood;
     newscript->RegisterSelf(); 
 
+    newscript = new Script;
+    newscript->Name = "spell_curse_of_bleakheart";
+    newscript->GetAuraScript = &GetScript_CurseOfTheBleakheart;
+    newscript->RegisterSelf();
 }

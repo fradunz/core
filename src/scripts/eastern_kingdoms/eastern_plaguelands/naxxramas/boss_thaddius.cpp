@@ -16,9 +16,9 @@
 
 /* ScriptData
 SDName: Boss_Thaddius
-SD%Complete: 
-SDComment: 
-SDCategory: 
+SD%Complete:
+SDComment:
+SDCategory:
 EndScriptData */
 
 /* ContentData
@@ -85,7 +85,7 @@ enum eThaddius
     SPELL_NEGATIVE_CHARGE_APPLY     = 28084,
     SPELL_NEGATIVE_CHARGE_TICK      = 28085,
     SPELL_NEGATIVE_CHARGE_AMP       = 29660
-};  
+};
 
 enum eCoils
 {
@@ -138,7 +138,7 @@ static constexpr uint32 ENRAGE_TIMER = 1000 * 60 * 5;   // 5 min enrage once p2 
 static uint32 PolarityShiftTimer(bool initial = false) { return initial ? 1000 * 10 : 1000 * 30; }
 
                                                         // Chain lightning timer. TODO: confirm timers. Atm is guess
-static uint32 ChainLightningTimer() { return urand(5000, 7000); } 
+static uint32 ChainLightningTimer() { return urand(5000, 7000); }
 
 static constexpr float addPositions[2][4] =
 {
@@ -190,11 +190,11 @@ struct npc_tesla_coilAI : public Scripted_NoMovementAI
         else if (uiEntry == NPC_STALAGG)
             m_bToFeugen = false;
         else
-            sLog.outError("npc_tesla_coilAI::ReApplyChain got entry which was not stalagg or feugen.");
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "npc_tesla_coilAI::ReApplyChain got entry which was not stalagg or feugen.");
 
         DoCastSpellIfCan(m_creature, m_bToFeugen ? SPELL_FEUGEN_CHAIN : SPELL_STALAGG_CHAIN);
     }
- 
+
     void UpdateAI(uint32 const uiDiff) override
     {
         if (Creature* add = m_pInstance->GetCreature(m_guid))
@@ -268,7 +268,7 @@ struct boss_thaddiusAddsAI : public ScriptedAI
 
     uint32 WarstompTimer()
     {
-        // best guess timer based on 
+        // best guess timer based on
         // https://www.youtube.com/watch?v=GmE5JufAcT0
         // and https://www.youtube.com/watch?v=3hen_d6cb-Y
         return urand(15000, 20000);
@@ -281,9 +281,9 @@ struct boss_thaddiusAddsAI : public ScriptedAI
     }
     uint32 MagneticPullTimer()
     {
-        // Every 20 seconds, but from videos can be seen to drift a tiny bit. 
+        // Every 20 seconds, but from videos can be seen to drift a tiny bit.
         // guides mention 20.5sec, so lets just make it that.
-        return 20500; 
+        return 20500;
     }
     uint32 StaticFiledTimer()
     {
@@ -439,7 +439,7 @@ struct boss_thaddiusAddsAI : public ScriptedAI
                         m_events.Repeat(StaticFiledTimer());
                     else
                         m_events.Repeat(100);
-                    break;  
+                    break;
                 case EVENT_POWERSURGE:
                     if (DoCastSpellIfCan(m_creature, SPELL_POWERSURGE) == CAST_OK)
                         m_events.Repeat(PowerSurgeTimer());
@@ -563,11 +563,11 @@ struct boss_thaddiusAI : public ScriptedAI
 
         // Simply unsummoning the add and the coil creature if they still exist
         if(addCreature)
-        { 
+        {
             if (TemporarySummon* tmpSumm = static_cast<TemporarySummon*>(addCreature))
                 tmpSumm->UnSummon();
             else
-                sLog.outError("Thaddius: HandleCheckSpawnAdd addCreature was not temp summon");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Thaddius: HandleCheckSpawnAdd addCreature was not temp summon");
             addCreature = nullptr;
         }
         if(!addCreature)
@@ -580,7 +580,7 @@ struct boss_thaddiusAI : public ScriptedAI
                 addGuids[whichAdd] = pC->GetObjectGuid();
             }
             else
-                sLog.outError("Thaddius: failed spawning add %d", whichAdd);
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Thaddius: failed spawning add %d", whichAdd);
         }
 
         if (coilCreature)
@@ -588,7 +588,7 @@ struct boss_thaddiusAI : public ScriptedAI
             if (TemporarySummon* tmpSumm = static_cast<TemporarySummon*>(coilCreature))
                 tmpSumm->UnSummon();
             else
-                sLog.outError("Thaddius: HandleCheckSpawnAdd coilCreature was not temp summon");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Thaddius: HandleCheckSpawnAdd coilCreature was not temp summon");
         }
         // Summoning a new coil
         if (Creature* tc = m_creature->SummonCreature(NPC_TESLA_COIL, teslaCoilPositions[whichAdd][0], teslaCoilPositions[whichAdd][1], teslaCoilPositions[whichAdd][2], 0, TEMPSUMMON_MANUAL_DESPAWN))
@@ -597,10 +597,10 @@ struct boss_thaddiusAI : public ScriptedAI
             if (npc_tesla_coilAI* pTeslaAI = dynamic_cast<npc_tesla_coilAI*>(tc->AI()))
                 pTeslaAI->ReApplyChain(addEntry, addGuids[whichAdd]);
             else
-                sLog.outError("boss_thaddiusAddsAI::EstablishLink failed to cast tesla coil to npc_tesla_coilAI*");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "boss_thaddiusAddsAI::EstablishLink failed to cast tesla coil to npc_tesla_coilAI*");
         }
         else
-            sLog.outError("boss_thaddiusAddsAI::EstablishLink failed to spawn teslaCoil");
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "boss_thaddiusAddsAI::EstablishLink failed to spawn teslaCoil");
 
         // Making sure the coil GO does its animation
         uint32 coilGOEntry = whichAdd == eSTALAGG ? GO_CONS_NOX_TESLA_STALAGG : GO_CONS_NOX_TESLA_FEUGEN;
@@ -663,7 +663,7 @@ struct boss_thaddiusAI : public ScriptedAI
         addGuids[which] = 0;
     }
 
-    void SummonedCreatureDespawn(Creature* pC) override 
+    void SummonedCreatureDespawn(Creature* pC) override
     {
         if (!m_pInstance)
             return;
@@ -679,7 +679,7 @@ struct boss_thaddiusAI : public ScriptedAI
     void Reset() override
     {
         m_events.Reset();
-        m_uiBallLightningTimer = 1000;      
+        m_uiBallLightningTimer = 1000;
         m_Phase = THAD_NOT_STARTED;
         killSayCooldown = 0;
     }
@@ -733,7 +733,7 @@ struct boss_thaddiusAI : public ScriptedAI
         if (m_pInstance)
         {
             m_pInstance->SetData(TYPE_THADDIUS, DONE);
-            
+
             //they will despawn themself.
             // Make them TEMPSUMMON_TIMED_DEAD_DESPAWN with 10-20sec despawn time,
             /*
@@ -781,7 +781,7 @@ struct boss_thaddiusAI : public ScriptedAI
                 m_events.ScheduleEvent(EVENT_CHAIN, ChainLightningTimer());
                 break;
             default:
-                sLog.outError("boss_thaddiusAI in undefined phase-state");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "boss_thaddiusAI in undefined phase-state");
         }
     }
 
@@ -861,15 +861,14 @@ struct boss_thaddiusAI : public ScriptedAI
             playerVec.push_back(p.getSource());
         }
         std::shuffle(playerVec.begin(), playerVec.end(), m_random);
-        int i = 0;
-        int firstHalf = playerVec.size() / 2;
-        for (i; i < firstHalf; i++)
+        size_t firstHalf = playerVec.size() / 2;
+        for (size_t i = 0; i < firstHalf; i++)
         {
             Player* pPlayer = playerVec[i];
             RemoveDebuffsFromPlayer(pPlayer);
             pPlayer->CastSpell(pPlayer, SPELL_POSITIVE_CHARGE_APPLY, true);
         }
-        for (i; i < playerVec.size(); i++)
+        for (size_t i = 0; i < playerVec.size(); i++)
         {
             Player* pPlayer = playerVec[i];
             RemoveDebuffsFromPlayer(pPlayer);
@@ -926,8 +925,8 @@ struct boss_thaddiusAI : public ScriptedAI
                     break;
             }
         }
-        
-        // m_uiBallLightningTimer reinitialized to 1sec after a successfull melee attack, and only negated if target is oor. 
+
+        // m_uiBallLightningTimer reinitialized to 1sec after a successfull melee attack, and only negated if target is oor.
         // This will prevent the boss from starting to spam balls of lightning if the boss is being moved with lag or something
         if (!DoMeleeAttackIfReady())
         {
@@ -942,7 +941,7 @@ struct boss_thaddiusAI : public ScriptedAI
         }
         else
         {
-            m_uiBallLightningTimer = 1000; 
+            m_uiBallLightningTimer = 1000;
         }
 
         // If we did not perform a melee attack, but MH or OH attack was ready, and we were not in melee range,
@@ -1003,7 +1002,7 @@ struct boss_thaddiusAI : public ScriptedAI
                 UpdateP2(uiDiff);
                 break;
             default:
-                sLog.outError("boss_thaddiusAI in undefined phase-state");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "boss_thaddiusAI in undefined phase-state");
         }
     }
 };
@@ -1087,6 +1086,193 @@ CreatureAI* GetAI_boss_thaddius(Creature* pCreature)
     return new boss_thaddiusAI(pCreature);
 }
 
+// 28059 - Positive Charge (Thaddius)
+struct ThaddiusPositiveChargeAuraScript : public AuraScript
+{
+    enum
+    {
+        SPELL_POSITIVE_CHARGE_APPLY = 28059,
+        SPELL_POSITIVE_CHARGE_AMP   = 29659
+    };
+
+    void OnPeriodicTrigger(Aura* /*aura*/, Unit* /*caster*/, Unit* target, WorldObject* /*targetObject*/, SpellEntry const*& /*spellInfo*/) final
+    {
+        // Only process in Naxxramas to avoid performance issues
+        if (target->GetMap()->GetId() != MAP_NAXXRAMAS)
+            return;
+
+        int numStacks = 0;
+        // Finding the amount of other players within 13yd that has the same polarity
+        Map::PlayerList const& pList = target->GetMap()->GetPlayers();
+        for (auto const& it : pList)
+        {
+            Player* pPlayer = it.getSource();
+            if (pPlayer->GetGUID() == target->GetGUID())
+                continue;
+            if (pPlayer->IsDead())
+                continue;
+            // 2d distance should be good enough
+            if (pPlayer->HasAura(SPELL_POSITIVE_CHARGE_APPLY) && target->GetDistance2d(pPlayer) < 13.0f)
+            {
+                ++numStacks;
+            }
+        }
+        if (numStacks > 0)
+        {
+            if (!target->HasAura(SPELL_POSITIVE_CHARGE_AMP))
+                target->AddAura(SPELL_POSITIVE_CHARGE_AMP);
+            target->GetAura(SPELL_POSITIVE_CHARGE_AMP, EFFECT_INDEX_0)->GetHolder()->SetStackAmount(numStacks);
+        }
+        else
+        {
+            target->RemoveAurasDueToSpell(SPELL_POSITIVE_CHARGE_AMP);
+        }
+    }
+
+    void OnAfterApply(Aura* aura, bool apply) final
+    {
+        if (apply)
+            return;
+
+        if (aura->GetEffIndex() != EFFECT_INDEX_0)
+            return;
+
+        Unit* target = aura->GetTarget();
+        // Remove amplify effect on remove
+        if (target->HasAura(SPELL_POSITIVE_CHARGE_AMP))
+            target->RemoveAurasDueToSpell(SPELL_POSITIVE_CHARGE_AMP);
+    }
+};
+
+AuraScript* GetScript_ThaddiusPositiveChargeAura(SpellEntry const*)
+{
+    return new ThaddiusPositiveChargeAuraScript();
+}
+
+// 28084 - Negative Charge (Thaddius)
+struct ThaddiusNegativeChargeAuraScript : public AuraScript
+{
+    enum
+    {
+        SPELL_NEGATIVE_CHARGE_APPLY = 28084,
+        SPELL_NEGATIVE_CHARGE_AMP   = 29660
+    };
+
+    void OnPeriodicTrigger(Aura* /*aura*/, Unit* /*caster*/, Unit* target, WorldObject* /*targetObject*/, SpellEntry const*& /*spellInfo*/) final
+    {
+        // Only process in Naxxramas to avoid performance issues
+        if (target->GetMap()->GetId() != MAP_NAXXRAMAS)
+            return;
+
+        int numStacks = 0;
+        // Finding the amount of other players within 13yd that has the same polarity
+        Map::PlayerList const& pList = target->GetMap()->GetPlayers();
+        for (auto const& it : pList)
+        {
+            Player* pPlayer = it.getSource();
+            if (pPlayer->GetGUID() == target->GetGUID())
+                continue;
+            if (pPlayer->IsDead())
+                continue;
+            // 2d distance should be good enough
+            if (pPlayer->HasAura(SPELL_NEGATIVE_CHARGE_APPLY) && target->GetDistance2d(pPlayer) < 13.0f)
+            {
+                ++numStacks;
+            }
+        }
+        if (numStacks > 0)
+        {
+            if (!target->HasAura(SPELL_NEGATIVE_CHARGE_AMP))
+                target->AddAura(SPELL_NEGATIVE_CHARGE_AMP);
+            target->GetAura(SPELL_NEGATIVE_CHARGE_AMP, EFFECT_INDEX_0)->GetHolder()->SetStackAmount(numStacks);
+        }
+        else
+        {
+            target->RemoveAurasDueToSpell(SPELL_NEGATIVE_CHARGE_AMP);
+        }
+    }
+
+    void OnAfterApply(Aura* aura, bool apply) final
+    {
+        if (apply)
+            return;
+
+        if (aura->GetEffIndex() != EFFECT_INDEX_0)
+            return;
+
+        Unit* target = aura->GetTarget();
+        // Remove amplify effect on remove
+        if (target->HasAura(SPELL_NEGATIVE_CHARGE_AMP))
+            target->RemoveAurasDueToSpell(SPELL_NEGATIVE_CHARGE_AMP);
+    }
+};
+
+AuraScript* GetScript_ThaddiusNegativeChargeAura(SpellEntry const*)
+{
+    return new ThaddiusNegativeChargeAuraScript();
+}
+
+// 28062 - Positive Charge (Thaddius)
+struct ThaddiusPositiveChargeScript : public SpellScript
+{
+    bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0 && spell->GetUnitTarget())
+        {
+            // Target also has positive charge, so no damage
+            if (spell->GetUnitTarget()->HasAura(28059))
+                spell->damage = 0;
+        }
+        return true;
+    }
+};
+
+SpellScript* GetScript_ThaddiusPositiveCharge(SpellEntry const*)
+{
+    return new ThaddiusPositiveChargeScript();
+}
+
+// 28085 - Negative Charge (Thaddius)
+struct ThaddiusNegativeChargeScript : public SpellScript
+{
+    bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0 && spell->GetUnitTarget())
+        {
+            // Target also has negative charge, so no damage
+            if (spell->GetUnitTarget()->HasAura(28084))
+                spell->damage = 0;
+        }
+        return true;
+    }
+};
+
+SpellScript* GetScript_ThaddiusNegativeCharge(SpellEntry const*)
+{
+    return new ThaddiusNegativeChargeScript();
+}
+
+// 28337 - Magnetic Pull (Thaddius)
+struct ThaddiusMagneticPullScript : public SpellScript
+{
+    bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0 && spell->GetUnitTarget())
+        {
+            float speedXY = float(spell->m_spellInfo->EffectMiscValue[effIdx]) * 0.1f;
+            float speedZ = spell->GetUnitTarget()->GetDistance(spell->m_caster) / speedXY * 0.5f * 20.0f;
+            spell->GetUnitTarget()->KnockBackFrom(spell->m_caster, -speedXY, speedZ);
+            return false;
+        }
+        return true;
+    }
+};
+
+SpellScript* GetScript_ThaddiusMagneticPull(SpellEntry const*)
+{
+    return new ThaddiusMagneticPullScript();
+}
+
 void AddSC_boss_thaddius()
 {
     Script* pNewScript;
@@ -1109,5 +1295,30 @@ void AddSC_boss_thaddius()
     pNewScript = new Script;
     pNewScript->Name = "npc_tesla_coil";
     pNewScript->GetAI = &GetAI_npc_tesla_coil;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "spell_thaddius_positive_charge";
+    pNewScript->GetSpellScript = &GetScript_ThaddiusPositiveCharge;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "spell_thaddius_negative_charge";
+    pNewScript->GetSpellScript = &GetScript_ThaddiusNegativeCharge;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "spell_thaddius_magnetic_pull";
+    pNewScript->GetSpellScript = &GetScript_ThaddiusMagneticPull;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "spell_thaddius_positive_charge_aura";
+    pNewScript->GetAuraScript = &GetScript_ThaddiusPositiveChargeAura;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "spell_thaddius_negative_charge_aura";
+    pNewScript->GetAuraScript = &GetScript_ThaddiusNegativeChargeAura;
     pNewScript->RegisterSelf();
 }

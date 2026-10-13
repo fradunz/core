@@ -43,12 +43,12 @@ class Bag : public Item
         bool Create(uint32 guidlow, uint32 itemid, ObjectGuid ownerGuid = ObjectGuid()) override;
 
         void Clear();
-        void StoreItem(uint8 slot, Item *pItem, bool update);
-        void RemoveItem(uint8 slot, bool update);
+        void StoreItem(uint8 slot, Item *pItem);
+        void RemoveItem(uint8 slot);
 
         Item* GetItemByPos(uint8 slot) const;
         Item* GetItemByEntry(uint32 item) const;
-        uint32 GetItemCount(uint32 item, Item* eItem = nullptr) const;
+        uint32 GetItemCount(uint32 item, Item const* eItem = nullptr) const;
 
         uint8 GetSlotByItemGUID(ObjectGuid guid) const;
         bool IsEmpty() const;
@@ -63,7 +63,7 @@ class Bag : public Item
         // overwrite virtual Item::DeleteFromDB
         void DeleteFromDB() override;
 
-        void BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) const override;
+        void BuildCreateUpdateBlockForPlayer(UpdateData& data, Player* target) const override;
     protected:
 
         // Bag Storage space

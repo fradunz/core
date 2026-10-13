@@ -20,9 +20,14 @@
 #define _CREATURE_GROUPS_H
 
 #include "Common.h"
+#include "ObjectGuid.h"
+#include <map>
 
+class Map;
+class Unit;
+class Creature;
 class CreatureGroup;
-
+struct CreatureData;
 
 enum OptionFlags
 {
@@ -41,64 +46,103 @@ enum OptionFlags
 struct CreatureGroupMember
 {
     bool ComputeRelativePosition(float leaderAngle, float &x, float &y) const;
-    float followDistance;
-    float followAngle;
-    uint32 memberFlags;
+    float followDistance = 0.0f;
+    float followAngle = 0.0f;
+    uint32 memberFlags = 0;
 };
+
+class CreatureGroupsLoadingManager;
 
 class CreatureGroup
 {
+    friend class CreatureGroupsLoadingManager;
     public:
-        CreatureGroup(ObjectGuid leader) : m_leaderGuid(leader), m_originalLeaderGuid(leader), m_options(0), m_respawnGuard(false), m_lastReachedWaypoint(0)
+        CreatureGroup(ObjectGuid leader) : m_leaderGuid(leader), m_originalLeaderGuid(leader), m_options(0), m_assistGuard(false), m_respawnGuard(false), m_deleted(false), m_lastReachedWaypoint(0)
         {
         }
-        CreatureGroupMember* AddMember(ObjectGuid guid, float followDist, float followAngle, uint32 memberFlags = (OPTION_FORMATION_MOVE|OPTION_AGGRO_TOGETHER));
+        void AddMember(ObjectGuid guid, float followDist, float followAngle, uint32 memberFlags = (OPTION_FORMATION_MOVE|OPTION_AGGRO_TOGETHER));
         void RemoveMember(ObjectGuid guid);
-        void RemoveTemporaryLeader(Creature* pLeader);
-        void DisbandGroup(Creature* pMember);
+        void RemoveTemporaryLeader(Creature const* pLeader);
+        void DisbandGroup(Creature* pLeader);
         void DeleteFromDb();
         void SaveToDb();
+        void DoForAllMembers(Map* pMap, std::function<void(Creature*)>&& pFunc);
 
         ObjectGuid const& GetLeaderGuid() const { return m_leaderGuid; }
         ObjectGuid const& GetOriginalLeaderGuid() const { return m_originalLeaderGuid; }
-        std::map<ObjectGuid, CreatureGroupMember*> const& GetMembers() const { return m_members; }
+        std::map<ObjectGuid, CreatureGroupMember> const& GetMembers() const { return m_members; }
         bool ContainsGuid(ObjectGuid guid) const { return m_members.find(guid) != m_members.end(); }
         bool IsFormation() const { return m_options & OPTION_FORMATION_MOVE; }
+        bool HasGroupFlag(uint32 flag) const { return m_options & flag; }
         void SetLastReachedWaypoint(uint32 point) { m_lastReachedWaypoint = point; }
+        uint32 ChooseCreatureId(ObjectGuid guid, CreatureData const* pData, Map* pMap) const;
 
         void OnMemberAttackStart(Creature* member, Unit* target);
-        void MemberAssist(Creature* member, Unit* target);
-
         void OnMemberDied(Creature* member);
         void OnLeaveCombat(Creature* creature);
         void OnRespawn(Creature* member);
-        void RespawnAll(Creature* except);
+        void RespawnAll(Creature const* except);
     protected:
         void Respawn(Creature* member, CreatureGroupMember const* memberEntry);
+        void MemberAssist(Creature* member, Unit* target, Creature const* alliedAttacker);
         ObjectGuid m_leaderGuid;
         ObjectGuid m_originalLeaderGuid;
         uint32 m_options;
-        bool    m_respawnGuard;
+        bool m_assistGuard;
+        bool m_respawnGuard;
+        bool m_deleted;
         uint32 m_lastReachedWaypoint;
-        std::map<ObjectGuid, CreatureGroupMember*> m_members;
+        std::map<ObjectGuid, CreatureGroupMember> m_members;
+        std::map<uint32 /*entry*/, std::pair<int32 /*min*/, int32 /*max*/>> m_entryLimits;
 };
 
 class CreatureGroupsManager
 {
+    friend class CreatureGroupsLoadingManager;
     public:
-        static CreatureGroupsManager* instance()
+        CreatureGroupsManager() = default;
+        CreatureGroupsManager(CreatureGroupsManager const& other)
         {
-            static CreatureGroupsManager* i = new CreatureGroupsManager();
-            return i;
+            for (auto const& itr : other.m_groups)
+            {
+                m_groups[itr.first] = new CreatureGroup(*itr.second);
+            }
         }
-        void LoadCreatureGroup(Creature* creature, CreatureGroup*& group);
+        ~CreatureGroupsManager()
+        {
+            for (auto& itr : m_groups)
+                delete itr.second;
+        }
+        void LoadCreatureGroup(ObjectGuid guid, CreatureGroup*& group);
         void RegisterNewGroup(CreatureGroup* group) { m_groups[group->GetOriginalLeaderGuid()] = group; }
-        void Load();
+        void EraseCreatureGroup(ObjectGuid leaderGuid) { m_groups.erase(leaderGuid); }
         static ObjectGuid ConvertDBGuid(uint32 guidlow);
     protected:
         std::map<ObjectGuid, CreatureGroup*> m_groups;
 };
 
-#define sCreatureGroupsManager (CreatureGroupsManager::instance())
+class CreatureGroupsLoadingManager
+{
+    public:
+        static CreatureGroupsLoadingManager* instance()
+        {
+            static CreatureGroupsLoadingManager* i = new CreatureGroupsLoadingManager();
+            return i;
+        }
+        void LoadFromDB();
+        void InitializeGroupManagerForMap(uint32 mapId, CreatureGroupsManager& manager) const
+        {
+            auto itr = m_groupManagers.find(mapId);
+            if (itr == m_groupManagers.end())
+                return;
+
+            for (auto const& itr : itr->second.m_groups)
+                manager.m_groups[itr.first] = new CreatureGroup(*itr.second);
+        }
+    protected:
+        std::map<uint32 /*mapId*/, CreatureGroupsManager> m_groupManagers;
+};
+
+#define sCreatureGroupsManager (CreatureGroupsLoadingManager::instance())
 
 #endif

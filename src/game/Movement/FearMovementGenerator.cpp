@@ -4,13 +4,14 @@
 
 #include "Creature.h"
 #include "CreatureAI.h"
-#include "MapManager.h"
 #include "FearMovementGenerator.h"
 #include "ObjectAccessor.h"
 #include "MoveSplineInit.h"
 #include "MoveSpline.h"
 #include "PathFinder.h"
 #include "MoveMap.h"
+#include "Map.h"
+#include "Utilities/Random.h"
 
 template<class T>
 void FearMovementGenerator<T>::_setTargetLocation(T &owner)
@@ -19,16 +20,18 @@ void FearMovementGenerator<T>::_setTargetLocation(T &owner)
         return;
 
     // ignore in case other no reaction state
-    if (owner.HasUnitState((UNIT_STAT_CAN_NOT_REACT | UNIT_STAT_CAN_NOT_MOVE | UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED) & ~UNIT_STAT_FLEEING))
+    if (owner.HasUnitState((UNIT_STATE_CAN_NOT_REACT | UNIT_STATE_CAN_NOT_MOVE | UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED) & ~UNIT_STATE_FLEEING))
         return;
-    if (owner.IsRooted())
-        return;
+
+    if (Player* pPlayer = owner.ToPlayer())
+        if (pPlayer->IsBeingTeleported())
+            return;
 
     float x, y, z;
     if (!_getPoint(owner, x, y, z))
         return;
 
-    owner.AddUnitState(UNIT_STAT_FLEEING_MOVE);
+    owner.AddUnitState(UNIT_STATE_FLEEING_MOVE);
 
     PathFinder path(&owner);
     path.SetTransport(owner.GetTransport());
@@ -43,7 +46,7 @@ void FearMovementGenerator<T>::_setTargetLocation(T &owner)
         return;
     }
 
-    Movement::MoveSplineInit init(owner, "FearMovementGenerator");
+    Movement::MoveSplineInit init(owner, "FearMovementGenerator<T>::_setTargetLocation");
     init.Move(&path);
     init.SetWalk(_forceWalking);
     if (_customSpeed > 0)
@@ -111,8 +114,15 @@ bool FearMovementGenerator<T>::_getPoint(T &owner, float &x, float &y, float &z)
 template<class T>
 void FearMovementGenerator<T>::Initialize(T &owner)
 {
-    owner.AddUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.AddUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
+
+    // World of Warcraft Client Patch 1.7.0 (2005-09-13)
+    // - Fear will now cause creatures to flee immediately, even if they are
+    //   already moving.
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
     owner.StopMoving();
+#endif
+
     owner.UpdateControl();
 
     if (owner.GetTypeId() == TYPEID_UNIT)
@@ -121,13 +131,18 @@ void FearMovementGenerator<T>::Initialize(T &owner)
         owner.SetTargetGuid(0);
     }
 
+#if SUPPORTED_CLIENT_BUILD <= CLIENT_BUILD_1_6_1
+    if (!owner.movespline->Finalized())
+        return;
+#endif
+
     _setTargetLocation(owner);
 }
 
 template<>
 void FearMovementGenerator<Player>::Finalize(Player &owner)
 {
-    owner.ClearUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.ClearUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
     owner.StopMoving();
     owner.UpdateControl();
 }
@@ -135,8 +150,8 @@ void FearMovementGenerator<Player>::Finalize(Player &owner)
 template<>
 void FearMovementGenerator<Creature>::Finalize(Creature &owner)
 {
-    owner.SetWalk(!owner.HasUnitState(UNIT_STAT_RUNNING), false);
-    owner.ClearUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.SetWalk(!owner.HasUnitState(UNIT_STATE_RUNNING), false);
+    owner.ClearUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
     owner.UpdateControl();
 }
 
@@ -144,7 +159,7 @@ template<class T>
 void FearMovementGenerator<T>::Interrupt(T &owner)
 {
     // flee state still applied while movegen disabled
-    owner.ClearUnitState(UNIT_STAT_FLEEING_MOVE);
+    owner.ClearUnitState(UNIT_STATE_FLEEING_MOVE);
 }
 
 template<class T>
@@ -159,9 +174,9 @@ bool FearMovementGenerator<T>::Update(T &owner, uint32 const&  time_diff)
     if (!&owner || !owner.IsAlive())
         return false;
 
-    if (owner.HasUnitState((UNIT_STAT_CAN_NOT_REACT | UNIT_STAT_CAN_NOT_MOVE | UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED) & ~UNIT_STAT_FLEEING))
+    if (owner.HasUnitState((UNIT_STATE_CAN_NOT_REACT | UNIT_STATE_CAN_NOT_MOVE | UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED) & ~UNIT_STATE_FLEEING))
     {
-        owner.ClearUnitState(UNIT_STAT_FLEEING_MOVE);
+        owner.ClearUnitState(UNIT_STATE_FLEEING_MOVE);
         return true;
     }
 
@@ -209,7 +224,7 @@ void TimedFearMovementGenerator::Initialize(Unit& owner)
 
 void TimedFearMovementGenerator::Finalize(Unit &owner)
 {
-    owner.ClearUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.ClearUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
     owner.UpdateControl();
 
     if (Unit* victim = owner.GetVictim())
@@ -232,12 +247,12 @@ bool TimedFearMovementGenerator::Update(Unit & owner, uint32 const&  time_diff)
     if (!owner.IsAlive())
         return false;
 
-    if (owner.HasUnitState((UNIT_STAT_CAN_NOT_REACT | UNIT_STAT_CAN_NOT_MOVE | UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED) & ~UNIT_STAT_FLEEING))
+    if (owner.HasUnitState((UNIT_STATE_CAN_NOT_REACT | UNIT_STATE_CAN_NOT_MOVE | UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED) & ~UNIT_STATE_FLEEING))
     {
-        owner.ClearUnitState(UNIT_STAT_FLEEING_MOVE);
+        owner.ClearUnitState(UNIT_STATE_FLEEING_MOVE);
         return true;
     }
-    
+
     i_totalFleeTime.Update(time_diff);
 
     if (i_totalFleeTime.Passed())

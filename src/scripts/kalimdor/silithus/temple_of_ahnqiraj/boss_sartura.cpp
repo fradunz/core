@@ -24,7 +24,7 @@ EndScriptData */
 /*
  * Notes:
  * Whirlwind - Sartura does a physical AoE that does 3k+ damage to everyone within 10 yards of her.
- * During this time she is immune to stuns and taunt. She tends to use this ability after a stun fades.
+ * During this time she is immune to stuns. She tends to use this ability after a stun fades.
  */
 
 #include "scriptPCH.h"
@@ -32,9 +32,9 @@ EndScriptData */
 
 enum
 {
-    SAY_AGGRO                       = -1531008,
-    SAY_SLAY                        = -1531009,
-    SAY_DEATH                       = -1531010,
+    SAY_AGGRO                       = 11442,
+    SAY_SLAY                        = 11443,
+    SAY_DEATH                       = 11444,
 
     SPELL_WHIRLWIND                 = 26083,
 
@@ -43,10 +43,8 @@ enum
     SPELL_ENRAGE                    = 26527,
     SPELL_ENRAGEHARD                = 27680,
 
-    TAUNT_IMMUNE                    = 26602,
-
-    EMOTE_ENRAGE                    = -1000003,
-    EMOTE_ENRAGEHARD                = -1000004,
+    EMOTE_ENRAGE                    = 2384,
+    EMOTE_ENRAGEHARD                = 4428,
 
     // Royal Guard
     SPELL_KNOCKBACK                 = 19813,
@@ -81,7 +79,7 @@ struct boss_sarturaAI : public ScriptedAI
     void Reset() override
     {
         m_uiCleaveTimer = 4000;
-        m_uiWhirlWindTimer = urand(8000, 12000);;
+        m_uiWhirlWindTimer = urand(8000, 12000);
         m_uiWhirlWindEndTimer = 0;
         m_uiAggroResetTimer = urand(5000, 7500);
         
@@ -186,7 +184,6 @@ struct boss_sarturaAI : public ScriptedAI
                 // Remove the negative haste modifier from Whirlwind to restore Sartura's auto attack
                 m_creature->ApplyAttackTimePercentMod(BASE_ATTACK, 0, true);
                 m_creature->SetAttackTimer(BASE_ATTACK, 100);
-                m_creature->RemoveAurasByCasterSpell(TAUNT_IMMUNE, m_creature->GetObjectGuid());
             }
             else
                 m_uiWhirlWindEndTimer -= uiDiff;
@@ -199,7 +196,6 @@ struct boss_sarturaAI : public ScriptedAI
             {
                 if (DoCastSpellIfCan(m_creature, SPELL_WHIRLWIND) == CAST_OK)
                 {
-                    m_creature->CastSpell(m_creature, TAUNT_IMMUNE, true);
                     AssignRandomThreat();
                     m_uiWhirlWindEndTimer = 15000;
                     m_uiAggroResetTimer = urand(1000, 2000);
@@ -228,7 +224,7 @@ struct boss_sarturaAI : public ScriptedAI
 
         }
         
-        // If she is <25% enrage
+        // If she is <20% enrage
         if (!m_bIsEnraged && m_creature->GetHealthPercent() <= 20.0f)
         {
             if (DoCastSpellIfCan(m_creature, SPELL_ENRAGE, m_uiWhirlWindEndTimer ? CF_TRIGGERED : 0) == CAST_OK)
@@ -422,7 +418,7 @@ enum
     SPELL_FRENZY        = 8599,
 
     EMOTE_EMIT          = 10755,
-    EMOTE_FRENZY        = -1000002,
+    EMOTE_FRENZY        = 10645,
     SOUND_CHARGE        = 3330,
 };
 

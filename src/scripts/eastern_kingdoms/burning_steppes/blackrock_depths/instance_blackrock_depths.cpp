@@ -75,8 +75,11 @@ struct instance_blackrock_depths : ScriptedInstance
     uint64 m_uiDwarfRuneE01GUID;
     uint64 m_uiDwarfRuneF01GUID;
     uint64 m_uiDwarfRuneG01GUID;
+    uint64 m_uiFlamelashGUID;
+    uint32 m_uiSpiritTimer[DWARF_RUNES_MAX];
+    GuidList m_burningSpirits;
 
-    uint64 m_uiGoMagnusGUID;
+    uint64 m_uiMagmusGUID;
 
     uint64 m_uiRocknotGUID;
     uint64 m_uiNagmaraGUID;
@@ -93,11 +96,11 @@ struct instance_blackrock_depths : ScriptedInstance
     uint32 m_uiThunderbrewCount;
     uint32 m_uiRelicCofferDoorCount;
 
-    std::list<uint64> m_lRibblySCronyMobGUIDList;
-    std::list<uint64> m_lArenaSpectatorMobGUIDList;
-    std::list<uint64> m_lArgelmachProtectorsMobGUIDList;
-    std::list<uint64> m_sBarPatronNpcGuids;
-    std::list<uint64> m_sBarPatrolGuids;
+    std::vector<uint64> m_lRibblySCronyMobGUIDList;
+    std::vector<uint64> m_lArenaSpectatorMobGUIDList;
+    std::vector<uint64> m_lArgelmachProtectorsMobGUIDList;
+    std::vector<uint64> m_sBarPatronNpcGuids;
+    std::vector<uint64> m_sBarPatrolGuids;
 
     bool m_bDoorDughalOpened;
     bool m_bDoorTobiasOpened;
@@ -124,7 +127,7 @@ struct instance_blackrock_depths : ScriptedInstance
     void EnableCreature(Creature* pCreature)
     {
         pCreature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-        pCreature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+        pCreature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
         pCreature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
     }
 
@@ -143,7 +146,19 @@ struct instance_blackrock_depths : ScriptedInstance
         m_uiDoomrelGUID = 0;
         m_uiDoperelGUID = 0;
 
-        m_uiGoMagnusGUID = 0;
+        m_uiDwarfRuneA01GUID = 0;
+        m_uiDwarfRuneB01GUID = 0;
+        m_uiDwarfRuneC01GUID = 0;
+        m_uiDwarfRuneD01GUID = 0;
+        m_uiDwarfRuneE01GUID = 0;
+        m_uiDwarfRuneF01GUID = 0;
+        m_uiDwarfRuneG01GUID = 0;
+        m_uiFlamelashGUID = 0;
+
+        for (uint32 & i : m_uiSpiritTimer)
+            i = 5 * IN_MILLISECONDS;
+
+        m_uiMagmusGUID = 0;
 
         // Ring of Law Challenge
         m_uiTheldrenGUID = 0;
@@ -257,11 +272,23 @@ struct instance_blackrock_depths : ScriptedInstance
             case NPC_RIBBLY_S_CRONY:
                 m_lRibblySCronyMobGUIDList.push_back(pCreature->GetGUID());
                 break;
-            case 9938:
-                m_uiGoMagnusGUID = pCreature->GetGUID();
+            case NPC_MAGMUS:
+                m_uiMagmusGUID = pCreature->GetGUID();
                 break;
+			// Arena Crowd
             case NPC_ARENA_SPECTATOR:
+            case NPC_SHADOWFORGE_PEASANT:
+            case NPC_SHADOWFORGE_CITIZEN:
+            case NPC_SHADOWFORGE_SENATOR:
+            case NPC_ANVILRAGE_SOLDIER:
+            case NPC_ANVILRAGE_MEDIC:
+            case NPC_ANVILRAGE_OFFICER:
+                if (pCreature->GetPositionZ() < aArenaCrowdVolume.m_fCenterZ || pCreature->GetPositionZ() > aArenaCrowdVolume.m_fCenterZ + aArenaCrowdVolume.m_uiHeight ||
+                    !pCreature->IsWithinDist2d(aArenaCrowdVolume.m_fCenterX, aArenaCrowdVolume.m_fCenterY, aArenaCrowdVolume.m_uiRadius))
+                    break;
                 m_lArenaSpectatorMobGUIDList.push_back(pCreature->GetGUID());
+                if (m_auiEncounter[TYPE_RING_OF_LAW] == DONE)
+                    pCreature->SetFactionTemporary(FACTION_ARENA_NEUTRAL, TEMPFACTION_RESTORE_RESPAWN);
                 break;
             /*case NPC_PANZOR: m_uiPanzorGUID = pCreature->GetGUID();
                 switch (urand (0,1))
@@ -316,6 +343,10 @@ struct instance_blackrock_depths : ScriptedInstance
                 break;
             case NPC_GRIMSTONE:
                 m_uiGrimstoneGUID = pCreature->GetGUID();
+                break;
+            case NPC_FLAMELASH:
+                m_uiFlamelashGUID = pCreature->GetGUID();
+                break;
         }
     }
 
@@ -436,12 +467,14 @@ struct instance_blackrock_depths : ScriptedInstance
     {
         switch (pCreature->GetEntry())
         {
+            case NPC_BURNING_SPIRIT:
+                m_burningSpirits.remove(pCreature->GetObjectGuid());
+                break;
             case NPC_SHADOWFORGE_SENATOR:
                 // Emperor Dagran Thaurissan performs a random yell upon the death
                 // of Shadowforge Senators in the Throne Room
                 if (Creature* pDagran = instance->GetCreature(GetData64(DATA_EMPEROR)))
                 {
-                    uint32 uiTextId;
 
                     if (!pDagran->IsAlive())
                         return;
@@ -449,22 +482,18 @@ struct instance_blackrock_depths : ScriptedInstance
                     if (m_uiDagranTimer > 0)
                         return;
 
+                    uint32 uiTextId;
                     switch (urand(0, 3))
                     {
                         case 0: uiTextId = YELL_SENATOR_1; break;
                         case 1: uiTextId = YELL_SENATOR_2; break;
                         case 2: uiTextId = YELL_SENATOR_3; break;
-                        case 3: uiTextId = YELL_SENATOR_4; break;
+                        default: uiTextId = YELL_SENATOR_4; break;
                     }
                     DoScriptText(uiTextId, pDagran);
                     m_uiDagranTimer = 45000;    // set a timer of 45 sec to avoid Emperor Thaurissan to spam yells in case many senators are killed in a short amount of time
                 }
                 break;
-            case NPC_GRIM_PATRON:
-            case NPC_HAMMERED_PATRON:
-            case NPC_GUZZLING_PATRON:
-               HandleBarPatrons(PATRON_HOSTILE);
-               break;
             /*case NPC_THELDREN:
                 SetData(DATA_THELDREN, DONE);
                 break;*/
@@ -628,7 +657,7 @@ struct instance_blackrock_depths : ScriptedInstance
 
     void CustomSpellCasted(uint32 spellId, Unit* caster, Unit* target) override
     {
-        sLog.outString("Spell %u caste par '%s' sur '%s'", spellId, caster->GetName(), (target) ? target->GetName() : "<Personne>");
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_MINIMAL, "Spell %u caste par '%s' sur '%s'", spellId, caster->GetName(), (target) ? target->GetName() : "<Personne>");
         switch (spellId)
         {
             // BRD : Invocation de Theldren
@@ -716,7 +745,7 @@ struct instance_blackrock_depths : ScriptedInstance
 
     void SetData(uint32 uiType, uint32 uiData) override
     {
-        sLog.outDebug("Instance Blackrock Depths: SetData update (Type: %u Data %u)", uiType, uiData);
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "Instance Blackrock Depths: SetData update (Type: %u Data %u)", uiType, uiData);
 
         switch (uiType)
         {
@@ -728,7 +757,7 @@ struct instance_blackrock_depths : ScriptedInstance
                         if (Creature* pCreature = instance->GetCreature(guid))
                         {
                             if (pCreature->IsAlive())
-                                pCreature->SetFactionTemplateId(674);
+                                pCreature->SetFactionTemporary(FACTION_ARENA_NEUTRAL, TEMPFACTION_RESTORE_RESPAWN);
                         }
                     }
                 }
@@ -740,7 +769,7 @@ struct instance_blackrock_depths : ScriptedInstance
             case TYPE_ROCKNOT:
                 if (uiData == SPECIAL)
                     ++m_uiBarAleCount;
-                else 
+                else
                 {
                     if (uiData == DONE)
                         HandleBarPatrons(PATRON_PISSED);
@@ -772,14 +801,14 @@ struct instance_blackrock_depths : ScriptedInstance
                 {
                     DoOpenDoor(m_uiGoGolemNGUID);
                     DoOpenDoor(m_uiGoGolemSGUID);
-                    if (Creature* magnus = instance->GetCreature(m_uiGoMagnusGUID))
+                    if (Creature* magmus = instance->GetCreature(m_uiMagmusGUID))
                     {
-                        DoScriptText(YELL_MAGMUS, magnus);
+                        DoScriptText(YELL_MAGMUS, magmus);
                         std::list<Creature*> AnvilrageList;
-                        GetCreatureListWithEntryInGrid(AnvilrageList, magnus, 8901, 400.0f);
+                        GetCreatureListWithEntryInGrid(AnvilrageList, magmus, 8901, 400.0f);
 
                         for (const auto& it : AnvilrageList)
-                            it->SetRespawnDelay(345600);
+                            it->SetRespawnDelay(4 * DAY);
                     }
                 }
                 m_auiEncounter[TYPE_LYCEUM] = uiData;
@@ -864,6 +893,14 @@ struct instance_blackrock_depths : ScriptedInstance
             case DATA_THELDREN:
                 if (uiData == DONE)
                 {
+                    // Give kill credit for quest The Challenge (9015)
+                    Map::PlayerList const& players = instance->GetPlayers();
+                    for (const auto& itr : players)
+                    {
+                        if (Player* pPlayer = itr.getSource())
+                            pPlayer->KilledMonsterCredit(NPC_THELDREN_KILL_CREDIT);
+                    }
+
                     // Spawn "Arena Spoils" chest with sick loot
                     DoRespawnGameObject(m_uiArenaSpoilsGUID);
                 }
@@ -907,6 +944,37 @@ struct instance_blackrock_depths : ScriptedInstance
             case GO_JAIL_DOOR_SUPPLY: m_bDoorSupplyOpened = uiData; break;
             case EVENT_BAR_PATRONS:
                 HandleBarPatrons(uiData);
+                break;
+            case TYPE_FLAMELASH:
+                if (uiData == NOT_STARTED || uiData == FAIL || uiData == DONE)
+                {
+                    for (uint8 i = 0; i < DWARF_RUNES_MAX; i++)
+                    {
+                        if (GameObject* pRune = GetGameObject(GetData64(GO_DWARF_RUNE_A01 + i)))
+                            pRune->ResetDoorOrButton();
+                    }
+
+                    for (uint32 & i : m_uiSpiritTimer)
+                        i = 5 * IN_MILLISECONDS;
+
+                    for (const auto& guid : m_burningSpirits)
+                    {
+                        if (Creature* pSummon = GetMap()->GetCreature(guid))
+                            if (!pSummon->IsInCombat() || uiData != DONE)
+                                pSummon->DespawnOrUnsummon();
+                    }
+
+                    m_burningSpirits.clear();
+                }
+                else if (uiData == IN_PROGRESS)
+                {
+                    for (uint8 i = 0; i < DWARF_RUNES_MAX; i++)
+                    {
+                        if (GameObject* pRune = GetGameObject(GetData64(GO_DWARF_RUNE_A01 + i)))
+                            pRune->UseDoorOrButton();
+                    }
+                }
+                m_auiEncounter[20] = uiData;
                 break;
        }
 
@@ -996,7 +1064,9 @@ struct instance_blackrock_depths : ScriptedInstance
             case GO_JAIL_DOOR_CREST:  return m_bDoorCrestOpened;
             case GO_JAIL_DOOR_JAZ:    return m_bDoorJazOpened;
             case GO_JAIL_DOOR_SHILL:  return m_bDoorShillOpened;
-            case GO_JAIL_DOOR_SUPPLY: return m_bDoorSupplyOpened; 
+            case GO_JAIL_DOOR_SUPPLY: return m_bDoorSupplyOpened;
+            case TYPE_FLAMELASH:
+                return m_auiEncounter[20];
         }
         return 0;
     }
@@ -1064,7 +1134,7 @@ struct instance_blackrock_depths : ScriptedInstance
             case GO_JAIL_DOOR_SUPPLY:
                 return m_uiGoJailSupplyRoomGUID;
             case GO_JAIL_SUPPLY_CRATE:
-                return m_uiGoJailSupplyCrateGUID; 
+                return m_uiGoJailSupplyCrateGUID;
             case GO_DWARF_RUNE_A01:
                 return m_uiDwarfRuneA01GUID;
             case GO_DWARF_RUNE_B01:
@@ -1097,7 +1167,7 @@ struct instance_blackrock_depths : ScriptedInstance
                 m_uiDagranTimer = 0;
             else
                 m_uiDagranTimer -= uiDiff;
-        }  
+        }
 
         // Every second some of the patrons will do one random emote if they are not hostile (i.e. Plugger event is not done/in progress)
         if (m_uiPatronEmoteTimer)
@@ -1129,6 +1199,36 @@ struct instance_blackrock_depths : ScriptedInstance
             }
             else
                 m_uiPatrolTimer -= uiDiff;
+        }
+
+        if (GetData(TYPE_FLAMELASH) == IN_PROGRESS)
+        {
+            for (uint8 i = 0; i < DWARF_RUNES_MAX; i++)
+            {
+                if (m_uiSpiritTimer[i] < uiDiff)
+                {
+                    if (Creature* pFlamelash = GetCreature(m_uiFlamelashGUID))
+                    {
+                        if (GameObject* pRune = GetMap()->GetGameObject(GetData64(GO_DWARF_RUNE_A01 + i)))
+                        {
+                            if (m_burningSpirits.size() < BURNING_SPIRIT_MAX)
+                            {
+                                if (Creature* pSpirit = GetMap()->SummonCreature(NPC_BURNING_SPIRIT, pRune->GetPositionX(), pRune->GetPositionY(), pRune->GetPositionZ(), pRune->GetOrientation(), TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 60000))
+                                {
+                                    pSpirit->SetWalk(false);
+                                    pSpirit->GetMotionMaster()->MoveFollow(pFlamelash, 0.0f, 0.0f);
+                                    m_burningSpirits.push_back(pSpirit->GetObjectGuid());
+                                }
+                                m_uiSpiritTimer[i] = urand(15 * IN_MILLISECONDS, 30 * IN_MILLISECONDS);
+                            }
+                            else
+                                m_uiSpiritTimer[i] = 1 * IN_MILLISECONDS;
+                        }
+                    }
+                }
+                else
+                    m_uiSpiritTimer[i] -= uiDiff;
+            }
         }
     }
 

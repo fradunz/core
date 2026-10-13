@@ -120,16 +120,15 @@ class BIH
         size_t primCount() const { return objects.size(); }
 
         template<typename RayCallback>
-        void intersectRay(Ray const& r, RayCallback& intersectCallback, float& maxDist, bool stopAtFirst = false) const
+        void intersectRay(Ray const& r, RayCallback& intersectCallback, float& maxDist, bool stopAtFirst = false, bool ignoreM2Model = false) const
         {
             float intervalMin = -1.f;
             float intervalMax = -1.f;
-            Vector3 org = r.origin();
-            Vector3 dir = r.direction();
-            Vector3 invDir;
+            Vector3 const& org = r.origin();
+            Vector3 const& dir = r.direction();
+            Vector3 const& invDir = r.invDirection();
             for (int i = 0; i < 3; ++i)
             {
-                invDir[i] = 1.f / dir[i];
                 if (G3D::fuzzyNe(dir[i], 0.0f))
                 {
                     float t1 = (bounds.low()[i]  - org[i]) * invDir[i];
@@ -142,7 +141,7 @@ class BIH
                         intervalMax = t2;
                     // intervalMax can only become smaller for other axis,
                     //  and intervalMin only larger respectively, so stop early
-                    if (intervalMax <= 0 || intervalMin >= maxDist)
+                    if (intervalMax < 0 || intervalMin >= maxDist)
                         return;
                 }
             }
@@ -179,8 +178,8 @@ class BIH
                 while (true)
                 {
                     uint32 tn = tree[node];
-                    uint32 axis = (tn & (3 << 30)) >> 30;
-                    bool const BVH2 = (tn & (1 << 29)) != 0;
+                    uint32 axis = (tn >> 30) & 3;
+                    bool const BVH2 = tn & (1 << 29);
                     int offset = tn & ~(7 << 29);
                     if (!BVH2)
                     {
@@ -223,7 +222,7 @@ class BIH
                             int n = tree[node + 1];
                             while (n > 0)
                             {
-                                bool hit = intersectCallback(r, objects[offset], maxDist, stopAtFirst);
+                                bool hit = intersectCallback(r, objects[offset], maxDist, stopAtFirst, ignoreM2Model);
                                 if (stopAtFirst && hit) return;
                                 --n;
                                 ++offset;
@@ -278,8 +277,9 @@ class BIH
                 while (true)
                 {
                     uint32 tn = tree[node];
-                    uint32 axis = (tn & (3 << 30)) >> 30;
-                    bool const BVH2 = (tn & (1 << 29)) != 0;
+                    uint32 axis = (tn >> 30) & 3;
+                    bool const BVH2 = tn & (1 << 29);
+
                     int offset = tn & ~(7 << 29);
                     if (!BVH2)
                     {

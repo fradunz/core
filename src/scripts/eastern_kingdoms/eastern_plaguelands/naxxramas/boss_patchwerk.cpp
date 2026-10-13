@@ -34,13 +34,12 @@ enum PatchwerkData
     EMOTE_BERSERK         = 4428,
     EMOTE_ENRAGE          = 2384,
 
-    SPELL_HATEFULSTRIKE   = 28308,
+    SPELL_SUMMON_PLAYER   = 20477,
+    SPELL_HATEFUL_STRIKE  = 28308,
     SPELL_ENRAGE          = 28131, // 5% enrage soft enrage
     SPELL_BERSERK         = 27680, // 7min hard enrage
     SPELL_SLIMEBOLT       = 32309  // Added in patch 1.12
 };
-
-constexpr float MELEE_DISTANCE = 5.0; 
 
 enum ePatchwerkEvents
 {
@@ -55,7 +54,7 @@ static constexpr uint32 HATEFUL_CD              = 1200;
 // 30 sec after berserk he starts throwing slime at ppl
 // this was added in 1.12.1 to cope with guilds kiting him
 static constexpr uint32 SLIMEBOLT_INITIAL       = BERSERK_TIMER + 30000;
-static constexpr uint32 SLIMEBOLT_REPEAT_CD     = 5000; 
+static constexpr uint32 SLIMEBOLT_REPEAT_CD     = 5000;
 
 struct boss_patchwerkAI : public ScriptedAI
 {
@@ -71,14 +70,16 @@ struct boss_patchwerkAI : public ScriptedAI
 
     bool   m_bEnraged;
     bool   m_bBerserk;
-    ObjectGuid previousTarget;
+    uint32 m_failedStrikes;
+    ObjectGuid m_previousTarget;
 
     void Reset() override
     {
         m_events.Reset();
         m_bEnraged = false;
         m_bBerserk = false;
-        previousTarget = 0;
+        m_failedStrikes = 0;
+        m_previousTarget.Clear();
     }
 
     void KilledUnit(Unit* pVictim) override
@@ -109,7 +110,7 @@ struct boss_patchwerkAI : public ScriptedAI
 
         if (m_pInstance)
             m_pInstance->SetData(TYPE_PATCHWERK, IN_PROGRESS);
-            
+
         m_events.ScheduleEvent(EVENT_BERSERK, BERSERK_TIMER);
         m_events.ScheduleEvent(EVENT_HATEFULSTRIKE, HATEFUL_CD);
 #if SUPPORTED_CLIENT_BUILD >= CLIENT_BUILD_1_12_1
@@ -121,14 +122,22 @@ struct boss_patchwerkAI : public ScriptedAI
     {
         // The ability is used on highest HP target in melee
         // current tank cannot be hit by hateful as long as there are other players in melee
-        
+
         // todo: can it hit anything other than players?
 
+        SpellEntry const* pHatefulStrike = sSpellMgr.GetSpellEntry(SPELL_HATEFUL_STRIKE);
+        if (!pHatefulStrike)
+        {
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Patchwerk - Hateful Strike spell does not exist?!");
+            return;
+        }
+
         Unit* mainTank = m_creature->GetVictim();
-        
+
         // Shouldnt really be possible, but hey, weirder things have happened
         if (!mainTank)
             return;
+
         ObjectGuid const& mainTankGuid = mainTank->GetObjectGuid();
 
         Unit* pTarget = nullptr;
@@ -142,10 +151,7 @@ struct boss_patchwerkAI : public ScriptedAI
             if (threatListPosition > 3)
                 break;
 
-            if (!iter->getUnitGuid().IsPlayer())
-                continue;
-            
-            Player* pTempTarget = m_creature->GetMap()->GetPlayer(iter->getUnitGuid());
+            Player* pTempTarget = iter->getTarget()->ToPlayer();
             if (!pTempTarget)
                 continue;
 
@@ -155,7 +161,10 @@ struct boss_patchwerkAI : public ScriptedAI
             if (!m_creature->CanReachWithMeleeSpellAttack(pTempTarget))
                 continue;
 
-            // Skipping maintank, only using him if there is no other viable target 
+            if (pTempTarget->IsImmuneToSpell(pHatefulStrike, false))
+                continue;
+
+            // Skipping maintank, only using him if there is no other viable target
             // todo: not sure if this is correct. Should we target the MT over the offtanks, if the offtanks have less hp?
             if (iter->getUnitGuid() != mainTankGuid)
             {
@@ -174,13 +183,24 @@ struct boss_patchwerkAI : public ScriptedAI
         if (!pTarget)
             pTarget = mainTank;
 
-        if (pTarget->GetObjectGuid() != previousTarget)
+        if (pTarget->GetObjectGuid() != m_previousTarget)
         {
             m_creature->SetInFront(pTarget);
             m_creature->SetTargetGuid(pTarget->GetObjectGuid());
-            previousTarget = pTarget->GetObjectGuid();
+            m_previousTarget = pTarget->GetObjectGuid();
         }
-        DoCastSpellIfCan(pTarget, SPELL_HATEFULSTRIKE, CF_TRIGGERED);
+
+        if (m_creature->CastSpell(pTarget, pHatefulStrike, false) == SPELL_FAILED_OUT_OF_RANGE)
+        {
+            if (++m_failedStrikes >= 3)
+            {
+                if (Player* pPlayer = pTarget->ToPlayer())
+                    if (!pPlayer->IsBeingTeleported())
+                        m_creature->CastSpell(pPlayer, SPELL_SUMMON_PLAYER, true);
+            }
+        }
+        else
+            m_failedStrikes = 0;
     }
 
     bool CustomGetTarget()
@@ -197,17 +217,17 @@ struct boss_patchwerkAI : public ScriptedAI
         if (target)
         {
             // Nostalrius : Correction bug sheep/fear
-            if (!m_creature->HasUnitState(UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED | UNIT_STAT_DIED | UNIT_STAT_CONFUSED | UNIT_STAT_FLEEING)
+            if (!m_creature->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED | UNIT_STATE_FEIGN_DEATH | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING)
                 && (!m_creature->HasAuraType(SPELL_AURA_MOD_FEAR) || m_creature->HasAuraType(SPELL_AURA_PREVENTS_FLEEING)) && !m_creature->HasAuraType(SPELL_AURA_MOD_CONFUSE))
             {
                 if (!m_creature->IsAttackReady(BASE_ATTACK) && m_creature->CanReachWithMeleeAutoAttack(target)) // he does not have offhand attack
                     return true;
 
-                if (target->GetObjectGuid() != previousTarget)
+                if (target->GetObjectGuid() != m_previousTarget)
                 {
                     m_creature->SetInFront(target);
                     m_creature->SetTargetGuid(target->GetObjectGuid());
-                    previousTarget = target->GetObjectGuid();
+                    m_previousTarget = target->GetObjectGuid();
                 }
                 AttackStart(target);
             }
@@ -226,7 +246,7 @@ struct boss_patchwerkAI : public ScriptedAI
         {
             for (const auto itr : m_creature->GetAttackers())
             {
-                if (itr->IsInMap(m_creature) && itr->IsTargetableForAttack())
+                if (itr->IsInMap(m_creature) && itr->IsTargetableBy(m_creature))
                     return false;
             }
         }

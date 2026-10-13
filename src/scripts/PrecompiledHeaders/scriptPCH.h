@@ -6,7 +6,6 @@
 #define SC_PRECOMPILED_H
 
 #include "Mail.h"
-#include "Nostalrius.h"
 #include "ScriptMgr.h"
 #include "Object.h"
 #include "ObjectMgr.h"
@@ -27,14 +26,10 @@
 #include "SpellAuras.h"
 #include "TemporarySummon.h"
 #include "NullCreatureAI.h"
-#include "Chat.h"
 #include "BattleGroundAV.h"
 #include "World.h"
 #include "Weather.h"
 #include "TotemAI.h"
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include "Utilities/Random.h"
 
 #endif

@@ -77,14 +77,14 @@ bool WDTFile::init(char* map_id, unsigned int mapID)
                 WDT.read(buf, size);
                 char* p = buf;
                 int q = 0;
-                gWmoInstansName = new string[size];
                 while (p < buf + size)
                 {
-                    string path(p);
+                    std::string path(p);
                     char* s = wdtGetPlainName(p);
-                    fixnamen(s, strlen(s));
+                    FixNameCase(s, strlen(s));
+                    // FixNameSpaces(s, strlen(s)); // Not needed for WMO names in WDT files
                     p = p + strlen(p) + 1;
-                    gWmoInstansName[q++] = s;
+                    m_wmoNames.push_back(s);
                 }
                 delete[] buf;
             }
@@ -102,14 +102,14 @@ bool WDTFile::init(char* map_id, unsigned int mapID)
                 gWMO_mapname = fake_mapname + std::string(map_id);
                 for (int i = 0; i < gnWMO; ++i)
                 {
-                    int id;
+                    uint32 id;
                     WDT.read(&id, 4);
-                    WMOInstance inst(WDT, gWmoInstansName[id].c_str(), mapID, 65, 65, dirfile);
+                    WMOInstance inst(WDT, m_wmoNames[id].c_str(), mapID, 65, 65, dirfile);
+                    Doodad::ExtractSet(WmoDoodads[m_wmoNames[id]], inst.m_wmo, mapID, 65, 65, dirfile);
                 }
-                delete[] gWmoInstansName;
             }
         }
-        WDT.seek((int)nextpos);
+        WDT.seek(nextpos);
     }
 
     WDT.close();
@@ -129,6 +129,6 @@ ADTFile* WDTFile::GetMap(int x, int z)
 
     char name[512];
 
-    sprintf(name, "World\\Maps\\%s\\%s_%d_%d.adt", filename.c_str(), filename.c_str(), x, z);
+    snprintf(name, sizeof(name), "World\\Maps\\%s\\%s_%d_%d.adt", filename.c_str(), filename.c_str(), x, z);
     return new ADTFile(name);
 }

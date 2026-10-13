@@ -33,8 +33,14 @@ class ConfusedMovementGenerator : public MovementGeneratorMedium< T, ConfusedMov
         void Interrupt(T &);
         void Reset(T &);
         bool Update(T &, uint32 const&);
+        void SetStartPosition(float x, float y, float z)
+        {
+            i_x = x;
+            i_y = y;
+            i_z = z;
+        }
 
-        MovementGeneratorType GetMovementGeneratorType() const { return CONFUSED_MOTION_TYPE; }
+        MovementGeneratorType GetMovementGeneratorType() const override { return CONFUSED_MOTION_TYPE; }
     private:
         float i_x, i_y, i_z;
 };

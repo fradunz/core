@@ -24,7 +24,9 @@
 #include "Database/DatabaseEnv.h"
 #include "Opcodes.h"
 #include "WorldPacket.h"
+#include "WorldSession.h"
 #include "MasterPlayer.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "World.h"
 #include "Util.h"
@@ -110,10 +112,8 @@ void PlayerSocial::SendFriendList()
     MasterPlayer* plr = GetMasterPlayer();
     ASSERT(plr);
 
-    uint32 size = GetNumberOfSocialsWithFlag(SOCIAL_FLAG_FRIEND);
-
-    WorldPacket data(SMSG_FRIEND_LIST, (1 + size * 25)); // just can guess size
-    data << uint8(size);                                   // friends count
+    auto packet = std::make_unique<WorldPackets::Social::FriendList>();
+    packet->friends.reserve(GetNumberOfSocialsWithFlag(SOCIAL_FLAG_FRIEND));
 
     for (auto& itr : m_playerSocialMap)
     {
@@ -122,19 +122,20 @@ void PlayerSocial::SendFriendList()
             FriendInfo& friendInfo = itr.second;
             sSocialMgr.GetFriendInfo(plr, itr.first, friendInfo);
 
-            data << ObjectGuid(HIGHGUID_PLAYER, itr.first);// player guid
-            data << uint8(friendInfo.Status);              // online/offline/etc?
-            if (friendInfo.Status)                         // if online
+            WorldPackets::Social::FriendList::Entry entry;
+            entry.playerGuid = ObjectGuid(HIGHGUID_PLAYER, itr.first);
+            entry.status = friendInfo.Status;
+            if (friendInfo.Status) // if online
             {
-                data << uint32(friendInfo.Area);           // player area
-                data << uint32(friendInfo.Level);          // player level
-                data << uint32(friendInfo.Class);          // player class
+                entry.area = friendInfo.Area;
+                entry.level = friendInfo.Level;
+                entry.class_ = friendInfo.Class;
             }
+            packet->friends.push_back(entry);
         }
     }
 
-    plr->GetSession()->SendPacket(&data);
-    DEBUG_LOG("WORLD: Sent SMSG_FRIEND_LIST");
+    plr->GetSession()->SendPacket(std::move(packet));
 }
 
 void PlayerSocial::SendIgnoreList()
@@ -142,18 +143,14 @@ void PlayerSocial::SendIgnoreList()
     MasterPlayer* plr = GetMasterPlayer();
     ASSERT(plr);
 
-    uint32 size = GetNumberOfSocialsWithFlag(SOCIAL_FLAG_IGNORED);
-
-    WorldPacket data(SMSG_IGNORE_LIST, (1 + size * 8));     // just can guess size
-    data << uint8(size);                                    // friends count
+    auto packet = std::make_unique<WorldPackets::Social::IgnoreList>();
+    packet->ignoredPlayers.reserve(GetNumberOfSocialsWithFlag(SOCIAL_FLAG_IGNORED));
 
     for (const auto& itr : m_playerSocialMap)
         if (itr.second.Flags & SOCIAL_FLAG_IGNORED)
-            data << ObjectGuid(HIGHGUID_PLAYER, itr.first);// player guid
+            packet->ignoredPlayers.emplace_back(HIGHGUID_PLAYER, itr.first); // player guid
 
-
-    plr->GetSession()->SendPacket(&data);
-    DEBUG_LOG("WORLD: Sent SMSG_IGNORE_LIST");
+    plr->GetSession()->SendPacket(std::move(packet));
 }
 
 bool PlayerSocial::HasFriend(ObjectGuid friend_guid) const
@@ -237,45 +234,45 @@ void SocialMgr::GetFriendInfo(MasterPlayer* player, uint32 friend_lowguid, Frien
     }
 }
 
-void SocialMgr::MakeFriendStatusPacket(FriendsResult result, uint32 guid, WorldPacket* data)
-{
-    data->Initialize(SMSG_FRIEND_STATUS, 5);
-    *data << uint8(result);
-    *data << ObjectGuid(HIGHGUID_PLAYER, guid);
-}
-
 void SocialMgr::SendFriendStatus(MasterPlayer* player, FriendsResult result, ObjectGuid friend_guid, bool broadcast)
 {
     uint32 friend_lowguid = friend_guid.GetCounter();
 
     FriendInfo fi;
-
-    WorldPacket data;
-    MakeFriendStatusPacket(result, friend_lowguid, &data);
     GetFriendInfo(player, friend_lowguid, fi);
+
+    auto packet = std::make_unique<WorldPackets::Social::FriendStatus>();
+    packet->result = result;
+    packet->friendGuid = ObjectGuid(HIGHGUID_PLAYER, friend_lowguid);
 
     switch (result)
     {
         case FRIEND_ADDED_ONLINE:
         case FRIEND_ONLINE:
+            packet->hasOnlineInfo = true;
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
-            data << uint8(fi.Status);
+            packet->status = fi.Status;
 #endif
-            data << uint32(fi.Area);
-            data << uint32(fi.Level);
-            data << uint32(fi.Class);
+            packet->area = fi.Area;
+            packet->level = fi.Level;
+            packet->class_ = fi.Class;
             break;
         default:
             break;
     }
 
     if (broadcast)
+    {
+        // TODO Use broadcaster which does the binary conversion automatically
+        WorldPacket data;
+        packet->WritePacket(data);
         BroadcastToFriendListers(player, &data);
+    }
     else
-        player->GetSession()->SendPacket(&data);
+        player->GetSession()->SendPacket(std::move(packet));
 }
 
-void SocialMgr::BroadcastToFriendListers(MasterPlayer* player, WorldPacket* packet)
+void SocialMgr::BroadcastToFriendListers(MasterPlayer const* player, WorldPacket const* packet)
 {
     if (!player)
         return;
@@ -286,7 +283,7 @@ void SocialMgr::BroadcastToFriendListers(MasterPlayer* player, WorldPacket* pack
     AccountTypes gmLevelInWhoList = AccountTypes(sWorld.getConfig(CONFIG_UINT32_GM_LEVEL_IN_WHO_LIST));
     bool allowTwoSideWhoList = sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_WHO_LIST);
 
-    ACE_Guard<ACE_Thread_Mutex> guard(_socialMapLock);
+    std::shared_lock<std::shared_timed_mutex> guard(_socialMapLock);
     for (const auto& itr : m_socialMap)
     {
         PlayerSocialMap::const_iterator itr2 = itr.second.m_playerSocialMap.find(guid);
@@ -305,16 +302,16 @@ void SocialMgr::BroadcastToFriendListers(MasterPlayer* player, WorldPacket* pack
     }
 }
 
-PlayerSocial* SocialMgr::LoadFromDB(QueryResult* result, ObjectGuid guid)
+PlayerSocial* SocialMgr::LoadFromDB(std::unique_ptr<QueryResult> result, ObjectGuid guid)
 {
-    ACE_Guard<ACE_Thread_Mutex> guard(_socialMapLock);
-    PlayerSocial* social = &m_socialMap[guid.GetCounter()];
+    std::unique_lock<std::shared_timed_mutex> guard(_socialMapLock);
+    PlayerSocial *social = &m_socialMap[guid.GetCounter()];
     social->SetPlayerGuid(guid);
 
     if (!result)
         return social;
 
-    uint32 friend_guid = 0;
+    uint32 friendLowGuid = 0;
     uint32 flags = 0;
 
     // used to speed up check below. Using GetNumberOfSocialsWithFlag will cause unneeded iteration
@@ -324,7 +321,7 @@ PlayerSocial* SocialMgr::LoadFromDB(QueryResult* result, ObjectGuid guid)
     {
         Field* fields  = result->Fetch();
 
-        friend_guid = fields[0].GetUInt32();
+        friendLowGuid = fields[0].GetUInt32();
         flags = fields[1].GetUInt32();
 
         if ((flags & SOCIAL_FLAG_IGNORED) && ignoreCounter >= SOCIALMGR_IGNORE_LIMIT)
@@ -332,7 +329,11 @@ PlayerSocial* SocialMgr::LoadFromDB(QueryResult* result, ObjectGuid guid)
         if ((flags & SOCIAL_FLAG_FRIEND) && friendCounter >= SOCIALMGR_FRIEND_LIMIT)
             continue;
 
-        social->m_playerSocialMap[friend_guid] = FriendInfo(flags);
+        // character deleted from account, don't load it until it's restored
+        if (!sObjectMgr.GetPlayerAccountIdByGUID(ObjectGuid(HIGHGUID_PLAYER, friendLowGuid)))
+            continue;
+
+        social->m_playerSocialMap[friendLowGuid] = FriendInfo(flags);
 
         if (flags & SOCIAL_FLAG_IGNORED)
             ignoreCounter++;
@@ -345,6 +346,6 @@ PlayerSocial* SocialMgr::LoadFromDB(QueryResult* result, ObjectGuid guid)
 
 void SocialMgr::RemovePlayerSocial(uint32 guid)
 {
-    ACE_Guard<ACE_Thread_Mutex> guard(_socialMapLock);
+    std::unique_lock<std::shared_timed_mutex> guard(_socialMapLock);
     m_socialMap.erase(guid);
 }

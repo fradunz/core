@@ -4,7 +4,7 @@
 
 #include "scriptPCH.h"
 #include "dire_maul.h"
-#include "../../../custom/npc_j_eevee.h"
+#include "../../../world/npc_j_eevee.h"
 
 enum
 {
@@ -14,8 +14,8 @@ enum
     GOBJ_FEL_FIRE           = /*179676,*/179681,
     GOBJ_DREADSTEED_PORTAL  = 179681,
     GOBJ_RITUAL_CIRCLE      = 179668,
-    GOBJ_PEDESTAL           = 300050,
-    GOBJ_DARK_CIRCLE        = 300051,
+    GOBJ_PEDESTAL           = 179701,
+    GOBJ_DARK_CIRCLE        = 179675,
 
     GOBJ_RUNE_TYPE_1        = 179669, //99776, 99779, 99782
     GOBJ_RUNE_TYPE_2        = 179670, //99775, 99778, 99781
@@ -42,9 +42,8 @@ enum
     SPELL_BELL_AURA         = 23117,
     SPELL_CANDLE_AURA       = 23226,
 
-    SAY_HEL_NURATH          = -1780201,
-    SAY_IMP_DESPAWN         = -1780202,
-    SAY_DREAD_GUARD_DESPAWN = -1780203
+    SAY_HEL_NURATH          = 9727,
+    SAY_DEMON_DESPAWN       = 9768
 };
 
 struct EventLocations
@@ -92,7 +91,7 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
             if (gobj = me->GetMap()->GetGameObject(guid))
                 guidGlyphTab[i] = guid;
             else
-                sLog.outString("Dreadsteed Ritual : cannot find Rune %u", guidGlyphTab[i]);
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_MINIMAL, "Dreadsteed Ritual : cannot find Rune %u", guidGlyphTab[i]);
 
         }
         for (int i = 0; i < 3; i++)
@@ -103,7 +102,7 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
                 nodes[i].up = false;
             }
             else
-                sLog.outString("Dreadsteed Ritual : cannot find Node %u", guidGlyphTab[i]);
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_MINIMAL, "Dreadsteed Ritual : cannot find Node %u", guidGlyphTab[i]);
 
         }
         if (gobj = me->FindNearestGameObject(GOBJ_RITUAL_CIRCLE, 30.000000))
@@ -182,14 +181,14 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
         for (const auto& it : lCrea)
         {
             if (it->IsAlive())
-                DoScriptText(SAY_IMP_DESPAWN, it);
+                DoScriptText(SAY_DEMON_DESPAWN, it);
             it->DisappearAndDie();
         }
         me->GetCreatureListWithEntryInGrid(lCrea, NPC_DREAD_GUARD, 30.0f);
         for (const auto& it : lCrea)
         {
             if (it->IsAlive())
-                DoScriptText(SAY_DREAD_GUARD_DESPAWN, it);
+                DoScriptText(SAY_DEMON_DESPAWN, it);
             it->DisappearAndDie();
         }
     }
@@ -229,14 +228,14 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
         for (const auto& it : lCrea)
         {
             if (it->IsAlive())
-                DoScriptText(SAY_IMP_DESPAWN, it);
+                DoScriptText(SAY_DEMON_DESPAWN, it);
             it->DisappearAndDie();
         }
         me->GetCreatureListWithEntryInGrid(lCrea, NPC_DREAD_GUARD, 30.0f);
         for (const auto& it : lCrea)
         {
             if (it->IsAlive())
-                DoScriptText(SAY_DREAD_GUARD_DESPAWN, it);
+                DoScriptText(SAY_DEMON_DESPAWN, it);
             it->DisappearAndDie();
         }
         reset();
@@ -383,7 +382,7 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
             crea->SetHomePosition(x, y, z, 0);
             crea->GetMotionMaster()->Clear();
             crea->GetMotionMaster()->Initialize();
-            crea->GetMotionMaster()->MovePoint(1, x, y, z, true);
+            crea->GetMotionMaster()->MovePoint(1, x, y, z, MOVE_PATHFINDING);
         }
     }
     void SummonGuard()
@@ -398,7 +397,7 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
             crea->SetHomePosition(x, y, z, 0);
             crea->GetMotionMaster()->Clear();
             crea->GetMotionMaster()->Initialize();
-            crea->GetMotionMaster()->MovePoint(1, x, y, z, true);
+            crea->GetMotionMaster()->MovePoint(1, x, y, z, MOVE_PATHFINDING);
         }
     }
     EventLocations spawnPoints[18];//not using m_wait though
@@ -428,7 +427,7 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
                             crea->SetHomePosition(x, y, z, 0);
                             crea->GetMotionMaster()->Clear();
                             crea->GetMotionMaster()->Initialize();
-                            crea->GetMotionMaster()->MovePoint(1, x, y, z, true);
+                            crea->GetMotionMaster()->MovePoint(1, x, y, z, MOVE_PATHFINDING);
                         }
                     }
                     waveTimer = 60000;
@@ -579,15 +578,21 @@ struct go_pedestal_of_immol_tharAI: public GameObjectAI
             {
                 case 0:
                     //pop horse
-                    if (crea = me->SummonCreature(NPC_XOROTHIAN_DREADSTEED, x, y, z, 0.0f, TEMPSUMMON_DEAD_DESPAWN, 0))
+                    if (crea = me->SummonCreature(NPC_XOROTHIAN_DREADSTEED, -39.0447f, 812.591f, -29.4525f, 1.39626f, TEMPSUMMON_DEAD_DESPAWN, 0))
                     {
                     }
                     waveTimer = 10000;
                     waveStep++;
                     break;
                 case 1:
-                    if (crea = me->SummonCreature(NPC_LORD_HEL_NURATH, x, y, z, 0.0f, TEMPSUMMON_DEAD_DESPAWN, 0))
+                    if (crea = me->SummonCreature(NPC_LORD_HEL_NURATH, -39.5763f, 812.786f, -29.4525f, 2.26893f, TEMPSUMMON_DEAD_DESPAWN, 0))
+                    {
                         DoScriptText(SAY_HEL_NURATH, crea);
+                        crea->m_Events.AddLambdaEventAtOffset([crea]()
+                        {
+                            crea->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER);
+                        }, 5000);
+                    }
                     waveTimer = 210000;
                     waveStep++;
                     break;
@@ -731,7 +736,7 @@ bool GOHello_go_ritual_node(Player* pPlayer, GameObject* pGo)
             pPedestalAI->NodeUpped(pGo);
     }
     else
-        sLog.outString("Dreadsteed Ritual : GOBJ_PEDESTAL not found");
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_MINIMAL, "Dreadsteed Ritual : GOBJ_PEDESTAL not found");
     return true;
 }
 
@@ -809,7 +814,7 @@ enum
     //spells are absolutely certain.
     SPELL_BERSERKER_CHARGE          = 16636, //OK
     SPELL_FLAME_BUFFET              = 22713, //OK
-    SPELL_SUMMON_DREADSTEED_SPIRIT  = 23159, //marche en étant mort?
+    SPELL_SUMMON_DREADSTEED_SPIRIT  = 23159, //works while dead?
     SPELL_SHADOW_WORD               = 17146, //OK
     SPELL_VEIL_OF_SHADOW            = 23224, //OK
     SPELL_SLEEP                     = 20989, //OK
@@ -841,7 +846,7 @@ struct boss_lordHelNurathAI : public ScriptedAI
             return;
         if (m_uiShadowWord_Timer < uiDiff)
         {
-            //penser à vérifier qu'il change de target si la cible est sleep
+            // remember to check that it changes target if the target is asleep
             if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_SHADOW_WORD) == CAST_OK)
                 m_uiShadowWord_Timer = urand(10000, 30000);
         }
@@ -899,7 +904,7 @@ struct boss_xorothianDreadsteedAI : public ScriptedAI
             return;
         if (m_uiCharge_Timer < uiDiff)
         {
-            //penser à vérifier qu'il change de target si la cible est sleep
+            // remember to check that it changes target if the target is asleep
             if (DoCastSpellIfCan(m_creature->SelectAttackingTarget(ATTACKING_TARGET_RANDOM, 0), SPELL_BERSERKER_CHARGE) == CAST_OK)
                 m_uiCharge_Timer = urand(10000, 18000);
         }

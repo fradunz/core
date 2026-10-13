@@ -19,20 +19,20 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-/// \addtogroup mangosd
-/// @{
-/// \file
+// \addtogroup mangosd
+// @{
+// \file
 
 #include "Common.h"
-#include "Log.h"
 #include "World.h"
 #include "Config/Config.h"
 #include "Util.h"
 #include "CliRunnable.h"
-#include "Chat.h"
-#include "Chat/AsyncCommandHandlers.h"
+#include "Database/DatabaseEnv.h"
 
-#include <iterator>
+#if PLATFORM == PLATFORM_APPLE
+#include <sys/select.h>
+#endif
 
 void utf8print(void* /*arg*/, const char* str)
 {
@@ -63,7 +63,7 @@ void commandFinished(void*, bool /*sucess*/)
     fflush(stdout);
 }
 
-/// @}
+// @}
 
 #ifdef linux
 // Non-blocking keypress detector, when return pressed, return 1, else always return 0
@@ -80,25 +80,23 @@ int kb_hit_return()
 }
 #endif
 
-/// %Thread start
-void CliRunnable::run()
+// %Thread start
+void CliRunnable::operator()()
 {
-    ///- Init new SQL thread for the world database (one connection call enough)
+    // Init new SQL thread for the world database (one connection call enough)
     WorldDatabase.ThreadStart();                                // let thread do safe mySQL requests
 
     char commandbuf[256];
 
-    ///- Display the list of available CLI functions then beep
-    sLog.outString();
-
+    // Display the list of available CLI functions then beep
     if (sConfig.GetBoolDefault("BeepAtStart", true))
         printf("\a");                                       // \a = Alert
 
     // print this here the first time
     // later it will be printed after command queue updates
-    printf("mangos>");
+    printf("\nmangos>");
 
-    ///- As long as the World is running (no World::m_stopEvent), get the command line and handle it
+    // As long as the World is running (no World::m_stopEvent), get the command line and handle it
     while (!World::IsStopped())
     {
         fflush(stdout);
@@ -109,6 +107,30 @@ void CliRunnable::run()
         if (World::IsStopped())
             break;
         #endif
+
+#ifndef WIN32
+
+        int retval;
+        do
+        {
+            fd_set rfds;
+            struct timeval tv;
+            tv.tv_sec = 1;
+            tv.tv_usec = 0;
+
+            FD_ZERO(&rfds);
+            FD_SET(0, &rfds);
+
+            retval = select(1, &rfds, nullptr, nullptr, &tv);
+        } while (!retval);
+
+        if (retval == -1)
+        {
+            World::StopNow(SHUTDOWN_EXIT_CODE);
+            break;
+        }
+#endif
+
         char *command_str = fgets(commandbuf,sizeof(commandbuf),stdin);
         if (command_str != nullptr)
         {
@@ -141,6 +163,6 @@ void CliRunnable::run()
         }
     }
 
-    ///- End the database thread
+    // End the database thread
     WorldDatabase.ThreadEnd();                                  // free mySQL thread resources
 }

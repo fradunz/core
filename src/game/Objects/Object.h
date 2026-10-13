@@ -23,92 +23,55 @@
 #define _OBJECT_H
 
 #include "Common.h"
+#include "Log.h"
+#include "Errors.h"
 #include "ByteBuffer.h"
 #include "UpdateFields.h"
 #include "UpdateData.h"
 #include "ObjectGuid.h"
-#include "Camera.h"
 #include "SharedDefines.h"
-#include "SpellDefines.h"
+#include "ObjectDefines.h"
+#include "MovementInfo.h"
 #include "DBCEnums.h"
-#include "Utilities/EventProcessor.h"
+#include "Util.h"
+#include "Timer.h"
+#include "Camera.h"
+#include "Cell.h"
 
-#include <set>
-#include <string>
-#include <array>
 #include <memory>
+#include <string>
 
-#define CONTACT_DISTANCE            0.5f
-#define INTERACTION_DISTANCE        5.0f
-#define ATTACK_DISTANCE             5.0f
-#define INSPECT_DISTANCE            10.0f
-#define TRADE_DISTANCE              11.11f
-
-#define MAX_VISIBILITY_DISTANCE     SIZE_OF_GRIDS      // max distance for visible object show, used to be 333 yards
-#define DEFAULT_VISIBILITY_DISTANCE 100.0f             // default visible distance on continents, used to be 90 yards
-#define DEFAULT_VISIBILITY_INSTANCE 170.0f             // default visible distance in instances, used to be 120 yards
-#define DEFAULT_VISIBILITY_BG       533.0f             // default visible distance in BG, used to be 180 yards
-#define DEFAULT_VISIBILITY_MODIFIER 0.0f               // default visibility modifier on some units that should be seen beyond normal visibility distances
-#define DEFAULT_CREATURE_SUMMON_LIMIT  100             // default maximum number of creatures an object can have summoned at once
-
-#define VISIBILITY_DISTANCE_GIGANTIC    400.0f
-#define VISIBILITY_DISTANCE_LARGE       200.0f
-#define VISIBILITY_DISTANCE_NORMAL      100.0f
-#define VISIBILITY_DISTANCE_SMALL       50.0f
-#define VISIBILITY_DISTANCE_TINY        25.0f
-
-#define DEFAULT_WORLD_OBJECT_SIZE   0.388999998569489f      // currently used (correctly?) for any non Unit world objects. This is actually the bounding_radius, like player/creature from creature_model_data
-#define DEFAULT_OBJECT_SCALE        1.0f                    // player/item scale as default, npc/go from database, pets from dbc
-#define DEFAULT_TAUREN_MALE_SCALE   1.35f                   // Tauren Male Player Scale by default
-#define DEFAULT_TAUREN_FEMALE_SCALE 1.25f                   // Tauren Female Player Scale by default
-
-#define MAX_STEALTH_DETECT_RANGE    45.0f
-
-// TrinityCore
-#define DEFAULT_COMBAT_REACH        1.5f
-#define MIN_MELEE_REACH             2.0f
-#define NOMINAL_MELEE_RANGE         5.0f
-#define MELEE_RANGE                 (NOMINAL_MELEE_RANGE - MIN_MELEE_REACH * 2)
-
-#define LEEWAY_MIN_MOVE_SPEED       4.97f
-#define LEEWAY_BONUS_RANGE          2.66f
-
-enum TempSummonType
-{
-    TEMPSUMMON_TIMED_OR_DEAD_DESPAWN          = 1,             // despawns after a specified time (out of combat) OR when the creature disappears
-    TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN        = 2,             // despawns after a specified time (out of combat) OR when the creature dies
-    TEMPSUMMON_TIMED_DESPAWN                  = 3,             // despawns after a specified time
-    TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT    = 4,             // despawns after a specified time after the creature is out of combat
-    TEMPSUMMON_CORPSE_DESPAWN                 = 5,             // despawns instantly after death
-    TEMPSUMMON_CORPSE_TIMED_DESPAWN           = 6,             // despawns after a specified time after death
-    TEMPSUMMON_DEAD_DESPAWN                   = 7,             // despawns when the creature disappears
-    TEMPSUMMON_MANUAL_DESPAWN                 = 8,             // despawns when UnSummon() is called
-    TEMPSUMMON_TIMED_COMBAT_OR_DEAD_DESPAWN   = 9,             // despawns after a specified time (in or out of combat) OR when the creature disappears
-    TEMPSUMMON_TIMED_COMBAT_OR_CORPSE_DESPAWN = 10,            // despawns after a specified time (in or out of combat) OR when the creature dies
-};
-
+class ServerPacket;
 class WorldPacket;
 class UpdateData;
-class WorldSession;
+class Corpse;
 class Creature;
+class Pet;
 class Player;
 class Unit;
+class GameObject;
+class SpellCaster;
 class Map;
-class Item;
-class Aura;
 class UpdateMask;
 class InstanceData;
 class TerrainInfo;
 class ZoneScript;
-class Transport;
-class SpellEntry;
-class Spell;
-struct ItemPrototype;
-class ChatHandler;
-
+class GenericTransport;
+struct FactionEntry;
 struct FactionTemplateEntry;
 
+class NULLNotifier
+{
+public:
+    template<class T> void Visit(GridRefManager<T>& m) {}
+    void Visit(CameraMapType&) {}
+};
+
 typedef std::unordered_map<Player*, UpdateData> UpdateDataMapType;
+
+static constexpr float QUEST_SHARE_DISTANCE = 14.0f;
+
+static constexpr Milliseconds const HEARTBEAT_INTERVAL = Milliseconds(BATCHING_INTERVAL * 13);
 
 //use this class to measure time between world update ticks
 //essential for units updating their spells after cells become active
@@ -137,165 +100,6 @@ class WorldUpdateCounter
         uint32 m_tmStart;
 };
 
-
-enum ObjectSpawnFlags
-{
-    SPAWN_FLAG_ACTIVE               = 0x01,
-    SPAWN_FLAG_DISABLED             = 0x02,
-    SPAWN_FLAG_RANDOM_RESPAWN_TIME  = 0x04,
-    SPAWN_FLAG_DYNAMIC_RESPAWN_TIME = 0x08,
-    SPAWN_FLAG_FORCE_DYNAMIC_ELITE  = 0x10, // creature only
-    SPAWN_FLAG_EVADE_OUT_HOME_AREA  = 0x20, // creature only
-    SPAWN_FLAG_NOT_VISIBLE          = 0x40, // creature only
-    SPAWN_FLAG_DEAD                 = 0x80, // creature only
-};
-
-// [-ZERO] Need check and update
-// used in most movement packets (send and received)
-enum MovementFlags
-{
-    MOVEFLAG_NONE               = 0x00000000,
-    MOVEFLAG_FORWARD            = 0x00000001,
-    MOVEFLAG_BACKWARD           = 0x00000002,
-    MOVEFLAG_STRAFE_LEFT        = 0x00000004,
-    MOVEFLAG_STRAFE_RIGHT       = 0x00000008,
-    MOVEFLAG_TURN_LEFT          = 0x00000010,
-    MOVEFLAG_TURN_RIGHT         = 0x00000020,
-    MOVEFLAG_PITCH_UP           = 0x00000040,
-    MOVEFLAG_PITCH_DOWN         = 0x00000080,
-    MOVEFLAG_WALK_MODE          = 0x00000100,               // Walking
-    //MOVEFLAG_ONTRANSPORT        = 0x00000200, // ??
-    MOVEFLAG_LEVITATING         = 0x00000400, // ?? Semble ne pas fonctionner
-    MOVEFLAG_FIXED_Z            = 0x00000800, // Hauteur fixee. Sauter => Defiler sur toute la map
-    MOVEFLAG_ROOT               = 0x00001000, // Fix Nostalrius
-    MOVEFLAG_JUMPING            = 0x00002000,
-    MOVEFLAG_FALLINGFAR         = 0x00004000,
-    // Fin TC
-    MOVEFLAG_SWIMMING           = 0x00200000, // Ok
-    MOVEFLAG_SPLINE_ENABLED     = 0x00400000, // Ok
-    // 0x00800000 = 'MOVEMENTFLAG_DESCENDING' pour TrinityCore
-    MOVEFLAG_CAN_FLY            = 0x00800000,               // [-ZERO] is it really need and correct value
-    MOVEFLAG_FLYING             = 0x01000000,               // [-ZERO] is it really need and correct value
-
-    MOVEFLAG_ONTRANSPORT        = 0x02000000,               // Used for flying on some creatures
-    MOVEFLAG_SPLINE_ELEVATION   = 0x04000000,               // used for flight paths
-
-    MOVEFLAG_WATERWALKING       = 0x10000000,               // prevent unit from falling through water
-    MOVEFLAG_SAFE_FALL          = 0x20000000,               // active rogue safe fall spell (passive)
-    MOVEFLAG_HOVER              = 0x40000000,
-    MOVEFLAG_INTERNAL           = 0x80000000,
-
-    // Can not be present with MOVEFLAG_ROOT (otherwise client freeze)
-    MOVEFLAG_MASK_MOVING        =
-        MOVEFLAG_FORWARD | MOVEFLAG_BACKWARD | MOVEFLAG_STRAFE_LEFT | MOVEFLAG_STRAFE_RIGHT |
-        MOVEFLAG_PITCH_UP | MOVEFLAG_PITCH_DOWN | MOVEFLAG_JUMPING | MOVEFLAG_FALLINGFAR |
-        MOVEFLAG_SPLINE_ELEVATION,
-    MOVEFLAG_MASK_MOVING_OR_TURN= MOVEFLAG_MASK_MOVING | MOVEFLAG_TURN_LEFT | MOVEFLAG_TURN_RIGHT,
-
-    // MovementFlags mask that only contains flags for x/z translations
-    // this is to avoid that a jumping character that stands still triggers melee-leeway
-    MOVEFLAG_MASK_XZ = MOVEFLAG_FORWARD | MOVEFLAG_BACKWARD | MOVEFLAG_STRAFE_LEFT | MOVEFLAG_STRAFE_RIGHT
-};
-
-// used in SMSG_MONSTER_MOVE
-enum SplineFlags
-{
-    // Valeurs correctes et testees pour la 1.12.1
-    SPLINEFLAG_NONE           = 0x00000000,
-    SPLINEFLAG_WALKMODE       = 0x00000100,
-    SPLINEFLAG_FLYING         = 0x00000200,
-
-    SPLINEFLAG_SPLINE         = 0x00002000,               // spline n*(float x,y,z)
-};
-
-class MovementInfo
-{
-    public:
-        MovementInfo() : moveFlags(MOVEFLAG_NONE), time(0), ctime(0),
-            t_time(0), s_pitch(0.0f), fallTime(0), splineElevation(0.0f) {}
-
-        // Read/Write methods
-        void Read(ByteBuffer &data);
-        void Write(ByteBuffer &data) const;
-        void CorrectData(Unit* mover = nullptr);
-
-        // Movement flags manipulations
-        void AddMovementFlag(int f) { moveFlags |= f; }
-        void RemoveMovementFlag(int f) { moveFlags &= ~f; }
-        bool HasMovementFlag(int f) const { return moveFlags & f; }
-        MovementFlags GetMovementFlags() const { return MovementFlags(moveFlags); }
-        void SetMovementFlags(MovementFlags f) { moveFlags = f; }
-
-        // Position manipulations
-        Position const* GetPos() const { return &pos; }
-        void SetTransportData(ObjectGuid guid, float x, float y, float z, float o, uint32 time)
-        {
-            t_guid = guid;
-            t_pos.x = x;
-            t_pos.y = y;
-            t_pos.z = z;
-            t_pos.o = o;
-            t_time = time;
-        }
-        void ClearTransportData()
-        {
-            t_guid = ObjectGuid();
-            t_pos.x = 0.0f;
-            t_pos.y = 0.0f;
-            t_pos.z = 0.0f;
-            t_pos.o = 0.0f;
-            t_time = 0;
-        }
-        ObjectGuid const& GetTransportGuid() const { return t_guid; }
-        Position const* GetTransportPos() const { return &t_pos; }
-        Position* GetTransportPos() { return &t_pos; }
-        uint32 GetTransportTime() const { return t_time; }
-        uint32 GetFallTime() const { return fallTime; }
-        void ChangeOrientation(float o) { pos.o = o; }
-        void ChangePosition(float x, float y, float z, float o) { pos.x = x; pos.y = y; pos.z = z; pos.o = o; }
-        void UpdateTime(uint32 _time) { time = _time; }
-
-        struct JumpInfo
-        {
-            JumpInfo() : velocity(0.f), sinAngle(0.f), cosAngle(0.f), xyspeed(0.f), startClientTime(0) {}
-            float   velocity, sinAngle, cosAngle, xyspeed;
-            Position start;
-            uint32 startClientTime;
-        };
-
-        JumpInfo const& GetJumpInfo() const { return jump; }
-    //private:
-        // common
-        uint32  moveFlags;                                  // see enum MovementFlags
-        uint32  time;
-        uint32  ctime; // Client time
-        Position pos;
-        // transport
-        ObjectGuid t_guid;
-        Position t_pos;
-        uint32  t_time;
-        // swimming and unknown
-        float   s_pitch;
-        // last fall time
-        uint32  fallTime;
-        // jumping
-        JumpInfo jump;
-        // spline
-        float splineElevation;
-};
-
-inline ByteBuffer& operator<< (ByteBuffer& buf, MovementInfo const& mi)
-{
-    mi.Write(buf);
-    return buf;
-}
-
-inline ByteBuffer& operator>> (ByteBuffer& buf, MovementInfo& mi)
-{
-    mi.Read(buf);
-    return buf;
-}
-
 enum ObjectDelayedAction
 {
     OBJECT_DELAYED_MARK_CLIENT_UPDATE       = 0x1,
@@ -304,168 +108,6 @@ enum ObjectDelayedAction
 };
 
 typedef void(*CreatureAiSetter) (Creature* pCreature);
-
-class CooldownData
-{
-        friend class CooldownContainer;
-    public:
-        CooldownData(TimePoint clockNow, uint32 spellId, uint32 duration, uint32 spellCategory, uint32 categoryDuration, uint32 itemId = 0, bool isPermanent = false) :
-            m_spellId(spellId),
-            m_category(spellCategory),
-            m_expireTime(duration ? std::chrono::milliseconds(duration) + clockNow : TimePoint()),
-            m_catExpireTime(spellCategory && categoryDuration ? std::chrono::milliseconds(categoryDuration) + clockNow : TimePoint()),
-            m_typePermanent(isPermanent),
-            m_itemId(itemId)
-        {}
-
-        // return false if permanent
-        bool GetSpellCDExpireTime(TimePoint& expireTime) const
-        {
-            if (m_typePermanent)
-                return false;
-
-            expireTime = m_expireTime;
-            return true;
-        }
-
-        // return false if permanent
-        bool GetCatCDExpireTime(TimePoint& expireTime) const
-        {
-            if (m_typePermanent)
-                return false;
-
-            expireTime = m_catExpireTime;
-            return true;
-        }
-
-        bool IsSpellCDExpired(TimePoint const& now) const
-        {
-            if (m_typePermanent)
-                return false;
-
-            return now >= m_expireTime;
-        }
-
-        bool IsCatCDExpired(TimePoint const& now) const
-        {
-            if (m_typePermanent)
-                return false;
-
-            if (!m_category)
-                return true;
-
-            if (now >= m_catExpireTime)
-                return true;
-
-            return false;
-        }
-
-        bool IsPermanent() const { return m_typePermanent; }
-        uint32 GetItemId() const { return m_itemId; }
-        uint32 GetSpellId() const { return m_spellId; }
-        uint32 GetCategory() const { return m_category; }
-
-    private:
-        uint32            m_spellId;
-        uint32            m_category;
-        TimePoint         m_expireTime;
-        TimePoint         m_catExpireTime;
-        bool              m_typePermanent;
-        uint32            m_itemId;
-};
-
-typedef std::unique_ptr<CooldownData> CooldownDataUPTR;
-typedef std::map<uint32, TimePoint> GCDMap;
-typedef std::map<SpellSchools, TimePoint> LockoutMap;
-
-class CooldownContainer
-{
-    public:
-        typedef std::map<uint32, CooldownDataUPTR> spellIdMap;
-        typedef spellIdMap::const_iterator ConstIterator;
-        typedef spellIdMap::iterator Iterator;
-        typedef std::map<uint32, ConstIterator> categoryMap;
-
-        void Update(TimePoint const& now)
-        {
-            auto spellCDItr = m_spellIdMap.begin();
-            while (spellCDItr != m_spellIdMap.end())
-            {
-                auto& cd = spellCDItr->second;
-                if (cd->IsSpellCDExpired(now) && cd->IsCatCDExpired(now)) // will not remove permanent CD
-                    spellCDItr = erase(spellCDItr);
-                else
-                {
-                    if (cd->m_category && cd->IsCatCDExpired(now))
-                        m_categoryMap.erase(cd->m_category);
-                    ++spellCDItr;
-                }
-            }
-        }
-
-        bool AddCooldown(TimePoint clockNow, uint32 spellId, uint32 duration, uint32 spellCategory = 0, uint32 categoryDuration = 0, uint32 itemId = 0, bool onHold = false)
-        {
-            auto resultItr = m_spellIdMap.emplace(spellId, std::unique_ptr<CooldownData>(new CooldownData(clockNow, spellId, duration, spellCategory, categoryDuration, itemId, onHold)));
-            if (resultItr.second && spellCategory && categoryDuration)
-                m_categoryMap.emplace(spellCategory, resultItr.first);
-
-            return resultItr.second;
-        }
-
-        void RemoveBySpellId(uint32 spellId)
-        {
-            auto spellCDItr = m_spellIdMap.find(spellId);
-            if (spellCDItr != m_spellIdMap.end())
-            {
-                auto& cdData = spellCDItr->second;
-                if (cdData->m_category)
-                {
-                    auto catCDItr = m_categoryMap.find(cdData->m_category);
-                    if (catCDItr != m_categoryMap.end())
-                        m_categoryMap.erase(catCDItr);
-                }
-                m_spellIdMap.erase(spellCDItr);
-            }
-        }
-
-        void RemoveByCategory(uint32 category)
-        {
-            auto spellCDItr = m_categoryMap.find(category);
-            if (spellCDItr != m_categoryMap.end())
-                m_categoryMap.erase(spellCDItr);
-        }
-
-        Iterator erase(ConstIterator spellCDItr)
-        {
-            auto& cdData = spellCDItr->second;
-            if (cdData->m_category)
-            {
-                auto catCDItr = m_categoryMap.find(cdData->m_category);
-                if (catCDItr != m_categoryMap.end())
-                    m_categoryMap.erase(catCDItr);
-            }
-            return m_spellIdMap.erase(spellCDItr);
-        }
-
-        ConstIterator FindBySpellId(uint32 id) const { return m_spellIdMap.find(id); }
-
-        ConstIterator FindByCategory(uint32 category) const
-        {
-            auto itr = m_categoryMap.find(category);
-            return itr != m_categoryMap.end() ? itr->second : end();
-        }
-
-        void clear() { m_spellIdMap.clear(); m_categoryMap.clear(); }
-
-        ConstIterator begin() const { return m_spellIdMap.begin(); }
-        ConstIterator end() const { return m_spellIdMap.end(); }
-        bool IsEmpty() const { return m_spellIdMap.empty(); }
-        size_t size() const { return m_spellIdMap.size(); }
-
-    private:
-        spellIdMap m_spellIdMap;
-        categoryMap m_categoryMap;
-};
 
 class Object
 {
@@ -508,9 +150,10 @@ class Object
         void SetObjectScale(float newScale);
 
         uint8 GetTypeId() const { return m_objectTypeId; }
-        bool isType(TypeMask mask) const { return (mask & m_objectType); }
+        uint8 GetTypeMask() const { return m_objectType; }
+        bool IsType(TypeMask mask) const { return (mask & m_objectType); }
 
-        virtual void BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) const;
+        virtual void BuildCreateUpdateBlockForPlayer(UpdateData& data, Player* target) const;
         void SendCreateUpdateToPlayer(Player* player);
 
         // must be overwrite in appropriate subclasses (WorldObject, Item currently), or will crash
@@ -519,20 +162,22 @@ class Object
         virtual void BuildUpdateData(UpdateDataMapType& update_players);
         void MarkForClientUpdate();
         void SendForcedObjectUpdate();
-        void AddDelayedAction(ObjectDelayedAction e) { _delayedActions |= e; }
+        void AddDelayedAction(ObjectDelayedAction e) { m_delayedActions |= e; }
         void ExecuteDelayedActions();
 
-        void BuildValuesUpdateBlockForPlayer(UpdateData* data, Player* target) const;
-        void BuildOutOfRangeUpdateBlock(UpdateData* data) const;
-        void BuildMovementUpdateBlock(UpdateData* data, uint8 flags = 0) const;
+        void BuildValuesUpdateBlockForPlayer(UpdateData& data, Player* target) const;
+        void BuildValuesUpdateBlockForPlayerWithFlags(UpdateData& data, Player* target, UpdateFieldFlags flags, bool includingEmpty = false) const;
+        void BuildValuesUpdateBlockForPlayer(UpdateData& data, UpdateMask& updateMask, Player* target) const;
+        void BuildOutOfRangeUpdateBlock(UpdateData& data) const;
+        void BuildMovementUpdateBlock(UpdateData& data, uint8 flags = 0) const;
 
         void BuildMovementUpdate(ByteBuffer* data, uint8 updateFlags) const;
         void BuildValuesUpdate(uint8 updatetype, ByteBuffer* data, UpdateMask* updateMask, Player* target) const;
         void BuildUpdateDataForPlayer(Player* pl, UpdateDataMapType& update_players);
 
-        void SendOutOfRangeUpdateToPlayer(Player* player);
+        void SendOutOfRangeUpdateToPlayer(Player const* player);
 
-        virtual void DestroyForPlayer(Player* target) const;
+        virtual void DestroyForPlayer(Player const* target) const;
 
         int32 const& GetInt32Value(uint16 index) const
         {
@@ -572,6 +217,13 @@ class Object
             return *(((uint16*)&m_uint32Values[ index ])+offset);
         }
 
+        int16 GetInt16Value(uint16 index, uint8 offset) const
+        {
+            MANGOS_ASSERT(index < m_valuesCount || PrintIndexError(index, false));
+            MANGOS_ASSERT(offset < 2);
+            return *(((int16*)&m_int32Values[index]) + offset);
+        }
+
         ObjectGuid const& GetGuidValue(uint16 index) const { return *reinterpret_cast<ObjectGuid const*>(&GetUInt64Value(index)); }
 
         void SetInt32Value(uint16 index, int32  value);
@@ -591,6 +243,7 @@ class Object
         void ApplyModSignedFloatValue(uint16 index, float val, bool apply);
 
         void ForceValuesUpdateAtIndex(uint16 index);
+        void MarkUpdateFieldsWithFlagForUpdate(UpdateMask& updateMask, uint16 flag, bool includingEmpty = false) const;
 
         void ApplyPercentModFloatValue(uint16 index, float val, bool apply)
         {
@@ -719,53 +372,56 @@ class Object
         void InitValues() { _InitValues(); }
 
         // Nostalrius
-        bool IsDeleted() const { return _deleted; }
+        bool IsDeleted() const { return m_deleted; }
 
         // Convertions
-        inline bool IsWorldObject() const { return isType(TYPEMASK_WORLDOBJECT); }
-        WorldObject* ToWorldObject() { if (IsWorldObject()) return reinterpret_cast<WorldObject*>(this); else return nullptr; }
-        WorldObject const* ToWorldObject() const { if (IsWorldObject()) return reinterpret_cast<WorldObject const*>(this); else return nullptr; }
+        inline bool IsWorldObject() const { return IsType(TYPEMASK_WORLDOBJECT); }
+        WorldObject* ToWorldObject();
+        WorldObject const* ToWorldObject() const;
 
         inline bool IsPlayer() const { return GetTypeId() == TYPEID_PLAYER; }
-        Player* ToPlayer() { if (IsPlayer()) return reinterpret_cast<Player*>(this); else return nullptr; }
-        Player const* ToPlayer() const { if (IsPlayer()) return reinterpret_cast<Player const*>(this); else return nullptr; }
+        Player* ToPlayer();
+        Player const* ToPlayer() const;
 
         inline bool IsCreature() const { return GetTypeId() == TYPEID_UNIT; }
-        Creature* ToCreature() { if (IsCreature()) return reinterpret_cast<Creature*>(this); else return nullptr; }
-        Creature const* ToCreature() const { if (IsCreature()) return reinterpret_cast<Creature const*>(this); else return nullptr; }
+        Creature* ToCreature();
+        Creature const* ToCreature() const;
 
-        inline bool IsUnit() const { return isType(TYPEMASK_UNIT); }
-        Unit* ToUnit() { if (IsUnit()) return reinterpret_cast<Unit*>(this); else return nullptr; }
-        Unit const* ToUnit() const { if (IsUnit()) return reinterpret_cast<Unit const*>(this); else return nullptr; }
+        inline bool IsUnit() const { return IsType(TYPEMASK_UNIT); }
+        Unit* ToUnit();
+        Unit const* ToUnit() const;
 
         inline bool IsGameObject() const { return GetTypeId() == TYPEID_GAMEOBJECT; }
-        GameObject* ToGameObject() { if (IsGameObject()) return reinterpret_cast<GameObject*>(this); else return nullptr; }
-        GameObject const* ToGameObject() const { if (IsGameObject()) return reinterpret_cast<GameObject const*>(this); else return nullptr; }
+        GameObject* ToGameObject();
+        GameObject const* ToGameObject() const;
 
-        inline bool IsCorpse() const { return GetTypeId() == TYPEID_CORPSE; }
-        Corpse* ToCorpse() { if (IsCorpse()) return reinterpret_cast<Corpse*>(this); else return nullptr; }
-        Corpse const* ToCorpse() const { if (IsCorpse()) return reinterpret_cast<Corpse const*>(this); else return nullptr; }
+        inline bool IsSpellCaster() const { return IsUnit() || IsGameObject(); }
+        SpellCaster* ToSpellCaster();
+        SpellCaster const* ToSpellCaster() const;
 
-        bool IsPet()      const;
-        Pet const* ToPet() const;
+        virtual inline bool IsCorpse() const { return GetTypeId() == TYPEID_CORPSE; }
+        Corpse* ToCorpse();
+        Corpse const* ToCorpse() const;
+
+        virtual bool IsPet() const;
         Pet* ToPet();
+        Pet const* ToPet() const;
 
         virtual bool HasQuest(uint32 /* quest_id */) const { return false; }
         virtual bool HasInvolvedQuest(uint32 /* quest_id */) const { return false; }
     protected:
 
-        Object ();
+        Object();
 
         void _InitValues();
         void _Create (uint32 guidlow, uint32 entry, HighGuid guidhigh);
 
-        virtual void _SetUpdateBits(UpdateMask* updateMask, Player* target) const;
+        uint16 GetUpdateFieldFlagsForTarget(Player const* target, uint16 const*& flags) const;
+        void _SetCreateBits(UpdateMask& updateMask, Player const* target) const;
+        void _SetUpdateBits(UpdateMask& updateMask, Player const* target) const;
         void _LoadIntoDataField(std::string const& data, uint32 startOffset, uint32 count);
 
-        virtual void _SetCreateBits(UpdateMask* updateMask, Player* target) const;
-
         uint16 m_objectType;
-
         uint8 m_objectTypeId;
         uint8 m_updateFlag = 0;
 
@@ -780,9 +436,9 @@ class Object
 
         uint16 m_valuesCount;
 
-        bool m_objectUpdated;
-        bool _deleted;          // Object in remove list
-        uint32 _delayedActions;
+        bool m_objectUpdated;   // Marked for client update
+        bool m_deleted;         // Object in remove list
+        uint32 m_delayedActions;
 
     private:
         bool m_inWorld;
@@ -798,65 +454,6 @@ class Object
 
 struct WorldObjectChangeAccumulator;
 
-// At least some values expected fixed and used in auras field, other custom
-enum MeleeHitOutcome
-{
-    MELEE_HIT_EVADE = 0,
-    MELEE_HIT_MISS = 1,
-    MELEE_HIT_DODGE = 2,                                // used as misc in SPELL_AURA_IGNORE_COMBAT_RESULT
-    MELEE_HIT_BLOCK = 3,                                // used as misc in SPELL_AURA_IGNORE_COMBAT_RESULT
-    MELEE_HIT_PARRY = 4,                                // used as misc in SPELL_AURA_IGNORE_COMBAT_RESULT
-    MELEE_HIT_GLANCING = 5,
-    MELEE_HIT_CRIT = 6,
-    MELEE_HIT_CRUSHING = 7,
-    MELEE_HIT_NORMAL = 8,
-    MELEE_HIT_BLOCK_CRIT = 9,
-};
-
-// Spell damage info structure based on structure sending in SMSG_SPELLNONMELEEDAMAGELOG opcode
-struct SpellNonMeleeDamage {
-    SpellNonMeleeDamage(WorldObject* _attacker, Unit* _target, uint32 _SpellID, SpellSchools _school)
-        : target(_target), attacker(_attacker), SpellID(_SpellID), damage(0), school(_school),
-        absorb(0), resist(0), periodicLog(false), unused(false), blocked(0), HitInfo(0), spell(nullptr)
-    {}
-
-    Unit* target;
-    WorldObject* attacker;
-    uint32 SpellID;
-    uint32 damage;
-    SpellSchools school;
-    uint32 absorb;
-    int32 resist;
-    bool   periodicLog;
-    bool   unused;
-    uint32 blocked;
-    uint32 HitInfo;
-    Spell* spell;
-};
-
-struct CleanDamage
-{
-    CleanDamage(uint32 _damage, WeaponAttackType _attackType, MeleeHitOutcome _hitOutCome, uint32 _Absorb, int32 _Resist) :
-    damage(_damage), attackType(_attackType), hitOutCome(_hitOutCome), absorb(_Absorb), resist(_Resist) {}
-
-    uint32 damage;
-    WeaponAttackType attackType;
-    MeleeHitOutcome hitOutCome;
-    uint32 absorb;
-    int32 resist;
-};
-
-enum CurrentSpellTypes
-{
-    CURRENT_MELEE_SPELL             = 0,
-    CURRENT_GENERIC_SPELL           = 1,
-    CURRENT_AUTOREPEAT_SPELL        = 2,
-    CURRENT_CHANNELED_SPELL         = 3
-};
-
-#define CURRENT_FIRST_NON_MELEE_SPELL 1
-#define CURRENT_MAX_SPELL             4
-
 class WorldObject : public Object
 {
     friend struct WorldObjectChangeAccumulator;
@@ -869,7 +466,7 @@ class WorldObject : public Object
         {
             public:
                 explicit UpdateHelper(WorldObject* obj) : m_obj(obj) {}
-                ~UpdateHelper() { }
+                ~UpdateHelper() = default;
 
                 void Update(uint32 time_diff)
                 {
@@ -890,9 +487,11 @@ class WorldObject : public Object
                 WorldObject* const m_obj;
         };
 
-        ~WorldObject () override {}
+        virtual ~WorldObject () override {}
 
         virtual void Update(uint32 /*update_diff*/, uint32 /*time_diff*/);
+        virtual void Heartbeat() {}
+        Milliseconds m_heartbeatTimer;
 
         void _Create(uint32 guidlow, HighGuid guidhigh);
 
@@ -901,16 +500,23 @@ class WorldObject : public Object
 
         void SetOrientation(float orientation);
 
+        void SetRawPosition(Position&& pos) { m_position = std::move(pos); }
         Position const& GetPosition() const { return m_position; }
         float GetPositionX() const { return m_position.x; }
         float GetPositionY() const { return m_position.y; }
         float GetPositionZ() const { return m_position.z; }
-        virtual void GetSafePosition(float &x, float &y, float &z, Transport* onTransport = nullptr) const { GetPosition(x, y, z, onTransport); }
-        void GetPosition(float &x, float &y, float &z, Transport* onTransport = nullptr) const;
+        virtual void GetSafePosition(float &x, float &y, float &z, GenericTransport const* onTransport = nullptr) const { GetPosition(x, y, z, onTransport); }
+        void GetPosition(float &x, float &y, float &z, GenericTransport const* onTransport = nullptr) const;
         void GetPosition(WorldLocation &loc) const { loc.mapId = m_mapId; GetPosition(loc.x, loc.y, loc.z); loc.o = GetOrientation(); }
         float GetOrientation() const { return m_position.o; }
-        void GetNearPoint2D(float &x, float &y, float distance, float absAngle) const;
+        void GetNearPoint2D(float &x, float &y, float distance, float absAngle) const
+        {
+            GetNearPoint2DAroundPosition(GetPositionX(), GetPositionY(), x, y, distance, absAngle);
+        }
+        void GetNearPoint2DAroundPosition(float ownX, float ownY, float &x, float &y, float distance, float absAngle) const;
         void GetNearPoint(WorldObject const* searcher, float &x, float &y, float &z, float searcher_bounding_radius, float distance2d, float absAngle) const;
+        // x, y, z should be initialized to the position you want to search around
+        void GetNearPointAroundPosition(WorldObject const* searcher, float &x, float &y, float &z, float searcher_bounding_radius, float distance2d, float absAngle) const;
         void GetClosePoint(float &x, float &y, float &z, float bounding_radius, float distance2d = 0, float angle = 0, WorldObject const* obj = nullptr) const
         {
             // angle calculated from current orientation
@@ -927,6 +533,8 @@ class WorldObject : public Object
             // angle to face `obj` to `this` using distance includes size of `obj`
             GetNearPoint(obj, x, y, z, obj->GetObjectBoundingRadius(), distance2d, GetAngle(obj));
         }
+        virtual void GetLosCheckPosition(float& x, float& y, float& z) const;
+
         virtual float GetObjectBoundingRadius() const { return DEFAULT_WORLD_OBJECT_SIZE; }
         virtual float GetCombatReach() const { return 0.f; }
 
@@ -934,11 +542,18 @@ class WorldObject : public Object
         void UpdateGroundPositionZ(float x, float y, float &z) const;
         void UpdateAllowedPositionZ(float x, float y, float &z) const;
 
+        void MovePositionToFirstCollision(Position &pos, float dist, float angle);
+        void GetFirstCollisionPosition(Position&pos, float dist, float angle)
+        {
+            pos = GetPosition();
+            MovePositionToFirstCollision(pos, dist, angle);
+        }
+
         // Valeur de retour : false si aucun point correct trouve.
         bool GetRandomPoint(float x, float y, float z, float distance, float &rand_x, float &rand_y, float &rand_z) const;
 
         uint32 GetMapId() const { return m_mapId; }
-        uint32 GetInstanceId() const { return m_InstanceId; }
+        uint32 GetInstanceId() const { return m_instanceId; }
 
         uint32 GetZoneId() const;
         uint32 GetAreaId() const;
@@ -947,92 +562,90 @@ class WorldObject : public Object
 
         InstanceData* GetInstanceData() const;
 
-        char const* GetName() const { return m_name.c_str(); }
-        void SetName(std::string const& newname) { m_name=newname; }
-
+        virtual char const* GetName() const = 0;
         virtual char const* GetNameForLocaleIdx(int32 /*locale_idx*/) const { return GetName(); }
         virtual uint8 GetGender() const { return 0; } // used in chat builder
 
         virtual uint32 GetDefaultGossipMenuId() const { return 0; }
 
-        float GetCombatDistance(WorldObject const* target) const;
-        float GetDistance2dToCenter(WorldObject const* target) const;
-        float GetDistance2dToCenter(float x, float y) const;
-        float GetDistance2dToCenter(WorldLocation const& position) const { return GetDistance2dToCenter(position.x, position.y); }
-        float GetDistance2dToCenter(Position const& position) const { return GetDistance2dToCenter(position.x, position.y); }
-        float GetDistance3dToCenter(WorldObject const* target) const;
-        float GetDistance3dToCenter(float x, float y, float z) const;
-        float GetDistance3dToCenter(WorldLocation const& position) const { return GetDistance3dToCenter(position.x, position.y, position.z); }
-        float GetDistance3dToCenter(Position const& position) const { return GetDistance3dToCenter(position.x, position.y, position.z); }
-        float GetDistance(WorldObject const* obj) const;
-        float GetDistance(float x, float y, float z) const;
-        float GetDistance(WorldLocation const& position) const { return GetDistance(position.x, position.y, position.z); }
-        float GetDistance(Position const& position) const { return GetDistance(position.x, position.y, position.z); }
-        float GetDistance2d(WorldObject const* obj) const;
-        float GetDistance2d(float x, float y) const;
-        float GetDistance2d(WorldLocation const& position) const { return GetDistance2d(position.x, position.y); }
-        float GetDistance2d(Position const& position) const { return GetDistance2d(position.x, position.y); }
-        float GetDistanceZ(WorldObject const* obj) const;
+        float GetSizeFactorForDistance(WorldObject const* obj, SizeFactor distcalc) const;
+        float GetCombatDistance(WorldObject const* target) const { return GetDistance(target, SizeFactor::CombatReach); }
+        float GetDistance2dToCenter(WorldObject const* target) const { return GetDistance2d(target, SizeFactor::None); }
+        float GetDistance2dToCenter(float x, float y) const { return GetDistance2d(x, y, SizeFactor::None); }
+        float GetDistance2dToCenter(WorldLocation const& position) const { return GetDistance2d(position.x, position.y, SizeFactor::None); }
+        float GetDistance2dToCenter(Position const& position) const { return GetDistance2d(position.x, position.y, SizeFactor::None); }
+        float GetDistance3dToCenter(WorldObject const* target) const { return GetDistance(target, SizeFactor::None); }
+        float GetDistance3dToCenter(float x, float y, float z) const { return GetDistance(x, y, z, SizeFactor::None); }
+        float GetDistance3dToCenter(WorldLocation const& position) const { return GetDistance(position.x, position.y, position.z, SizeFactor::None); }
+        float GetDistance3dToCenter(Position const& position) const { return GetDistance(position.x, position.y, position.z, SizeFactor::None); }
+        float GetDistance(WorldObject const* obj, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        float GetDistance(float x, float y, float z, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        float GetDistance(WorldLocation const& position, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return GetDistance(position.x, position.y, position.z, distcalc); }
+        float GetDistance(Position const& position, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return GetDistance(position.x, position.y, position.z, distcalc); }
+        float GetDistance2d(WorldObject const* obj, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        float GetDistance2d(float x, float y, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        float GetDistance2d(WorldLocation const& position, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return GetDistance2d(position.x, position.y, distcalc); }
+        float GetDistance2d(Position const& position, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return GetDistance2d(position.x, position.y, distcalc); }
+        float GetDistanceZ(WorldObject const* obj, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
         float GetDistanceSqr(float x, float y, float z) const;
         bool IsInMap(WorldObject const* obj) const;
         template <class T>
-        bool IsWithinDist3d(T const& position, float dist2compare) const { return IsWithinDist3d(position.x, position.y, position.z, dist2compare); }
-        bool IsWithinDist3d(float x, float y, float z, float dist2compare) const;
+        bool IsWithinDist3d(T const& position, float dist2compare, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return IsWithinDist3d(position.x, position.y, position.z, dist2compare, distcalc); }
+        bool IsWithinDist3d(float x, float y, float z, float dist2compare, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
         template <class T >
-        bool IsWithinDist2d(T const& position, float dist2compare) const { return IsWithinDist2d(position.x, position.y, dist2compare); }
-        bool IsWithinDist2d(float x, float y, float dist2compare) const;
-        bool _IsWithinDist(WorldObject const* obj, float dist2compare, bool is3D) const;
-
-        // use only if you will sure about placing both object at same map
-        bool IsWithinDist(WorldObject const* obj, float dist2compare, bool is3D = true) const
+        bool IsWithinDist2d(T const& position, float dist2compare, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return IsWithinDist2d(position.x, position.y, dist2compare, distcalc); }
+        bool IsWithinDist2d(float x, float y, float dist2compare, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        bool IsWithinDist(WorldObject const* obj, float const dist2compare, bool const is3D = true, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        bool IsWithinDistInMap(WorldObject const* obj, float const& dist2compare, bool const is3D = true, SizeFactor distcalc = SizeFactor::BoundingRadius) const
         {
-            return obj && _IsWithinDist(obj,dist2compare,is3D);
+            return IsInMap(obj) && IsWithinDist(obj, dist2compare, is3D, distcalc);
         }
-
-        bool IsWithinDistInMap(WorldObject const* obj, float dist2compare, bool is3D = true) const
+        bool IsWithinCombatDistInMap(WorldObject const* obj, float const& dist2compare) const
         {
-            return obj && IsInMap(obj) && _IsWithinDist(obj,dist2compare,is3D);
+            return IsInMap(obj) && (GetCombatDistance(obj) <= dist2compare);
         }
-        bool IsWithinCombatDistInMap(WorldObject const* obj, float dist2compare) const
+        bool IsWithinLOS(float targetX, float targetY, float targetZ, bool checkDynLos = true, float targetHeight = 2.f) const
         {
-            return obj && IsInMap(obj) && (GetCombatDistance(obj) <= dist2compare);
+            return IsWithinLOSAtPosition(GetPositionX(), GetPositionY(), GetPositionZ(), targetX, targetY, targetZ, checkDynLos, targetHeight);
         }
-        bool IsWithinLOS(float x, float y, float z, bool checkDynLos = true, float targetHeight = 2.f) const;
+        bool IsWithinLOSAtPosition(float ownX, float ownY, float ownZ, float targetX, float targetY, float targetZ, bool checkDynLos = true, float targetHeight = 2.f) const;
         bool IsWithinLOSInMap(WorldObject const* obj, bool checkDynLos = true) const;
         bool IsWithinHeightInMap(WorldObject const* obj) const;
         bool GetDistanceOrder(WorldObject const* obj1, WorldObject const* obj2, bool is3D = true) const;
-        bool IsInRange(WorldObject const* obj, float minRange, float maxRange, bool is3D = true) const;
-        bool IsInRange2d(float x, float y, float minRange, float maxRange) const;
-        bool IsInRange3d(float x, float y, float z, float minRange, float maxRange) const;
+        bool IsInRange(WorldObject const* obj, float minRange, float maxRange, bool is3D = true, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        bool IsInRange2d(float x, float y, float minRange, float maxRange, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        bool IsInRange3d(float x, float y, float z, float minRange, float maxRange, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
 
         float GetAngle(WorldObject const* obj) const;
         float GetAngle(float const x, float const y) const;
-        bool HasInArc(float const arcangle, WorldObject const* obj, float offset = 0.0f) const;
+        bool HasInArc(WorldObject const* target, float const arcangle = M_PI_F, float offset = 0.0f) const;
         bool HasInArc(float const arcangle, float const x, float const y) const;
-        bool isInFrontInMap(WorldObject const* target,float distance, float arc = M_PI) const;
-        bool isInBackInMap(WorldObject const* target, float distance, float arc = M_PI) const;
-        bool isInFront(WorldObject const* target,float distance, float arc = M_PI) const;
-        bool isInBack(WorldObject const* target, float distance, float arc = M_PI) const;
+        bool IsFacingTarget(WorldObject const* target) const;
 
-        bool CanReachWithMeleeSpellAttack(Unit const* pVictim, float flat_mod = 0.0f) const;
+        bool CanReachWithMeleeSpellAttack(WorldObject const* pVictim, float flat_mod = 0.0f) const;
         float GetLeewayBonusRange(Unit const* target, bool ability) const;
+        static float GetLeewayBonusRangeForTargets(Player const* player, Unit const* target, bool ability);
         float GetLeewayBonusRadius() const;
 
-        // Gestion des positions
-        void GetRelativePositions(float fForwardBackward, float fLeftRight, float fUpDown, float &x, float &y, float &z);
-        void GetInCirclePositions(float dist, uint32 curr, uint32 total, float &x, float &y, float &z, float &o);
-        void GetNearRandomPositions(float distance, float &x, float &y, float &z);
-        void GetFirstCollision(float dist, float angle, float &x, float &y, float &z);
+        // Position Management
+        void GetRelativePositions(float fForwardBackward, float fLeftRight, float fUpDown, float &x, float &y, float &z) const;
+        void GetRelativePositions(float fForwardBackward, float fLeftRight, float &x, float &y) const;
+        void GetInCirclePositions(float dist, uint32 curr, uint32 total, float &x, float &y, float &z, float &o) const;
+        void GetNearRandomPositions(float distance, float &x, float &y, float &z) const;
+        void GetFirstCollision(float dist, float angle, float &x, float &y, float &z) const;
+
+        // for use only in LoadHelper, Map::Add Map::CreatureCellRelocation
+        Cell const& GetCurrentCell() const { return m_currentCell; }
+        void SetCurrentCell(Cell const& cell) { m_currentCell = cell; }
 
         // Transports / Movement
-        Transport* GetTransport() const { return m_transport; }
-        virtual void SetTransport(Transport* t) { m_transport = t; }
+        GenericTransport* GetTransport() const { return m_transport; }
+        virtual void SetTransport(GenericTransport* t) { m_transport = t; }
 
-        float GetTransOffsetX() const { return m_movementInfo.GetTransportPos()->x; }
-        float GetTransOffsetY() const { return m_movementInfo.GetTransportPos()->y; }
-        float GetTransOffsetZ() const { return m_movementInfo.GetTransportPos()->z; }
-        float GetTransOffsetO() const { return m_movementInfo.GetTransportPos()->o; }
-        uint32 GetTransTime() const { return m_movementInfo.GetTransportTime(); }
+        float GetTransOffsetX() const { return m_movementInfo.GetTransportPos().x; }
+        float GetTransOffsetY() const { return m_movementInfo.GetTransportPos().y; }
+        float GetTransOffsetZ() const { return m_movementInfo.GetTransportPos().z; }
+        float GetTransOffsetO() const { return m_movementInfo.GetTransportPos().o; }
 
         void AddUnitMovementFlag(uint32 f) { m_movementInfo.moveFlags |= f; }
         void RemoveUnitMovementFlag(uint32 f) { m_movementInfo.moveFlags &= ~f; }
@@ -1044,24 +657,34 @@ class WorldObject : public Object
         bool IsFlying() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING); }
         bool IsWalking() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_WALK_MODE); }
         bool IsWalkingBackward() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_BACKWARD); }
-        bool IsMoving() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_MASK_MOVING); }
+        virtual bool IsMoving() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_MASK_MOVING); }
         bool IsSwimming() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_SWIMMING); }
         bool IsMovingButNotWalking() const { return IsMoving() && !(IsWalking() || IsWalkingBackward()); }
 
         MovementInfo m_movementInfo;
-        Transport* m_transport;
+        GenericTransport* m_transport;
 
         virtual void CleanupsBeforeDelete();                // used in destructor or explicitly before mass creature delete to remove cross-references to already deleted units
 
         // Send to players
+        virtual void SendMessageToSet(std::unique_ptr<ServerPacket const> packet, bool self) const;
         virtual void SendMessageToSet(WorldPacket* data, bool self) const;
+
         // Send to players who have object at client
+    private:
+        template<class DelivererType>
+        void SendObjectMessageToSetImpl(WorldPacket* data, bool self, WorldObject const* except = nullptr) const;
+    public:
+        void SendObjectMessageToSet(std::unique_ptr<ServerPacket const> packet, bool self, WorldObject const* except = nullptr) const;
         void SendObjectMessageToSet(WorldPacket* data, bool self, WorldObject const* except = nullptr) const;
+        void SendMovementMessageToSet(std::unique_ptr<ServerPacket const> packet, bool self, WorldObject const* except = nullptr);
         void SendMovementMessageToSet(WorldPacket data, bool self, WorldObject const* except = nullptr);
 
         virtual void SendMessageToSetInRange(WorldPacket* data, float dist, bool self) const;
         void SendMessageToSetExcept(WorldPacket* data, Player const* skipped_receiver) const;
-        void DirectSendPublicValueUpdate(uint32 index);
+        void DirectSendPublicValueUpdate(uint32 index, uint32 count = 1);
+        void DirectSendPublicValueUpdate(UpdateMask& updateMask);
+        void DirectSendPublicValueUpdate(std::initializer_list<uint32> indexes);
 
         void PlayDistanceSound(uint32 sound_id, Player const* target = nullptr) const;
         void PlayDirectSound(uint32 sound_id, Player const* target = nullptr) const;
@@ -1083,19 +706,24 @@ class WorldObject : public Object
         void MonsterYellToZone(int32 textId, uint32 language = 0, Unit const* target = nullptr) const;
         void MonsterScriptToZone(int32 textId, ChatMsg type, uint32 language = 0, Unit const* target = nullptr) const;
 
-        void SendObjectDeSpawnAnim(ObjectGuid guid) const;
-
-        virtual bool IsHostileTo(WorldObject const* target) const =0;
-        virtual bool IsFriendlyTo(WorldObject const* target) const =0;
-        virtual uint32 GetFactionTemplateId() const = 0;
-        FactionTemplateEntry const* getFactionTemplateEntry() const;
-        virtual ReputationRank GetReactionTo(WorldObject const* target) const;
-        ReputationRank static GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target);
-        virtual bool IsValidAttackTarget(Unit const* target) const { return false; }
-        virtual bool IsVisibleForOrDetect(WorldObject const* pDetector, WorldObject const* viewPoint, bool detect, bool inVisibleList = false, bool* alert = nullptr) const { return IsVisibleForInState(pDetector, viewPoint, inVisibleList); }
+        void SendObjectSpawnAnim() const;
+        void SendObjectDeSpawnAnim() const;
 
         bool IsControlledByPlayer() const;
         bool IsLikePlayer() const;
+        virtual Player* GetAffectingPlayer() const { return nullptr; }
+        virtual bool IsCharmerOrOwnerPlayerOrPlayerItself() const { return IsPlayer(); }
+        virtual bool IsHostileTo(WorldObject const* target) const = 0;
+        virtual bool IsFriendlyTo(WorldObject const* target) const = 0;
+        FactionTemplateEntry const* GetFactionTemplateEntry() const;
+        virtual uint32 GetFactionTemplateId() const = 0;
+        bool HasFactionTemplateFlag(uint32 flag) const;
+        FactionEntry const* GetFactionEntry() const;
+        uint32 GetFactionId() const;
+        virtual ReputationRank GetReactionTo(WorldObject const* target) const;
+        ReputationRank static GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target);
+        bool IsValidAttackTarget(Unit const* target, bool checkAlive = true) const;
+        bool IsValidHelpfulTarget(Unit const* target, bool checkAlive = true) const;
 
         virtual void SaveRespawnTime() {}
         void AddObjectToRemoveList();
@@ -1106,11 +734,11 @@ class WorldObject : public Object
         virtual void UpdateVisibilityAndView();             // update visibility for object and object for all around
 
         // main visibility check function in normal case (ignore grey zone distance check)
-        bool isWithinVisibilityDistanceOf(Unit const* viewer, WorldObject const* viewpoint, bool inVisibleList = false) const;
-        bool isVisibleFor(Player const* u, WorldObject const* viewPoint) const;
+        bool IsWithinVisibilityDistanceOf(Unit const* viewer, WorldObject const* viewpoint, bool inVisibleList = false) const;
 
         // low level function for visibility change code, must be define in all main world object subclasses
         virtual bool IsVisibleForInState(WorldObject const* pDetector, WorldObject const* viewPoint, bool inVisibleList) const = 0;
+        virtual bool IsVisibleForOrDetect(WorldObject const* pDetector, WorldObject const* viewPoint, bool detect, bool inVisibleList = false, bool* alert = nullptr) const { return IsVisibleForInState(pDetector, viewPoint, inVisibleList); }
 
         void SetMap(Map* map);
         Map* GetMap() const;
@@ -1121,34 +749,44 @@ class WorldObject : public Object
 
         //obtain terrain data for map where this object belong...
         TerrainInfo const* GetTerrain() const;
+        bool HasMMapsForCurrentMap() const;
+        virtual bool IsInWater() const;
+        virtual bool IsUnderwater() const;
 
         void SetZoneScript();
-        ZoneScript* GetZoneScript() const { return m_zoneScript; }
+        virtual ZoneScript* GetZoneScript() const { return m_zoneScript; }
 
         void AddToClientUpdateList() override;
         void RemoveFromClientUpdateList() override;
         void BuildUpdateData(UpdateDataMapType &) override;
 
-        Creature* SummonCreature(uint32 id, float x, float y, float z, float ang,TempSummonType spwtype = TEMPSUMMON_DEAD_DESPAWN,uint32 despwtime = 25000, bool asActiveObject = false, uint32 pacifiedTimer = 0, CreatureAiSetter pFuncAiSetter = nullptr);
+        Creature* SummonCreature(uint32 id, float x, float y, float z, float ang,TempSummonType spwtype = TEMPSUMMON_DEAD_DESPAWN,uint32 despwtime = 25000, bool asActiveObject = false, uint32 pacifiedTimer = 0, CreatureAiSetter pFuncAiSetter = nullptr, GenericTransport* pTransport = nullptr);
         GameObject* SummonGameObject(uint32 entry, float x, float y, float z, float ang, float rotation0 = 0.0f, float rotation1 = 0.0f, float rotation2 = 0.0f, float rotation3 = 0.0f, uint32 respawnTime = 25000, bool attach = true);
 
         Creature* FindNearestCreature(uint32 entry, float range, bool alive = true, Creature const* except = nullptr) const;
         Creature* FindRandomCreature(uint32 entry, float range, bool alive = true, Creature const* except = nullptr) const;
         GameObject* FindNearestGameObject(uint32 entry, float range) const;
+        GameObject* FindRandomGameObject(uint32 entry, float range) const;
         Player* FindNearestPlayer(float range) const;
+        Player* FindNearestHostilePlayer(float range) const;
+        Player* FindNearestFriendlyPlayer(float range) const;
         void GetGameObjectListWithEntryInGrid(std::list<GameObject*>& lList, uint32 uiEntry, float fMaxSearchRange) const;
         void GetCreatureListWithEntryInGrid(std::list<Creature*>& lList, uint32 uiEntry, float fMaxSearchRange) const;
         void GetAlivePlayerListInRange(WorldObject const* pSource, std::list<Player*>& lList, float fMaxSearchRange) const;
 
-        bool isActiveObject() const { return m_isActiveObject || m_viewPoint.hasViewers(); }
+        // Script helpers.
+        uint32 DespawnNearCreaturesByEntry(uint32 entry, float range);
+        uint32 RespawnNearCreaturesByEntry(uint32 entry, float range);
+
+        bool IsActiveObject() const { return m_isActiveObject || m_viewPoint.hasViewers(); }
         void SetActiveObjectState(bool on);
 
         ViewPoint& GetViewPoint() { return m_viewPoint; }
 
         // WorldMask
-        uint32 worldMask;
+        uint32 m_worldMask;
         virtual void SetWorldMask(uint32 newMask);
-        uint32 GetWorldMask() const { return worldMask; }
+        uint32 GetWorldMask() const { return m_worldMask; }
         // Visibilite
         bool CanSeeInWorld(WorldObject const* other)  const;
         bool CanSeeInWorld(uint32 otherPhase)  const;
@@ -1159,8 +797,8 @@ class WorldObject : public Object
         //these functions are used mostly for Relocate() and Corpse/Player specific stuff...
         //use them ONLY in LoadFromDB()/Create() funcs and nowhere else!
         //mapId/instanceId should be set in SetMap() function!
-        void SetLocationMapId(uint32 _mapId) { m_mapId = _mapId; }
-        void SetLocationInstanceId(uint32 _instanceId) { m_InstanceId = _instanceId; }
+        void SetLocationMapId(uint32 mapId) { m_mapId = mapId; }
+        void SetLocationInstanceId(uint32 _instanceId) { m_instanceId = _instanceId; }
 
         bool IsWithinLootXPDist(WorldObject const* objToLoot) const;
 
@@ -1174,209 +812,44 @@ class WorldObject : public Object
         uint32 GetCreatureSummonLimit() const;
         void SetCreatureSummonLimit(uint32 limit);
 
-        virtual uint32 GetLevel() const = 0;
-        uint32 GetLevelForTarget(WorldObject const* target = nullptr) const;
-        uint16 GetSkillMaxForLevel(WorldObject const* target = nullptr) const { return GetLevelForTarget(target) * 5; };
-        uint32 GetWeaponSkillValue(WeaponAttackType attType, WorldObject const* target = nullptr) const;
-        uint32 GetUnitMeleeSkill(WorldObject const* target = nullptr) const { return GetLevelForTarget(target) * 5; }
-        uint32 GetDefenseSkillValue(WorldObject const* target = nullptr) const;
-
-        virtual Player* GetAffectingPlayer() const { return nullptr; }
-        Unit* SelectMagnetTarget(Unit* victim, Spell* spell = nullptr, SpellEffectIndex eff = EFFECT_INDEX_0);
-
-        SpellCastResult CastSpell(Unit* pTarget, uint32 spellId, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr, SpellEntry const* triggeredByParent = nullptr);
-        SpellCastResult CastSpell(Unit* pTarget, SpellEntry const* spellInfo, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr, SpellEntry const* triggeredByParent = nullptr);
-        SpellCastResult CastSpell(GameObject* pTarget, uint32 spellId, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr, SpellEntry const* triggeredByParent = nullptr);
-        SpellCastResult CastSpell(GameObject* pTarget, SpellEntry const* spellInfo, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr, SpellEntry const* triggeredByParent = nullptr);
-        void CastCustomSpell(Unit* pTarget, uint32 spellId, int32 const* bp0, int32 const* bp1, int32 const* bp2, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr);
-        void CastCustomSpell(Unit* pTarget, SpellEntry const* spellInfo, int32 const* bp0, int32 const* bp1, int32 const* bp2, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr);
-        SpellCastResult CastSpell(float x, float y, float z, uint32 spellId, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr);
-        SpellCastResult CastSpell(float x, float y, float z, SpellEntry const* spellInfo, bool triggered, Item* castItem = nullptr, Aura* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid(), SpellEntry const* triggeredBy = nullptr);
-        
-        void SetCurrentCastedSpell(Spell* pSpell);
-        Spell* GetCurrentSpell(CurrentSpellTypes spellType) const { return m_currentSpells[spellType]; }
-        Spell* FindCurrentSpellBySpellId(uint32 spell_id) const;
-        bool CheckAndIncreaseCastCounter();
-        void DecreaseCastCounter() { if (m_castCounter) --m_castCounter; }
-
-        // set withDelayed to true to account delayed spells as casted
-        // delayed+channeled spells are always accounted as casted
-        // we can skip channeled or delayed checks using flags
-        bool IsNonMeleeSpellCasted(bool withDelayed = false, bool skipChanneled = false, bool skipAutorepeat = false) const;
-        bool IsNextSwingSpellCasted() const;
-        // for movement generators, check if current casted spell has movement interrupt flags
-        bool IsNoMovementSpellCasted() const;
-
-        // set withDelayed to true to interrupt delayed spells too
-        // delayed+channeled spells are always interrupted
-        void InterruptNonMeleeSpells(bool withDelayed, uint32 spellid = 0);
-        void InterruptSpellsWithInterruptFlags(uint32 flags, uint32 except = 0);
-        void InterruptSpell(CurrentSpellTypes spellType, bool withDelayed = true);
-        void FinishSpell(CurrentSpellTypes spellType, bool ok = true);
-        
-        virtual bool IsSpellCrit(Unit const* pVictim, SpellEntry const* spellProto, SpellSchoolMask schoolMask, WeaponAttackType attackType = BASE_ATTACK, Spell* spell = nullptr) const { return false; }
-        uint32 SpellCriticalHealingBonus(SpellEntry const* spellProto, uint32 damage, Unit const* pVictim) const;
-        uint32 SpellCriticalDamageBonus(SpellEntry const* spellProto, uint32 damage, Unit* pVictim, Spell* spell = nullptr);
-        float  MeleeSpellMissChance(Unit* pVictim, WeaponAttackType attType, int32 skillDiff, SpellEntry const* spell, Spell* spellPtr = nullptr);
-        SpellMissInfo MeleeSpellHitResult(Unit* pVictim, SpellEntry const* spell, Spell* spellPtr = nullptr);
-        SpellMissInfo MagicSpellHitResult(Unit* pVictim, SpellEntry const* spell, Spell* spellPtr = nullptr);
-        int32 MagicSpellHitChance(Unit* pVictim, SpellEntry const* spell, Spell* spellPtr = nullptr);
-        float GetSpellResistChance(Unit const* victim, uint32 schoolMask, bool innateResists) const;
-        SpellMissInfo SpellHitResult(Unit* pVictim, SpellEntry const* spell, SpellEffectIndex effIndex, bool canReflect = false, Spell* spellPtr = nullptr);
-        void ProcDamageAndSpell(Unit* pVictim, uint32 procAttacker, uint32 procVictim, uint32 procEx, uint32 amount, WeaponAttackType attType = BASE_ATTACK, SpellEntry const* procSpell = nullptr, Spell* spell = nullptr);
-        void CalculateSpellDamage(SpellNonMeleeDamage* damageInfo, int32 damage, SpellEntry const* spellInfo, SpellEffectIndex effectIndex, WeaponAttackType attackType = BASE_ATTACK, Spell* spell = nullptr);
-        int32 CalculateSpellDamage(Unit const* target, SpellEntry const* spellProto, SpellEffectIndex effect_index, int32 const* basePoints = nullptr, Spell* spell = nullptr) const;
-        int32 SpellBonusWithCoeffs(SpellEntry const* spellProto, SpellEffectIndex effectIndex, int32 total, int32 benefit, int32 ap_benefit, DamageEffectType damagetype, bool donePart, WorldObject* pCaster, Spell* spell = nullptr) const;
-        static float CalculateLevelPenalty(SpellEntry const* spellProto);
-        uint32 SpellDamageBonusDone(Unit* pVictim, SpellEntry const* spellProto, SpellEffectIndex effectIndex, uint32 pdamage, DamageEffectType damagetype, uint32 stack = 1, Spell* spell = nullptr);
-        int32 SpellBaseDamageBonusDone(SpellSchoolMask schoolMask);
-        uint32 SpellHealingBonusDone(Unit* pVictim, SpellEntry const* spellProto, SpellEffectIndex effectIndex, int32 healamount, DamageEffectType damagetype, uint32 stack = 1, Spell* spell = nullptr);
-        int32 SpellBaseHealingBonusDone(SpellSchoolMask schoolMask);
-        uint32 CalcArmorReducedDamage(Unit* pVictim, uint32 const damage) const;
-        uint32 MeleeDamageBonusDone(Unit* pVictim, uint32 damage, WeaponAttackType attType, SpellEntry const* spellProto = nullptr, SpellEffectIndex effectIndex = EFFECT_INDEX_0, DamageEffectType damagetype = DIRECT_DAMAGE, uint32 stack = 1, Spell* spell = nullptr, bool flat = true);
-        virtual SpellSchoolMask GetMeleeDamageSchoolMask() const;
-        float GetAPMultiplier(WeaponAttackType attType, bool normalized) const;
-        virtual uint32 DealDamage(Unit* pVictim, uint32 damage, CleanDamage const* cleanDamage, DamageEffectType damagetype, SpellSchoolMask damageSchoolMask, SpellEntry const* spellProto, bool durabilityLoss, Spell* spell = nullptr);
-        void DealDamageMods(Unit* pVictim, uint32& damage, uint32* absorb);
-        void DealSpellDamage(SpellNonMeleeDamage* damageInfo, bool durabilityLoss);
-        void SendSpellNonMeleeDamageLog(SpellNonMeleeDamage* log);
-        void SendSpellNonMeleeDamageLog(Unit* target, uint32 spellId, uint32 damage, SpellSchoolMask damageSchoolMask, uint32 absorbedDamage, int32 resist, bool isPeriodic, uint32 blocked, bool criticalHit = false, bool split = false);
-        void SendSpellMiss(Unit* target, uint32 spellId, SpellMissInfo missInfo);
-        void SendSpellOrDamageImmune(Unit* target, uint32 spellId) const;
-        int32 DealHeal(Unit* pVictim, uint32 addhealth, SpellEntry const* spellProto, bool critical = false);
-        void SendHealSpellLog(Unit const* pVictim, uint32 SpellID, uint32 Damage, bool critical = false) const;
-        void EnergizeBySpell(Unit* pVictim, uint32 SpellID, uint32 Damage, Powers powertype);
-        void SendEnergizeSpellLog(Unit const* pVictim, uint32 SpellID, uint32 Damage, Powers powertype) const;
-
-        void GetDynObjects(uint32 spellId, SpellEffectIndex effectIndex, std::vector<DynamicObject*>& dynObjsOut);
-        DynamicObject* GetDynObject(uint32 spellId, SpellEffectIndex effIndex);
-        DynamicObject* GetDynObject(uint32 spellId);
-        void AddDynObject(DynamicObject* dynObj);
-        void RemoveDynObject(uint32 spellid);
-        void RemoveDynObjectWithGUID(ObjectGuid guid) { m_dynObjGUIDs.remove(guid); }
-        void RemoveAllDynObjects();
-
-        // cooldown system
-        virtual void AddGCD(SpellEntry const& spellEntry, uint32 forcedDuration = 0, bool updateClient = false);
-        virtual bool HasGCD(SpellEntry const* spellEntry) const;
-        void ResetGCD(SpellEntry const* spellEntry = nullptr);
-        virtual void AddCooldown(SpellEntry const& spellEntry, ItemPrototype const* itemProto = nullptr, bool permanent = false, uint32 forcedDuration = 0);
-        virtual void RemoveSpellCooldown(SpellEntry const& spellEntry, bool updateClient = true);
-        void RemoveSpellCooldown(uint32 spellId, bool updateClient = true);
-        virtual void RemoveSpellCategoryCooldown(uint32 category, bool updateClient = true);
-        virtual void RemoveAllCooldowns(bool /*sendOnly*/ = false) { m_GCDCatMap.clear(); m_cooldownMap.clear(); m_lockoutMap.clear(); }
-        bool IsSpellReady(SpellEntry const& spellEntry, ItemPrototype const* itemProto = nullptr) const;
-        bool IsSpellReady(uint32 spellId, ItemPrototype const* itemProto = nullptr) const;
-        virtual void LockOutSpells(SpellSchoolMask schoolMask, uint32 duration);
-        void PrintCooldownList(ChatHandler& chat) const;
-        bool CheckLockout(SpellSchoolMask schoolMask) const;
-
-        // Event handler
-        EventProcessor m_Events;
     protected:
         explicit WorldObject();
 
-        // cooldown system
-        void UpdateCooldowns(TimePoint const& now);
-        bool GetExpireTime(SpellEntry const& spellEntry, TimePoint& expireTime, bool& isPermanent) const;
-
-        GCDMap            m_GCDCatMap;
-        LockoutMap        m_lockoutMap;
-        CooldownContainer m_cooldownMap;
-
-        std::string m_name;
         ZoneScript* m_zoneScript;
         bool m_isActiveObject;
         // Extra visibility distance for this unit, only used if it is an active object.
         // c.f. GetVisibilityModifier(). Be very conservative using this - a large
         // draw distance can be expensive for updates with lots of players
         float m_visibilityModifier;
-
         Map* m_currMap;                                     //current object's Map location
-
         uint32 m_mapId;                                     // object at map with map_id
-        uint32 m_InstanceId;                                // in map copy with instance id
-
+        uint32 m_instanceId;                                // in map copy with instance id
         Position m_position;
-
+        Cell m_currentCell;                                 // store current cell where object listed
         ViewPoint m_viewPoint;
-
         WorldUpdateCounter m_updateTracker;
-
         uint32 m_summonLimitAlert;                          // Timer to alert GMs if a creature is at the summon limit
-
-        typedef std::list<ObjectGuid> DynObjectGUIDs;
-        DynObjectGUIDs m_dynObjGUIDs;
-
-        std::array<Spell*, CURRENT_MAX_SPELL> m_currentSpells{};
-        uint32 m_castCounter = 0;                           // count casts chain of triggered spells for prevent infinity cast crashes
-    private:
-        // Error traps for some wrong args using
-        // this will catch and prevent build for any cases when all optional args skipped and instead triggered used non boolean type
-        // no bodies expected for this declarations
-        template <typename TR>
-        SpellCastResult CastSpell(Unit* Victim, uint32 spell, TR triggered);
-        template <typename TR>
-        SpellCastResult CastSpell(Unit* Victim, SpellEntry const* spell, TR triggered);
-        template <typename TR>
-        void CastCustomSpell(Unit* Victim, uint32 spell, int32 const* bp0, int32 const* bp1, int32 const* bp2, TR triggered);
-        template <typename SP, typename TR>
-        void CastCustomSpell(Unit* Victim, SpellEntry const* spell, int32 const* bp0, int32 const* bp1, int32 const* bp2, TR triggered);
-        template <typename TR>
-        SpellCastResult CastSpell(float x, float y, float z, uint32 spell, TR triggered);
-        template <typename TR>
-        SpellCastResult CastSpell(float x, float y, float z, SpellEntry const* spell, TR triggered);
 };
+
+inline WorldObject* Object::ToWorldObject()
+{
+    return IsWorldObject() ? static_cast<WorldObject*>(this) : nullptr;
+}
+
+inline WorldObject const* Object::ToWorldObject() const
+{
+    return IsWorldObject() ? static_cast<WorldObject const*>(this) : nullptr;
+}
 
 // Helper functions to cast between different Object pointers. Useful when unsure that your object* is valid at all.
 inline WorldObject* ToWorldObject(Object* object)
 {
-    return object && object->isType(TYPEMASK_WORLDOBJECT) ? static_cast<WorldObject*>(object) : nullptr;
+    return object && object->IsWorldObject() ? static_cast<WorldObject*>(object) : nullptr;
 }
 
 inline WorldObject const* ToWorldObject(Object const* object)
 {
-    return object && object->isType(TYPEMASK_WORLDOBJECT) ? static_cast<WorldObject const*>(object) : nullptr;
-}
-
-inline GameObject* ToGameObject(Object* object)
-{
-    return object && object->GetTypeId() == TYPEID_GAMEOBJECT ? reinterpret_cast<GameObject*>(object) : nullptr;
-}
-
-inline GameObject const* ToGameObject(Object const* object)
-{
-    return object && object->GetTypeId() == TYPEID_GAMEOBJECT ? reinterpret_cast<GameObject const*>(object) : nullptr;
-}
-
-inline Unit* ToUnit(Object* object)
-{
-    return object && object->isType(TYPEMASK_UNIT) ? reinterpret_cast<Unit*>(object) : nullptr;
-}
-
-inline Unit const* ToUnit(Object const* object)
-{
-    return object && object->isType(TYPEMASK_UNIT) ? reinterpret_cast<Unit const*>(object) : nullptr;
-}
-
-inline Creature* ToCreature(Object* object)
-{
-    return object && object->GetTypeId() == TYPEID_UNIT ? reinterpret_cast<Creature*>(object) : nullptr;
-}
-
-inline Creature const* ToCreature(Object const* object)
-{
-    return object && object->GetTypeId() == TYPEID_UNIT ? reinterpret_cast<Creature const*>(object) : nullptr;
-}
-
-inline Player* ToPlayer(Object* object)
-{
-    return object && object->GetTypeId() == TYPEID_PLAYER ? reinterpret_cast<Player*>(object) : nullptr;
-}
-
-inline Player const* ToPlayer(Object const* object)
-{
-    return object && object->GetTypeId() == TYPEID_PLAYER ? reinterpret_cast<Player const*>(object) : nullptr;
+    return object && object->IsWorldObject() ? static_cast<WorldObject const*>(object) : nullptr;
 }
 
 #endif

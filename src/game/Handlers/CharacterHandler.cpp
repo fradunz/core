@@ -31,28 +31,18 @@
 #include "Player.h"
 #include "Guild.h"
 #include "GuildMgr.h"
-#include "UpdateMask.h"
-#include "Auth/md5.h"
 #include "ObjectAccessor.h"
 #include "Group.h"
 #include "Database/DatabaseImpl.h"
-#include "PlayerDump.h"
 #include "SocialMgr.h"
 #include "Util.h"
 #include "Language.h"
-#include "Chat.h"
 #include "Anticheat.h"
 #include "MasterPlayer.h"
 #include "PlayerBroadcaster.h"
-
-// config option SkipCinematics supported values
-enum CinematicsSkipMode
-{
-    CINEMATICS_SKIP_NONE      = 0,
-    CINEMATICS_SKIP_SAME_RACE = 1,
-    CINEMATICS_SKIP_ALL       = 2,
-};
-
+#include "PlayerBotMgr.h"
+#include "MapManager.h"
+#include "AccountMgr.h"
 
 class LoginQueryHolder : public SqlQueryHolder
 {
@@ -86,31 +76,32 @@ bool LoginQueryHolder::Initialize()
 
     // NOTE: all fields in `characters` must be read to prevent lost character data at next save in case wrong DB structure.
     // !!! NOTE: including unused `zone`,`online`
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADFROM,            "SELECT guid, account, name, race, class, gender, level, xp, money, playerBytes, playerBytes2, playerFlags, "
-                     "position_x, position_y, position_z, map, orientation, taximask, cinematic, totaltime, leveltime, rest_bonus, logout_time, is_logout_resting, resettalents_multiplier, "
-                     "resettalents_time, trans_x, trans_y, trans_z, trans_o, transguid, extra_flags, stable_slots, at_login, zone, online, death_expire_time, taxi_path, "
-                     "honorRankPoints, honorHighestRank, honorStanding, honorLastWeekHK, honorLastWeekCP, honorStoredHK, honorStoredDK, "
-                     "watchedFaction, drunk, health, power1, power2, power3, power4, power5, exploredZones, equipmentCache, ammoId, actionBars, "
-                     "world_phase_mask FROM characters WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADGROUP,           "SELECT groupId FROM group_member WHERE memberGuid ='%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADBOUNDINSTANCES,  "SELECT id, permanent, map, resettime FROM character_instance LEFT JOIN instance ON instance = id WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADAURAS,           "SELECT caster_guid,item_guid,spell,stackcount,remaincharges,basepoints0,basepoints1,basepoints2,periodictime0,periodictime1,periodictime2,maxduration,remaintime,effIndexMask FROM character_aura WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSPELLS,          "SELECT spell,active,disabled FROM character_spell WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADQUESTSTATUS,     "SELECT quest,status,rewarded,explored,timer,mobcount1,mobcount2,mobcount3,mobcount4,itemcount1,itemcount2,itemcount3,itemcount4,reward_choice FROM character_queststatus WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADHONORCP,         "SELECT victimType,victim,cp,date,type FROM character_honor_cp WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADREPUTATION,      "SELECT faction,standing,flags FROM character_reputation WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADINVENTORY,       "SELECT * FROM (SELECT creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomPropertyId, durability, text, bag, slot, item, itemEntry, generated_loot FROM character_inventory JOIN item_instance ON character_inventory.item = item_instance.guid WHERE character_inventory.guid = '%u') as t ORDER BY bag,slot", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADITEMLOOT,        "SELECT guid,itemid,amount,property FROM item_loot WHERE owner_guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADACTIONS,         "SELECT button,action,type FROM character_action WHERE guid = '%u' ORDER BY button", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSOCIALLIST,      "SELECT friend,flags FROM character_social WHERE guid = '%u' LIMIT 255", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADHOMEBIND,        "SELECT map,zone,position_x,position_y,position_z FROM character_homebind WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSPELLCOOLDOWNS,  "SELECT SpellId, SpellExpireTime, Category, CategoryExpireTime, ItemId FROM character_spell_cooldown WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADGUILD,           "SELECT guildid,`rank` FROM guild_member WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADBGDATA,          "SELECT instance_id, team, join_x, join_y, join_z, join_o, join_map FROM character_battleground_data WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSKILLS,          "SELECT skill, value, max FROM character_skills WHERE guid = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADMAILS,           "SELECT id,messageType,sender,receiver,subject,itemTextId,expire_time,deliver_time,money,cod,checked,stationery,mailTemplateId,has_items FROM mail WHERE receiver = '%u' ORDER BY id DESC", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADMAILEDITEMS,     "SELECT creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomPropertyId, durability, text, mail_id, item_guid, itemEntry, generated_loot FROM mail_items JOIN item_instance ON item_guid = guid WHERE receiver = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_FORGOTTEN_SKILLS,    "SELECT skill, value FROM character_forgotten_skills WHERE guid = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADFROM,            "SELECT `guid`, `account`, `name`, `race`, `class`, `gender`, `level`, `xp`, `money`, `skin`, `face`, `hair_style`, `hair_color`, `facial_hair`, `bank_bag_slots`, `character_flags`, "
+                     "`position_x`, `position_y`, `position_z`, `map`, `orientation`, `known_taxi_mask`, `played_time_total`, `played_time_level`, `rest_bonus`, `logout_time`, `reset_talents_multiplier`, "
+                     "`reset_talents_time`, `transport_guid`, `transport_x`, `transport_y`, `transport_z`, `transport_o`, `extra_flags`, `stable_slots`, `death_expire_time`, `current_taxi_path`, "
+                     "`honor_rank_points`, `honor_highest_rank`, `honor_standing`, `honor_last_week_hk`, `honor_last_week_cp`, `honor_stored_hk`, `honor_stored_dk`, "
+                     "`watched_faction`, `drunk`, `health`, `power1`, `power2`, `power3`, `power4`, `power5`, `explored_zones`, `ammo_id`, `action_bars`, "
+                     "`world_phase_mask`, `create_time`, `instance` FROM `characters` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADGROUP,           "SELECT `group_id` FROM `group_member` WHERE `member_guid` ='%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADBOUNDINSTANCES,  "SELECT `id`, `permanent`, `map`, `reset_time` FROM `character_instance` LEFT JOIN `instance` ON `instance` = `id` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADAURAS,           "SELECT `caster_guid`, `item_guid`, `spell`, `stacks`, `charges`, `base_points0`, `base_points1`, `base_points2`, `periodic_time0`, `periodic_time1`, `periodic_time2`, `max_duration`, `duration`, `effect_index_mask` FROM `character_aura` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSPELLS,          "SELECT `spell`, `active`, `disabled` FROM `character_spell` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADQUESTSTATUS,     "SELECT `quest`, `status`, `rewarded`, `explored`, `timer`, `mob_count1`, `mob_count2`, `mob_count3`, `mob_count4`, `item_count1`, `item_count2`, `item_count3`, `item_count4`, `reward_choice` FROM `character_queststatus` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADHONORCP,         "SELECT `victim_type`, `victim_id`, `cp`, `date`, `type` FROM `character_honor_cp` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADREPUTATION,      "SELECT `faction`, `standing`, `flags` FROM `character_reputation` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADINVENTORY,       "SELECT * FROM (SELECT `creator_guid`, `gift_creator_guid`, `count`, `duration`, `charges`, `flags`, `enchantments`, `random_property_id`, `durability`, `text`, `bag`, `slot`, `item_guid`, `item_instance`.`item_id`, `generated_loot` FROM `character_inventory` JOIN `item_instance` ON `character_inventory`.`item_guid` = `item_instance`.`guid` WHERE `character_inventory`.`guid` = '%u') as t ORDER BY `bag`, `slot`", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADITEMLOOT,        "SELECT `guid`, `item_id`, `amount`, `property` FROM `item_loot` WHERE `owner_guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADACTIONS,         "SELECT `button`, `action`, `type` FROM `character_action` WHERE `guid` = '%u' ORDER BY `button`", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSOCIALLIST,      "SELECT `friend`, `flags` FROM `character_social` WHERE `guid` = '%u' LIMIT 255", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADHOMEBIND,        "SELECT `map`, `zone`, `position_x`, `position_y`, `position_z` FROM `character_homebind` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSPELLCOOLDOWNS,  "SELECT `spell`, `spell_expire_time`, `category`, `category_expire_time`, `item_id` FROM `character_spell_cooldown` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADGUILD,           "SELECT `guild_id`, `rank` FROM `guild_member` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADBGDATA,          "SELECT `instance_id`, `team`, `join_x`, `join_y`, `join_z`, `join_o`, `join_map` FROM `character_battleground_data` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADACCOUNTDATA,     "SELECT `type`, `time`, `data` FROM `character_account_data` WHERE `guid`='%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADSKILLS,          "SELECT `skill`, `value`, `max` FROM `character_skills` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADMAILS,           "SELECT `id`, `message_type`, `sender_guid`, `receiver_guid`, `subject`, `item_text_id`, `expire_time`, `deliver_time`, `money`, `cod`, `checked`, `stationery`, `mail_template_id`, `has_items` FROM `mail` WHERE `receiver_guid` = '%u' ORDER BY `id` DESC", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADMAILEDITEMS,     "SELECT `creator_guid`, `gift_creator_guid`, `count`, `duration`, `charges`, `flags`, `enchantments`, `random_property_id`, `durability`, `text`, `mail_id`, `item_guid`, `item_instance`.`item_id`, `generated_loot` FROM `mail_items` JOIN `item_instance` ON `item_guid` = `guid` WHERE `receiver_guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_FORGOTTEN_SKILLS,    "SELECT `skill`, `value` FROM `character_forgotten_skills` WHERE `guid` = '%u'", m_guid.GetCounter());
 
     return res;
 }
@@ -121,19 +112,20 @@ bool LoginQueryHolder::Initialize()
 class CharacterHandler
 {
 public:
-    void HandleCharEnumCallback(QueryResult* result, uint32 account)
+    void HandleCharEnumCallback(std::unique_ptr<QueryResult> result, uint32 account)
     {
         WorldSession* session = sWorld.FindSession(account);
         if (!session)
         {
-            delete result;
             return;
         }
-        session->HandleCharEnum(result);
+        session->HandleCharEnum(std::move(result));
     }
-    void HandlePlayerLoginCallback(QueryResult* /*dummy*/, SqlQueryHolder * holder)
+    void HandlePlayerLoginCallback(std::unique_ptr<QueryResult> /*dummy*/, SqlQueryHolder* holder)
     {
-        if (!holder) return;
+        if (!holder)
+            return;
+
         WorldSession* session = sWorld.FindSession(((LoginQueryHolder*)holder)->GetAccountId());
         if (!session)
         {
@@ -144,12 +136,11 @@ public:
     }
 } chrHandler;
 
-void WorldSession::HandleCharEnum(QueryResult* result)
+void WorldSession::HandleCharEnum(std::unique_ptr<QueryResult> result)
 {
     WorldPacket data(SMSG_CHAR_ENUM, 100);                  // we guess size
 
     uint8 num = 0;
-
     data << num;
 
     if (result)
@@ -157,58 +148,47 @@ void WorldSession::HandleCharEnum(QueryResult* result)
         do
         {
             uint32 guidlow = (*result)[0].GetUInt32();
-            uint32 level   = (*result)[7].GetUInt32();
-            if (_characterMaxLevel < level)
-                _characterMaxLevel = level;
+            uint32 level   = (*result)[10].GetUInt32();
+            if (m_characterMaxLevel < level)
+                m_characterMaxLevel = level;
 
-            DETAIL_LOG("Build enum data for char guid %u from account %u.", guidlow, GetAccountId());
+            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "Build enum data for char guid %u from account %u.", guidlow, GetAccountId());
             if (Player::BuildEnumData(result, &data))
                 ++num;
         }
         while (result->NextRow());
-
-        delete result;
     }
 
     data.put<uint8>(0, num);
-    _charactersCount = num;
+    m_charactersCount = num;
 
     SendPacket(&data);
 }
 
-void WorldSession::HandleCharEnumOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandleCharEnumOpcode(NullClientPacket const& /*packet*/)
 {
-    /// get all the data necessary for loading all characters (along with their pets) on the account
+    // get all the data necessary for loading all characters (along with their pets) on the account
     CharacterDatabase.AsyncPQuery(&chrHandler, &CharacterHandler::HandleCharEnumCallback, GetAccountId(),
-                                  //           0               1                2                3                 4                  5                       6                        7
-                                  "SELECT characters.guid, characters.name, characters.race, characters.class, characters.gender, characters.playerBytes, characters.playerBytes2, characters.level, "
-                                  //   8                9               10                     11                     12                     13                    14
-                                  "characters.zone, characters.map, characters.position_x, characters.position_y, characters.position_z, guild_member.guildid, characters.playerFlags, "
-                                  //  15                    16                   17                     18                   19
-                                  "characters.at_login, character_pet.entry, character_pet.modelid, character_pet.level, characters.equipmentCache "
-                                  "FROM characters LEFT JOIN character_pet ON characters.guid=character_pet.owner AND character_pet.slot='%u' "
-                                  "LEFT JOIN guild_member ON characters.guid = guild_member.guid "
-                                  "WHERE characters.account = '%u' ORDER BY characters.guid "
+                                  //           0                    1                    2                    3                     4                      5                    6                    7                          8                          9                           10
+                                  "SELECT `characters`.`guid`, `characters`.`name`, `characters`.`race`, `characters`.`class`, `characters`.`gender`, `characters`.`skin`, `characters`.`face`, `characters`.`hair_style`, `characters`.`hair_color`, `characters`.`facial_hair`, `characters`.`level`, "
+                                  //    11                   12                  13                         14                         15                         16                         17
+                                  "`characters`.`zone`, `characters`.`map`, `characters`.`position_x`, `characters`.`position_y`, `characters`.`position_z`, `guild_member`.`guild_id`, `characters`.`character_flags`, "
+                                  //    18                                19                       20                            21                       22
+                                  "`characters`.`played_time_total`, `character_pet`.`entry`, `character_pet`.`display_id`, `character_pet`.`level`, `characters`.`equipment_cache` "
+                                  "FROM `characters` LEFT JOIN `character_pet` ON `characters`.`guid`=`character_pet`.`owner_guid` AND `character_pet`.`slot`='%u' "
+                                  "LEFT JOIN `guild_member` ON `characters`.`guid` = `guild_member`.`guid` "
+                                  "WHERE `characters`.`account` = '%u' ORDER BY `characters`.`create_time`, `characters`.`guid` "
                                   "LIMIT 0,10",
                                   PET_SAVE_AS_CURRENT, GetAccountId());
 }
 
-void WorldSession::HandleCharCreateOpcode(WorldPacket& recv_data)
+void WorldSession::HandleCharCreateOpcode(WorldPackets::Character::CharCreate const& packet)
 {
-    std::string name;
-    uint8 race_, class_;
-
-    recv_data >> name;
-
-    recv_data >> race_;
-    recv_data >> class_;
-
-    // extract other data required for player creating
-    uint8 gender, skin, face, hairStyle, hairColor, facialHair, outfitId;
-    recv_data >> gender >> skin >> face;
-    recv_data >> hairStyle >> hairColor >> facialHair >> outfitId;
-
-    WorldPacket data(SMSG_CHAR_CREATE, 1);                  // returned with diff.values in all cases
+    auto sendResponse = [this](uint8 result) {
+        auto response = std::make_unique<WorldPackets::Character::CharCreateResponse>();
+        response->result = result;
+        SendPacket(std::move(response));
+    };
 
     if (GetSecurity() == SEC_PLAYER)
     {
@@ -216,7 +196,7 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recv_data)
         {
             bool disabled = false;
 
-            Team team = Player::TeamForRace(race_);
+            Team team = Player::TeamForRace(packet.race);
             switch (team)
             {
                 case ALLIANCE:
@@ -229,96 +209,87 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recv_data)
 
             if (disabled)
             {
-                data << (uint8)CHAR_CREATE_DISABLED;
-                SendPacket(&data);
+                sendResponse(CHAR_CREATE_DISABLED);
                 return;
             }
         }
     }
 
-    ChrClassesEntry const* classEntry = sChrClassesStore.LookupEntry(class_);
-    ChrRacesEntry const* raceEntry = sChrRacesStore.LookupEntry(race_);
+    ChrClassesEntry const* classEntry = sChrClassesStore.LookupEntry(packet.class_);
+    ChrRacesEntry const* raceEntry = sChrRacesStore.LookupEntry(packet.race);
 
     if (!classEntry || !raceEntry)
     {
-        data << (uint8)CHAR_CREATE_FAILED;
-        SendPacket(&data);
+        sendResponse(CHAR_CREATE_FAILED);
         std::stringstream oss;
-        oss << "Attempt to create character of invalid Class (" << int(class_) << ") or Race (" << int(race_) << ")";
+        oss << "Attempt to create character of invalid Class (" << int(packet.class_) << ") or Race (" << int(packet.race) << ")";
         ProcessAnticheatAction("PassiveAnticheat", oss.str().c_str(), CHEAT_ACTION_LOG);
         return;
     }
 
     if (raceEntry->HasFlag(CHRRACES_FLAGS_NOT_PLAYABLE))
     {
-        data << (uint8)CHAR_CREATE_DISABLED;
-        SendPacket(&data);
+        sendResponse(CHAR_CREATE_DISABLED);
         std::stringstream oss;
-        oss << "Attempt to create character of non-playable Race (" << int(race_) << ")";
+        oss << "Attempt to create character of non-playable Race (" << int(packet.race) << ")";
         ProcessAnticheatAction("PassiveAnticheat", oss.str().c_str(), CHEAT_ACTION_LOG);
         return;
     }
 
-    if (!Player::ValidateAppearance(race_, class_, gender, hairStyle, hairColor, face, facialHair, skin, true))
+    if (!Player::ValidateAppearance(packet.race, packet.gender, packet.hairStyle, packet.hairColor, packet.face, packet.facialHair, packet.skin))
     {
-        data << (uint8)CHAR_CREATE_FAILED;
-        SendPacket(&data);
+        sendResponse(CHAR_CREATE_FAILED);
         ProcessAnticheatAction("PassiveAnticheat", "Attempt to create character with invalid appearance attributes", CHEAT_ACTION_LOG);
         return;
     }
 
+    std::string safeName = packet.name;
+
     // prevent character creating with invalid name
-    if (!normalizePlayerName(name))
+    if (!normalizePlayerName(safeName))
     {
-        data << (uint8)CHAR_NAME_NO_NAME;
-        SendPacket(&data);
+        sendResponse(CHAR_NAME_NO_NAME);
         ProcessAnticheatAction("PassiveAnticheat", "Attempt to create character with invalid name", CHEAT_ACTION_LOG);
         return;
     }
 
     // check name limitations
-    uint8 res = ObjectMgr::CheckPlayerName(name, true);
+    uint8 res = ObjectMgr::CheckPlayerName(safeName, true);
     if (res != CHAR_NAME_SUCCESS)
     {
-        data << uint8(res);
-        SendPacket(&data);
+        sendResponse(res);
         return;
     }
 
-    if (GetSecurity() == SEC_PLAYER && sObjectMgr.IsReservedName(name))
+    if (GetSecurity() == SEC_PLAYER && sObjectMgr.IsReservedName(safeName))
     {
-        data << (uint8)CHAR_NAME_RESERVED;
-        SendPacket(&data);
+        sendResponse(CHAR_NAME_RESERVED);
         return;
     }
 
-    if (sObjectMgr.GetPlayerGuidByName(name))
+    if (sObjectMgr.GetPlayerGuidByName(safeName))
     {
-        data << (uint8)CHAR_CREATE_NAME_IN_USE;
-        SendPacket(&data);
+        sendResponse(CHAR_CREATE_NAME_IN_USE);
         return;
     }
 
-    if (_charactersCount >= sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_REALM))
+    if (m_charactersCount >= sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_REALM))
     {
-        data << (uint8)CHAR_CREATE_SERVER_LIMIT;
-        SendPacket(&data);
+        sendResponse(CHAR_CREATE_SERVER_LIMIT);
         return;
     }
 
     bool AllowTwoSideAccounts = !sWorld.IsPvPRealm() || sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_ACCOUNTS) || GetSecurity() > SEC_PLAYER;
-    CinematicsSkipMode skipCinematics = CinematicsSkipMode(sWorld.getConfig(CONFIG_UINT32_SKIP_CINEMATICS));
 
-    bool have_same_race = false;
-    if (!AllowTwoSideAccounts || skipCinematics == CINEMATICS_SKIP_SAME_RACE)
+    if (!AllowTwoSideAccounts)
     {
-        std::list<PlayerCacheData*> characters;
+        std::vector<PlayerCacheData const*> characters;
         sObjectMgr.GetPlayerDataForAccount(GetAccountId(), characters);
 
         if (!characters.empty())
         {
-            PlayerCacheData* cData = characters.front();
-            Team team_ = Player::TeamForRace(race_);
+            PlayerCacheData const* cData = characters.front();
+            Team team_ = Player::TeamForRace(packet.race);
 
             uint8 acc_race = cData->uiRace;
 
@@ -328,87 +299,51 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recv_data)
             {
                 if (acc_race == 0 || Player::TeamForRace(acc_race) != team_)
                 {
-                    data << (uint8)CHAR_CREATE_PVP_TEAMS_VIOLATION;
-                    SendPacket(&data);
+                    sendResponse(CHAR_CREATE_PVP_TEAMS_VIOLATION);
                     return;
                 }
-            }
-
-            // search same race for cinematic or same class if need
-            // TODO: check if cinematic already shown? (already logged in?; cinematic field)
-            std::list<PlayerCacheData*>::iterator iter = characters.begin();
-            while (iter != characters.end() && skipCinematics == CINEMATICS_SKIP_SAME_RACE && !have_same_race)
-            {
-                acc_race = (*iter)->uiRace;
-
-                have_same_race = race_ == acc_race;
-                ++iter;
             }
         }
     }
 
-    Player* pNewChar = new Player(this);
-    if (!pNewChar->Create(sObjectMgr.GeneratePlayerLowGuid(), name, race_, class_, gender, skin, face, hairStyle, hairColor, facialHair))
+    uint32 const guidLow = sObjectMgr.GeneratePlayerLowGuid();
+    if (Player::SaveNewPlayer(this, guidLow, safeName, packet.race, packet.class_, packet.gender, packet.skin, packet.face, packet.hairStyle, packet.hairColor, packet.facialHair))
     {
-        // Player not create (race/class problem?)
-        delete pNewChar;
+        m_charactersCount += 1;
 
-        data << (uint8)CHAR_CREATE_ERROR;
-        SendPacket(&data);
+        LoginDatabase.PExecute("REPLACE INTO `realmcharacters` (`numchars`, `acctid`, `realmid`) VALUES (%u, %u, %u)", m_charactersCount, GetAccountId(), realmID);
 
-        return;
+        sendResponse(CHAR_CREATE_SUCCESS);
     }
-
-    MasterPlayer masterPlayer(this);
-    masterPlayer.Create(pNewChar);
-    if ((have_same_race && skipCinematics == CINEMATICS_SKIP_SAME_RACE) || skipCinematics == CINEMATICS_SKIP_ALL)
-        pNewChar->SetCinematic(1);                          // not show intro
-
-    pNewChar->SetAtLoginFlag(AT_LOGIN_FIRST);               // First login
-
-    // Player created, save it now
-    pNewChar->SaveToDB();
-    masterPlayer.SaveToDB();
-
-    sObjectMgr.InsertPlayerInCache(pNewChar);
-    sObjectMgr.UpdatePlayerCachedPosition(pNewChar);
-    _charactersCount += 1;
-
-    LoginDatabase.PExecute("DELETE FROM realmcharacters WHERE acctid= '%u' AND realmid = '%u'", GetAccountId(), realmID);
-    LoginDatabase.PExecute("INSERT INTO realmcharacters (numchars, acctid, realmid) VALUES (%u, %u, %u)",  _charactersCount, GetAccountId(), realmID);
-
-    data << (uint8)CHAR_CREATE_SUCCESS;
-    SendPacket(&data);
-
-    std::string IP_str = GetRemoteAddress();
-    BASIC_LOG("Account: %d (IP: %s) Create Character:[%s] (guid: %u)", GetAccountId(), IP_str.c_str(), name.c_str(), pNewChar->GetGUIDLow());
-    sLog.out(LOG_CHAR, "Account: %d (IP: %s) Create Character:[%s] (guid: %u)", GetAccountId(), IP_str.c_str(), name.c_str(), pNewChar->GetGUIDLow());
-    sWorld.LogCharacter(pNewChar, "Create");
-    delete pNewChar;                                        // created only to call SaveToDB()
+    else
+    {
+        sendResponse(CHAR_CREATE_ERROR);
+    }
 }
 
-void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
+void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete const& packet)
 {
-    ObjectGuid guid;
-    recv_data >> guid;
+    auto sendResponse = [this](uint8 result) {
+        auto response = std::make_unique<WorldPackets::Character::CharDeleteResponse>();
+        response->result = result;
+        SendPacket(std::move(response));
+    };
 
     // can't delete loaded character
-    if (ObjectAccessor::FindPlayerNotInWorld(guid))
+    if (ObjectAccessor::FindPlayerNotInWorld(packet.guid))
         return;
 
     uint32 accountId = 0;
     std::string name;
 
     // is guild leader
-    if (sGuildMgr.GetGuildByLeader(guid))
+    if (sGuildMgr.GetGuildByLeader(packet.guid))
     {
-        WorldPacket data(SMSG_CHAR_DELETE, 1);
-        data << (uint8)CHAR_DELETE_FAILED;
-        SendPacket(&data);
+        sendResponse(CHAR_DELETE_FAILED);
         return;
     }
 
-    uint32 lowguid = guid.GetCounter();
+    uint32 lowguid = packet.guid.GetCounter();
 
     PlayerCacheData* cacheData = sObjectMgr.GetPlayerDataByGUID(lowguid);
     if (!cacheData)
@@ -421,40 +356,29 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
     if (accountId != GetAccountId())
         return;
 
-    std::string IP_str = GetRemoteAddress();
-    BASIC_LOG("Account: %d (IP: %s) Delete Character:[%s] (guid: %u)", GetAccountId(), IP_str.c_str(), name.c_str(), lowguid);
-    sLog.out(LOG_CHAR, "Account: %d (IP: %s) Delete Character:[%s] (guid: %u)", GetAccountId(), IP_str.c_str(), name.c_str(), lowguid);
+    sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC, "Character %s guid %u", name.c_str(), packet.guid);
 
     // If the character is online (ALT-F4 logout for example)
-    if (Player* onlinePlayer = sObjectAccessor.FindPlayer(guid))
+    if (Player* onlinePlayer = sObjectAccessor.FindPlayer(packet.guid))
         onlinePlayer->GetSession()->LogoutPlayer(true);
 
-    Player::DeleteFromDB(guid, GetAccountId());
+    Player::DeleteFromDB(packet.guid, GetAccountId());
 
-    WorldPacket data(SMSG_CHAR_DELETE, 1);
-    data << (uint8)CHAR_DELETE_SUCCESS;
-    SendPacket(&data);
-
-    sWorld.LogCharacter(this, lowguid, name, "Delete");
+    sendResponse(CHAR_DELETE_SUCCESS);
 }
 
-void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recv_data)
+void WorldSession::HandlePlayerLoginOpcode(WorldPackets::Character::PlayerLogin const& packet)
 {
-    ObjectGuid playerGuid;
-    recv_data >> playerGuid;
-
-    if (PlayerLoading() || GetPlayer() != nullptr)
+    if ((!sWorld.getConfig(CONFIG_BOOL_WORLD_AVAILABLE) && GetSecurity() == SEC_PLAYER) ||
+        PlayerLoading() || GetPlayer() != nullptr || !packet.guid.IsPlayer())
     {
-        sLog.outError("Player tryes to login again, AccountId = %d", GetAccountId());
+        auto loginFailedPacket = std::make_unique<WorldPackets::Character::CharacterLoginFailed>();
+        loginFailedPacket->result = 1;
+        SendPacket(std::move(loginFailedPacket));
         return;
     }
-    if (!playerGuid.IsPlayer())
-        return;
 
-
-    DEBUG_LOG("WORLD: Recvd Player Logon Message");
-
-    LoginQueryHolder *holder = new LoginQueryHolder(GetAccountId(), playerGuid);
+    LoginQueryHolder* holder = new LoginQueryHolder(GetAccountId(), packet.guid);
     if (!holder->Initialize())
     {
         delete holder;                                      // delete all unprocessed queries
@@ -467,7 +391,7 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recv_data)
 void WorldSession::LoginPlayer(ObjectGuid loginPlayerGuid)
 {
     ASSERT(loginPlayerGuid.IsPlayer());
-    LoginQueryHolder *holder = new LoginQueryHolder(GetAccountId(), loginPlayerGuid);
+    LoginQueryHolder* holder = new LoginQueryHolder(GetAccountId(), loginPlayerGuid);
     if (!holder->Initialize())
     {
         delete holder;                                      // delete all unprocessed queries
@@ -484,13 +408,15 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     // Session2 created, requests login, and receives 2 login callback.
     if (GetPlayer() || !m_playerLoading)
     {
-        sLog.outInfo("[CRASH] HandlePlayerLogin on session %u with player %s [loading=%u]", GetAccountId(), GetPlayerName(), m_playerLoading);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[CRASH] HandlePlayerLogin on session %u with player %s [loading=%u]", GetAccountId(), GetPlayerName(), m_playerLoading);
         delete holder;
         m_playerLoading = false;
         return;
     }
+
     ObjectGuid playerGuid = holder->GetGuid();
     ASSERT(playerGuid.IsPlayer());
+    m_currentPlayerGuid = playerGuid;
 
     // If the character is online (ALT-F4 logout for example)
     Player* pCurrChar = sObjectAccessor.FindPlayer(playerGuid);
@@ -501,20 +427,36 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         // Hacking attempt
         if (pCurrChar->GetSession()->GetAccountId() != GetAccountId())
         {
+            ProcessAnticheatAction("PassiveAnticheat", "Attempt to login to character on different account", CHEAT_ACTION_LOG);
             KickPlayer();
             delete holder;
             m_playerLoading = false;
             return;
         }
+
+        if (pCurrChar->FindMap() != sMapMgr.FindMap(pCurrChar->GetMapId(), pCurrChar->GetInstanceId()))
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[CRASH] Dangling map pointer during login on character guid %u", playerGuid.GetCounter());
+            KickPlayer();
+            delete holder;
+            m_playerLoading = false;
+            return;
+        }
+
+        alreadyOnline = true;
         pCurrChar->GetSession()->SetPlayer(nullptr);
         pCurrChar->SetSession(this);
+
         // Need to attach packet bcaster to the new socket
-        pCurrChar->m_broadcaster->ChangeSocket(GetSocket());
-        alreadyOnline = true;
-        // If the character had a logout request, then he is articifially stunned (cf CMSG_LOGOUT_REQUEST handler). Fix it here.
+        if (pCurrChar->m_broadcaster)
+            pCurrChar->m_broadcaster->ChangeSocket(GetSocket());
+        else
+            pCurrChar->CreatePacketBroadcaster();
+
+        // If the character had a logout request, then he is articifially stunned (in CMSG_LOGOUT_REQUEST handler). Fix it here.
         if (pCurrChar->CanFreeMove())
         {
-            pCurrChar->SetRooted(false);
+            pCurrChar->SetRootedReal(false);
             pCurrChar->SetStandState(UNIT_STAND_STATE_STAND);
             pCurrChar->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
         }
@@ -524,7 +466,7 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         // Character found online but not in world ?
         if (HashMapHolder<Player>::Find(playerGuid))
         {
-            sLog.outInfo("[CRASH] Trying to login already ingame character guid %u", playerGuid.GetCounter());
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[CRASH] Trying to login already ingame character guid %u", playerGuid.GetCounter());
             KickPlayer();
             delete holder;
             m_playerLoading = false;
@@ -532,6 +474,9 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         }
         pCurrChar = new Player(this);
         pCurrChar->GetMotionMaster()->Initialize();
+
+        if (GetBot() && !sPlayerBotMgr.IsSavingAllowed())
+            pCurrChar->m_saveDisabled = true;
     }
 
     // "GetAccountId()==db stored account id" checked in LoadFromDB (prevent login not own character using cheating tools)
@@ -558,27 +503,29 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     {
         m_masterPlayer = new MasterPlayer(this);
         m_masterPlayer->LoadPlayer(GetPlayer());
-        m_masterPlayer->LoadActions(holder->GetResult(PLAYER_LOGIN_QUERY_LOADACTIONS));
-        m_masterPlayer->LoadSocial(holder->GetResult(PLAYER_LOGIN_QUERY_LOADSOCIALLIST));
-        m_masterPlayer->LoadMails(holder->GetResult(PLAYER_LOGIN_QUERY_LOADMAILS));
-        m_masterPlayer->LoadMailedItems(holder->GetResult(PLAYER_LOGIN_QUERY_LOADMAILEDITEMS));
+        m_masterPlayer->LoadActions(holder->TakeResult(PLAYER_LOGIN_QUERY_LOADACTIONS));
+        m_masterPlayer->LoadSocial(holder->TakeResult(PLAYER_LOGIN_QUERY_LOADSOCIALLIST));
+        m_masterPlayer->LoadMails(holder->TakeResult(PLAYER_LOGIN_QUERY_LOADMAILS));
+        m_masterPlayer->LoadMailedItems(holder->TakeResult(PLAYER_LOGIN_QUERY_LOADMAILEDITEMS));
     }
     m_masterPlayer->UpdateNextMailTimeAndUnreads();
 
     sObjectAccessor.AddObject(m_masterPlayer);
 
-    WorldPacket data(SMSG_LOGIN_VERIFY_WORLD, 20);
-    data << pCurrChar->GetMapId();
-    data << pCurrChar->GetPositionX();
-    data << pCurrChar->GetPositionY();
-    data << pCurrChar->GetPositionZ();
-    data << pCurrChar->GetOrientation();
-    SendPacket(&data);
+    Position const& position = pCurrChar->GetTransport()
+                             ? pCurrChar->m_movementInfo.GetTransportPos()
+                             : pCurrChar->GetPosition();
 
-    data.Initialize(SMSG_ACCOUNT_DATA_TIMES, 128);
-    for (int i = 0; i < 32; ++i)
-        data << uint32(0);
-    SendPacket(&data);
+    auto loginVerifyWorld = std::make_unique<WorldPackets::Character::LoginVerifyWorld>();
+    loginVerifyWorld->location = position.WithMapId(pCurrChar->GetMapId());
+    SendPacket(std::move(loginVerifyWorld));
+
+    // load player specific part before send times
+    LoadAccountData(holder->TakeResult(PLAYER_LOGIN_QUERY_LOADACCOUNTDATA), NewAccountData::PER_CHARACTER_CACHE_MASK);
+    SendAccountDataTimes();
+
+    pCurrChar->GetSocial()->SendFriendList();
+    pCurrChar->GetSocial()->SendIgnoreList();
 
     // Send MOTD (1.12.1 not have SMSG_MOTD, so do it in another way)
     {
@@ -592,7 +539,7 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         {
             if (nextpos != pos)
             {
-                ChatHandler(pCurrChar).PSendSysMessage(str_motd.substr(pos, nextpos - pos).c_str());
+                pCurrChar->PSendSysMessage(str_motd.substr(pos, nextpos - pos).c_str());
                 ++linecount;
             }
             pos = nextpos + 1;
@@ -600,23 +547,25 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
 
         if (pos < str_motd.length())
         {
-            ChatHandler(pCurrChar).PSendSysMessage(str_motd.substr(pos).c_str());
+            pCurrChar->PSendSysMessage(str_motd.substr(pos).c_str());
             ++linecount;
         }
-
-        DEBUG_LOG("WORLD: Sent motd (SMSG_MOTD)");
     }
 
     if (Guild* guild = sGuildMgr.GetGuildById(pCurrChar->GetGuildId()))
     {
-        WorldPacket data(SMSG_GUILD_EVENT, (2 + guild->GetMOTD().size() + 1));
-        data << uint8(GE_MOTD);
-        data << uint8(1);
-        data << guild->GetMOTD();
-        SendPacket(&data);
-        DEBUG_LOG("WORLD: Sent guild-motd (SMSG_GUILD_EVENT)");
+        auto guildEvent = std::make_unique<WorldPackets::Guild::GuildEvent>();
+        guildEvent->event = GE_MOTD;
+        guildEvent->params.push_back(guild->GetMOTD());
+        SendPacket(std::move(guildEvent));
 
         guild->BroadcastEvent(GE_SIGNED_ON, pCurrChar->GetObjectGuid(), pCurrChar->GetName());
+    }
+
+    if (char const* warning = sAccountMgr.GetWarningText(GetAccountId()))
+    {
+        pCurrChar->PSendSysMessage(LANG_ACCOUNT_WARNED, warning);
+        SendNotification("WARNING: %s", warning);
     }
 
     if (!pCurrChar->IsAlive())
@@ -625,11 +574,9 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     pCurrChar->SendInitialPacketsBeforeAddToMap();
     GetMasterPlayer()->SendInitialActionButtons();
 
-    //Show cinematic at the first time that player login
-    if (!pCurrChar->GetCinematic())
+    // Show cinematic at the first time that player login
+    if (pCurrChar->m_playedTime[PLAYED_TIME_TOTAL] == 0 && !sWorld.getConfig(CONFIG_BOOL_SKIP_CINEMATICS))
     {
-        pCurrChar->SetCinematic(1);
-
         if (ChrRacesEntry const* rEntry = sChrRacesStore.LookupEntry(pCurrChar->GetRace()))
             pCurrChar->SendCinematicStart(rEntry->CinematicSequence);
     }
@@ -639,9 +586,9 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         // normal delayed teleport protection not applied (and this correct) for this case (Player object just created)
         AreaTriggerTeleport const* at = sObjectMgr.GetGoBackTrigger(pCurrChar->GetMapId());
         if (at)
-            pCurrChar->TeleportTo(at->destination, pCurrChar->GetOrientation());
-        else if (pCurrChar->GetMapId() == 533)
-            pCurrChar->TeleportTo(0, 3362.15f, -3379.35f, 144.782f, 6.28319f); // Naxxramas has no exit trigger
+            pCurrChar->TeleportTo(at->destination);
+        else if (pCurrChar->GetMapId() == MAP_NAXXRAMAS)
+            pCurrChar->TeleportTo(MAP_EASTERN_KINGDOMS, 3362.15f, -3379.35f, 144.782f, 6.28319f); // Naxxramas has no exit trigger
         else
             pCurrChar->TeleportToHomebind();
 
@@ -653,9 +600,7 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     else
         sObjectAccessor.AddObject(pCurrChar);
 
-    //DEBUG_LOG("Player %s added to Map.",pCurrChar->GetName());
-    pCurrChar->GetSocial()->SendFriendList();
-    pCurrChar->GetSocial()->SendIgnoreList();
+    //sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Player %s added to Map.",pCurrChar->GetName());
 
     pCurrChar->SendInitialPacketsAfterAddToMap();
     if (alreadyOnline)
@@ -664,10 +609,10 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     static SqlStatementID updChars;
     static SqlStatementID updAccount;
 
-    SqlStatement stmt = CharacterDatabase.CreateStatement(updChars, "UPDATE characters SET online = 1 WHERE guid = ?");
+    SqlStatement stmt = CharacterDatabase.CreateStatement(updChars, "UPDATE `characters` SET `online` = 1 WHERE `guid` = ?");
     stmt.PExecute(pCurrChar->GetGUIDLow());
 
-    stmt = LoginDatabase.CreateStatement(updAccount, "UPDATE account SET current_realm = ?, online = 1 WHERE id = ?");
+    stmt = LoginDatabase.CreateStatement(updAccount, "UPDATE `account` SET current_realm = ?, online = 1 WHERE id = ?");
     stmt.PExecute(realmID, GetAccountId());
 
     pCurrChar->SetInGameTime(WorldTimer::getMSTime());
@@ -694,45 +639,30 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         if (pCurrChar->m_deathState != ALIVE)
         {
             // not blizz like, we must correctly save and load player instead...
-            if (pCurrChar->GetRace() == RACE_NIGHTELF)
-                pCurrChar->CastSpell(pCurrChar, 20584, true);   // auras SPELL_AURA_INCREASE_SPEED(+speed in wisp form), SPELL_AURA_INCREASE_SWIM_SPEED(+swim speed in wisp form), SPELL_AURA_TRANSFORM (to wisp form)
-            pCurrChar->CastSpell(pCurrChar, 8326, true);        // auras SPELL_AURA_GHOST, SPELL_AURA_INCREASE_SPEED(why?), SPELL_AURA_INCREASE_SWIM_SPEED(why?)
-
-            pCurrChar->SetWaterWalking(true);
+            pCurrChar->ApplyGhostForm();
         }
     }
 
     // Load pet if any (if player not alive and in taxi flight or another then pet will remember as temporary unsummoned)
     if (alreadyOnline)
+    {
         pCurrChar->PetSpellInitialize();
+        pCurrChar->SendMirrorTimers(true);
+    }
     else
     {
         pCurrChar->ContinueTaxiFlight();
         pCurrChar->LoadPet();
     }
 
-    // Set FFA PvP for non GM in non-rest mode
-    if (sWorld.IsFFAPvPRealm() && !pCurrChar->IsGameMaster() && !pCurrChar->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING))
-        pCurrChar->SetFFAPvP(true);
-
     if (pCurrChar->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_CONTESTED_PVP))
         pCurrChar->UpdatePvPContested(true);
 
-    // Apply at_login requests
-    if (pCurrChar->HasAtLoginFlag(AT_LOGIN_RESET_SPELLS))
-    {
-        pCurrChar->ResetSpells();
-        SendNotification(LANG_RESET_SPELLS);
-    }
-
-    if (pCurrChar->HasAtLoginFlag(AT_LOGIN_RESET_TALENTS))
+    if (pCurrChar->HasCharacterFlag(CHARACTER_FLAG_RESET_TALENTS_ON_LOGIN))
     {
         pCurrChar->ResetTalents(true);
         SendNotification(LANG_RESET_TALENTS);               // we can use SMSG_TALENTS_INVOLUNTARILY_RESET here
     }
-
-    if (pCurrChar->HasAtLoginFlag(AT_LOGIN_FIRST))
-        pCurrChar->RemoveAtLoginFlag(AT_LOGIN_FIRST);
 
     // show time before shutdown if shutdown planned.
     if (sWorld.IsShutdowning())
@@ -749,15 +679,14 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
 
     std::string IP_str = GetRemoteAddress();
 
-    sLog.out(LOG_CHAR, "Account: %d (IP: %s) Login Character:[%s] (guid: %u)%s",
-             GetAccountId(), IP_str.c_str(), pCurrChar->GetName(), pCurrChar->GetGUIDLow(), alreadyOnline ? " Player was already online" : "");
-    sWorld.LogCharacter(pCurrChar, "Login");
-    if (!alreadyOnline && !pCurrChar->IsStandingUp() && !pCurrChar->HasUnitState(UNIT_STAT_STUNNED))
+    sLog.Player(this, LOG_CHAR, "Login", LOG_LVL_DETAIL, alreadyOnline ? "Player was already online" : "");
+
+    if (!alreadyOnline && !pCurrChar->IsStandingUp() && !pCurrChar->HasUnitState(UNIT_STATE_STUNNED))
         pCurrChar->SetStandState(UNIT_STAND_STATE_STAND);
 
     m_playerLoading = false;
-    _clientMoverGuid = pCurrChar->GetObjectGuid();
     delete holder;
+
     if (alreadyOnline)
     {
         pCurrChar->UpdateControl();
@@ -772,156 +701,119 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     if (sWorld.getConfig(CONFIG_BOOL_SEND_LOOT_ROLL_UPON_RECONNECT) && alreadyOnline)
         if (Group* pGroup = pCurrChar->GetGroup())
             pGroup->SendLootStartRollsForPlayer(pCurrChar);
-
-    // Update warden speeds
-    //if (GetWarden())
-        //for (int i = 0; i < MAX_MOVE_TYPE; ++i)
-            //GetWarden()->SendSpeedChange(UnitMoveType(i), pCurrChar->GetSpeed(UnitMoveType(i)));
-
-    ALL_SESSION_SCRIPTS(this, OnLogin(pCurrChar));
 }
 
-void WorldSession::HandleSetFactionAtWarOpcode(WorldPacket& recv_data)
+void WorldSession::HandleSetFactionAtWarOpcode(WorldPackets::Misc::SetFactionAtWar const& packet)
 {
-    DEBUG_LOG("WORLD: Received CMSG_SET_FACTION_ATWAR");
-
-    uint32 repListId;
-    uint8  flag;
-
-    recv_data >> repListId;
-    recv_data >> flag;
-
     Player* pPlayer = GetPlayer();
 
     if (pPlayer->IsInCombat())
         return;
 
-    pPlayer->GetReputationMgr().SetAtWar(repListId, flag);
+    pPlayer->GetReputationMgr().SetAtWar(packet.repListId, packet.flag);
 }
 
-void WorldSession::HandleTutorialFlagOpcode(WorldPacket& recv_data)
+void WorldSession::HandleTutorialFlagOpcode(WorldPackets::Misc::TutorialFlag const& packet)
 {
-    uint32 iFlag;
-    recv_data >> iFlag;
-
-    uint32 wInt = (iFlag / 32);
+    uint32 wInt = (packet.iFlag / 32);
     if (wInt >= 8)
-    {
-        //sLog.outError("CHEATER? Account:[%d] Guid[%u] tried to send wrong CMSG_TUTORIAL_FLAG", GetAccountId(),GetGUID());
         return;
-    }
-    uint32 rInt = (iFlag % 32);
+
+    uint32 rInt = (packet.iFlag % 32);
 
     uint32 tutflag = GetTutorialInt(wInt);
     tutflag |= (1 << rInt);
     SetTutorialInt(wInt, tutflag);
-
-    //DEBUG_LOG("Received Tutorial Flag Set {%u}.", iFlag);
 }
 
-void WorldSession::HandleTutorialClearOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandleTutorialClearOpcode(NullClientPacket const& /*packet*/)
 {
     for (uint32 iI = 0; iI < 8; ++iI)
         SetTutorialInt(iI, 0xFFFFFFFF);
 }
 
-void WorldSession::HandleTutorialResetOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandleTutorialResetOpcode(NullClientPacket const& /*packet*/)
 {
     for (uint32 iI = 0; iI < 8; iI++)
         SetTutorialInt(iI, 0x00000000);
 }
 
-void WorldSession::HandleSetWatchedFactionOpcode(WorldPacket& recv_data)
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
+void WorldSession::HandleSetWatchedFactionOpcode(WorldPackets::Misc::SetWatchedFaction const& packet)
 {
-    DEBUG_LOG("WORLD: Received CMSG_SET_WATCHED_FACTION");
-    int32 repId;
-    recv_data >> repId;
-    GetPlayer()->SetInt32Value(PLAYER_FIELD_WATCHED_FACTION_INDEX, repId);
+    GetPlayer()->SetInt32Value(PLAYER_FIELD_WATCHED_FACTION_INDEX, packet.repId);
 }
 
-void WorldSession::HandleSetFactionInactiveOpcode(WorldPacket& recv_data)
+void WorldSession::HandleSetFactionInactiveOpcode(WorldPackets::Misc::SetFactionInactive const& packet)
 {
-    DEBUG_LOG("WORLD: Received CMSG_SET_FACTION_INACTIVE");
-    uint32 replistid;
-    uint8 inactive;
-    recv_data >> replistid >> inactive;
-
-    _player->GetReputationMgr().SetInactive(replistid, inactive);
+    _player->GetReputationMgr().SetInactive(packet.replistid, packet.inactive);
 }
+#endif
 
-void WorldSession::HandleShowingHelmOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandleShowingHelmOpcode(NullClientPacket const& /*packet*/)
 {
-    DEBUG_LOG("CMSG_SHOWING_HELM for %s", _player->GetName());
     _player->ToggleFlag(PLAYER_FLAGS, PLAYER_FLAGS_HIDE_HELM);
 }
 
-void WorldSession::HandleShowingCloakOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandleShowingCloakOpcode(NullClientPacket const& /*packet*/)
 {
-    DEBUG_LOG("CMSG_SHOWING_CLOAK for %s", _player->GetName());
     _player->ToggleFlag(PLAYER_FLAGS, PLAYER_FLAGS_HIDE_CLOAK);
 }
 
-void WorldSession::HandleCharRenameOpcode(WorldPacket& recv_data)
+void WorldSession::HandleCharRenameOpcode(WorldPackets::Character::CharRename const& packet)
 {
-    ObjectGuid guid;
-    std::string newname;
-
-    recv_data >> guid;
-    recv_data >> newname;
-
     // prevent character rename to invalid name
-    if (!normalizePlayerName(newname))
+    if (!normalizePlayerName(const_cast<std::string&>(packet.newname)))
     {
-        WorldPacket data(SMSG_CHAR_RENAME, 1);
-        data << uint8(CHAR_NAME_NO_NAME);
-        SendPacket(&data);
+        auto response = std::make_unique<WorldPackets::Character::CharRenameResponse>();
+        response->result = CHAR_NAME_NO_NAME;
+        SendPacket(std::move(response));
         return;
     }
 
-    uint8 res = ObjectMgr::CheckPlayerName(newname, true);
+    uint8 res = ObjectMgr::CheckPlayerName(packet.newname, true);
     if (res != CHAR_NAME_SUCCESS)
     {
-        WorldPacket data(SMSG_CHAR_RENAME, 1);
-        data << uint8(res);
-        SendPacket(&data);
+        auto response = std::make_unique<WorldPackets::Character::CharRenameResponse>();
+        response->result = res;
+        SendPacket(std::move(response));
         return;
     }
 
     // check name limitations
-    if (GetSecurity() == SEC_PLAYER && sObjectMgr.IsReservedName(newname))
+    if (GetSecurity() == SEC_PLAYER && sObjectMgr.IsReservedName(packet.newname))
     {
-        WorldPacket data(SMSG_CHAR_RENAME, 1);
-        data << uint8(CHAR_NAME_RESERVED);
-        SendPacket(&data);
+        auto response = std::make_unique<WorldPackets::Character::CharRenameResponse>();
+        response->result = CHAR_NAME_RESERVED;
+        SendPacket(std::move(response));
         return;
     }
 
-    std::string escaped_newname = newname;
+    std::string escaped_newname = packet.newname;
     CharacterDatabase.escape_string(escaped_newname);
 
     // make sure that the character belongs to the current account, that rename at login is enabled
     // and that there is no character with the desired new name
     CharacterDatabase.AsyncPQuery(&WorldSession::HandleChangePlayerNameOpcodeCallBack,
-                                  GetAccountId(), newname,
-                                  "SELECT guid, name FROM characters WHERE guid = %u AND account = %u AND (at_login & %u) = %u AND NOT EXISTS (SELECT NULL FROM characters WHERE name = '%s')",
-                                  guid.GetCounter(), GetAccountId(), AT_LOGIN_RENAME, AT_LOGIN_RENAME, escaped_newname.c_str()
+                                  GetAccountId(), packet.newname,
+                                  "SELECT `guid`, `name` FROM `characters` WHERE `guid` = %u AND `account` = %u AND (`character_flags` & %u) = %u AND NOT EXISTS (SELECT NULL FROM `characters` WHERE `name` = '%s')",
+                                  packet.guid.GetCounter(), GetAccountId(), CHARACTER_FLAG_RENAME, CHARACTER_FLAG_RENAME, escaped_newname.c_str()
                                  );
 }
 
-void WorldSession::HandleChangePlayerNameOpcodeCallBack(QueryResult* result, uint32 accountId, std::string newname)
+void WorldSession::HandleChangePlayerNameOpcodeCallBack(std::unique_ptr<QueryResult> result, uint32 accountId, std::string newname)
 {
     WorldSession* session = sWorld.FindSession(accountId);
     if (!session)
     {
-        delete result;
         return;
     }
 
     if (!result)
     {
-        WorldPacket data(SMSG_CHAR_RENAME, 1);
-        data << uint8(CHAR_CREATE_ERROR);
-        session->SendPacket(&data);
+        auto response = std::make_unique<WorldPackets::Character::CharRenameResponse>();
+        response->result = CHAR_CREATE_ERROR;
+        session->SendPacket(std::move(response));
         return;
     }
 
@@ -929,19 +821,19 @@ void WorldSession::HandleChangePlayerNameOpcodeCallBack(QueryResult* result, uin
     ObjectGuid guid = ObjectGuid(HIGHGUID_PLAYER, guidLow);
     std::string oldname = result->Fetch()[1].GetCppString();
 
-    delete result;
-
     CharacterDatabase.BeginTransaction();
-    CharacterDatabase.PExecute("UPDATE characters set name = '%s', at_login = at_login & ~ %u WHERE guid ='%u'", newname.c_str(), uint32(AT_LOGIN_RENAME), guidLow);
+    CharacterDatabase.PExecute("UPDATE `characters` SET `name` = '%s', `character_flags` = (`character_flags` & ~ %u), `character_flags` = (`character_flags` | %u) WHERE `guid` ='%u'", newname.c_str(), uint32(CHARACTER_FLAG_RENAME), uint32(CHARACTER_FLAG_RENAME_NEEDS_GM_REVIEW), guidLow);
     CharacterDatabase.CommitTransaction();
 
-    sLog.out(LOG_CHAR, "Account: %d (IP: %s) Character:[%s] (guid:%u) Changed name to: %s", session->GetAccountId(), session->GetRemoteAddress().c_str(), oldname.c_str(), guidLow, newname.c_str());
+    sLog.Player(session->GetAccountId(), LOG_CHAR, LOG_LVL_BASIC,
+        "Account: %d (IP: %s) Character:[%s] (guid:%u) Changed name to: %s",
+        session->GetAccountId(), session->GetRemoteAddress().c_str(), oldname.c_str(), guidLow, newname.c_str());
 
-    WorldPacket data(SMSG_CHAR_RENAME, 1 + 8 + (newname.size() + 1));
-    data << uint8(RESPONSE_SUCCESS);
-    data << guid;
-    data << newname;
-    session->SendPacket(&data);
+    auto response = std::make_unique<WorldPackets::Character::CharRenameResponse>();
+    response->result = RESPONSE_SUCCESS;
+    response->renamedCharacterGuid = guid;
+    response->newName = newname;
+    session->SendPacket(std::move(response));
 
     sObjectMgr.ChangePlayerNameInCache(guidLow, oldname, newname);
     sWorld.InvalidatePlayerDataToAllClient(guid);

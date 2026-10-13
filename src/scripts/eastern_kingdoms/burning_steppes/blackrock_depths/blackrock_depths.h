@@ -58,12 +58,15 @@ enum
 
     DATA_ARENA_CHALLENGER      = 42,
 
-    MAX_ENCOUNTER              = 20,
+    TYPE_FLAMELASH             = 43,
+    MAX_ENCOUNTER              = 21,
 
     EVENT_BAR_PATRONS          = 100,
 
     FACTION_DARK_IRON          = 54,
+    FACTION_ARENA_NEUTRAL      = 15,
 
+    NPC_MAGMUS                 = 9938,
     NPC_EMPEROR                = 9019,
     NPC_PRINCESS               = 8929,
     NPC_HIGH_PRIESTESS         = 10076,
@@ -77,7 +80,7 @@ enum
     NPC_DOPEREL                = 9040,
     NPC_RIBBLY_S_CRONY         = 10043,
     NPC_ARENA_SPECTATOR        = 8916,
-    //NPC_PANZOR               = 8923, Ustaag : gérer par la DB
+    //NPC_PANZOR               = 8923, Ustaag: handled by the DB
     NPC_GOLEM_RAVAGE           = 8906,
     NPC_WRATH_HAMMER_CONSTRUCT = 8907,
     NPC_GOLEM_LORD_ARGELMACH   = 8983,
@@ -99,6 +102,8 @@ enum
     GO_JAIL_DOOR_SHILL         = 170569,
 
     // Ambassador Flamelash
+    NPC_FLAMELASH              = 9156,
+    NPC_BURNING_SPIRIT         = 9178,
     GO_DWARF_RUNE_A01          = 170578,
     GO_DWARF_RUNE_B01          = 170579,
     GO_DWARF_RUNE_C01          = 170580,
@@ -106,6 +111,8 @@ enum
     GO_DWARF_RUNE_E01          = 170582,
     GO_DWARF_RUNE_F01          = 170583,
     GO_DWARF_RUNE_G01          = 170584,
+    DWARF_RUNES_MAX            = 7,
+    BURNING_SPIRIT_MAX         = 30, // What is a good maximum and should there be any?
 
     // Grim Guzzler
     NPC_PLUGGER_SPAZZRING      = 9499,
@@ -118,20 +125,25 @@ enum
     PATRON_EMOTE               = 0,
     PATRON_PISSED              = 1,
     PATRON_HOSTILE             = 2,
-    SAY_PISSED_PATRON_1        = -1230042,
-    SAY_PISSED_PATRON_2        = -1230040,
-    SAY_PISSED_PATRON_3        = -1230044,
-    SAY_ROCKNOT_DESPAWN        = -1230045,
-    YELL_PATROL_1              = -1230046,
-    YELL_PATROL_2              = -1230047,
+    SAY_PISSED_PATRON_1        = 5263,
+    SAY_PISSED_PATRON_2        = 5265,
+    SAY_PISSED_PATRON_3        = 5264,
+    SAY_ROCKNOT_DESPAWN        = 5281,
+    YELL_PATROL_1              = 5389,
+    YELL_PATROL_2              = 5390,
     SPELL_NAGMARA_VANISH       = 15341,
 
     NPC_FIREGUARD_DESTROYER    = 8911,
     NPC_ANVILRAGE_OFFICER      = 8895,
+    NPC_ANVILRAGE_SOLDIER      = 8893,
+    NPC_ANVILRAGE_MEDIC        = 8894,
 
     NPC_SHADOWFORGE_SENATOR    = 8904,
+    NPC_SHADOWFORGE_PEASANT    = 8896,
+    NPC_SHADOWFORGE_CITIZEN    = 8902,
     NPC_GRIMSTONE              = 10096,
     NPC_THELDREN               = 16059,
+    NPC_THELDREN_KILL_CREDIT   = 16166,
 
     GO_ARENA1                  = 161525,
     GO_ARENA2                  = 161522,
@@ -160,13 +172,13 @@ enum
     QUEST_ROYAL_RESCUE         = 4003,   // horde quest
     QUEST_FATE_KINGDOM         = 4362,   // alliance quest
 
-    YELL_MAGMUS                = -1230052,
+    YELL_MAGMUS                = 5430,
 
     // Emperor Dagran Thaurissan
-    YELL_SENATOR_1             = -1230048,
-    YELL_SENATOR_2             = -1230049,
-    YELL_SENATOR_3             = -1230050,
-    YELL_SENATOR_4             = -1230051,
+    YELL_SENATOR_1             = 5312,
+    YELL_SENATOR_2             = 5313,
+    YELL_SENATOR_3             = 5315,
+    YELL_SENATOR_4             = 5314,
 };
 
 // Random emotes for Grim Guzzler patrons
@@ -182,5 +194,16 @@ static float const aBarPatrolPositions[2][4] = {
 };
 
 static uint32 const aBarPatrolId[3] = {NPC_FIREGUARD_DESTROYER, NPC_ANVILRAGE_OFFICER, NPC_ANVILRAGE_OFFICER};
+
+struct ArenaCylinder
+{
+    float m_fCenterX;
+    float m_fCenterY;
+    float m_fCenterZ;
+    uint32 m_uiRadius;
+    uint32 m_uiHeight;
+};
+
+static const ArenaCylinder aArenaCrowdVolume = { 595.78f, -188.65f, -38.63f, 69, 10 };
 
 #endif

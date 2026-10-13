@@ -27,14 +27,13 @@
 #include "Map.h"
 #include <cmath>
 
-inline Cell::Cell(CellPair const& p)
+inline Cell::Cell(CellPair const& p) : data()
 {
     data.Part.grid_x = p.x_coord / MAX_NUMBER_OF_CELLS;
     data.Part.grid_y = p.y_coord / MAX_NUMBER_OF_CELLS;
     data.Part.cell_x = p.x_coord % MAX_NUMBER_OF_CELLS;
     data.Part.cell_y = p.y_coord % MAX_NUMBER_OF_CELLS;
     data.Part.nocreate = 0;
-    data.Part.reserved = 0;
 }
 
 inline CellArea Cell::CalculateCellArea(float x, float y, float radius)
@@ -76,8 +75,8 @@ Cell::Visit(CellPair const& standing_cell, TypeContainerVisitor<T, CONTAINER>& v
         return;
     }
     //lets limit the upper value for search radius
-    if (radius > 333.0f)
-        radius = 333.0f;
+    if (radius > MAX_VISIBILITY_DISTANCE)
+        radius = MAX_VISIBILITY_DISTANCE;
 
     //lets calculate object coord offsets from cell borders.
     CellArea area = Cell::CalculateCellArea(x, y, radius);

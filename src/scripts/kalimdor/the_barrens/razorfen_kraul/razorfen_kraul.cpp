@@ -35,20 +35,20 @@ enum
 {
     QUEST_WILLIX_THE_IMPORTER  = 1144,
 
-    SAY_WILLIX_READY           = -1047000,
-    SAY_WILLIX_1               = -1047001,
-    SAY_WILLIX_2               = -1047002,
-    SAY_WILLIX_3               = -1047003,
-    SAY_WILLIX_4               = -1047004,
-    SAY_WILLIX_5               = -1047005,
-    SAY_WILLIX_6               = -1047006,
-    SAY_WILLIX_7               = -1047007,
-    SAY_WILLIX_END             = -1047008,
+    SAY_WILLIX_READY           = 1482,
+    SAY_WILLIX_1               = 1483,
+    SAY_WILLIX_2               = 1484,
+    SAY_WILLIX_3               = 1485,
+    SAY_WILLIX_4               = 1486,
+    SAY_WILLIX_5               = 1487,
+    SAY_WILLIX_6               = 1488,
+    SAY_WILLIX_7               = 1490,
+    SAY_WILLIX_END             = 1493,
 
-    SAY_WILLIX_AGGRO_1         = -1047009,
-    SAY_WILLIX_AGGRO_2         = -1047010,
-    SAY_WILLIX_AGGRO_3         = -1047011,
-    SAY_WILLIX_AGGRO_4         = -1047012,
+    SAY_WILLIX_AGGRO_1         = 1546,
+    SAY_WILLIX_AGGRO_2         = 1544,
+    SAY_WILLIX_AGGRO_3         = 1545,
+    SAY_WILLIX_AGGRO_4         = 1547,
 
     NPC_RAGING_AGAMAR          = 4514
 };
@@ -176,9 +176,9 @@ enum
     NPC_SNUFFLENOSE_GOPHER      = 4781,
     GO_BLUELEAF_TUBER           = 20920,
 
-    SAY_GOPHER_SPAWN            = -1780223,
-    SAY_GOPHER_COMMAND          = -1780224,
-    SAY_GOPHER_FOUND            = -1780225
+    SAY_GOPHER_SPAWN            = 1638,
+    SAY_GOPHER_COMMAND          = 1591,
+    SAY_GOPHER_FOUND            = 1592
 };
 
 struct npc_snufflenose_gopherAI : public FollowerAI
@@ -323,7 +323,7 @@ bool EffectDummyCreature_npc_snufflenose_gopher(WorldObject* pCaster, uint32 uiS
             if (pUnit->GetTargetGuid() != pCreatureTarget->GetObjectGuid())
             {
                 // Send Spell_FAILED_BAD_TARGETS
-                pCreatureTarget->SendPetCastFail(uiSpellId, (SpellCastResult)0x0A);
+                pCreatureTarget->SendPetCastFail(SPELL_SNUFFLENOSE_COMMAND, SPELL_FAILED_BAD_TARGETS);
                 return false;
             }
 
@@ -348,75 +348,9 @@ bool EffectDummyCreature_npc_snufflenose_gopher(WorldObject* pCaster, uint32 uiS
     return false;
 }
 
-enum
-{
-    SPELL_DEFENSIVE_STANCE       =   7164,
-    SPELL_IMPROVED_BLOCKING      =   3248,
-    SPELL_SHIELD_BASH            =   11972,
-
-};
-
-struct RazorfenDefenderAI : public ScriptedAI
-{
-    RazorfenDefenderAI(Creature* pCreature) : ScriptedAI(pCreature)
-    {
-        Reset();
-    }
-
-    uint32 m_uiImprovedBlocking_Timer;
-    uint32 m_uiShieldBash_Timer;
-
-    void Reset() override
-    {
-        m_uiImprovedBlocking_Timer = 1000;
-        m_uiShieldBash_Timer      = 6600;
-        DoCastSpellIfCan(m_creature, SPELL_DEFENSIVE_STANCE, true);
-    }
-
-    void Aggro(Unit* pWho) override
-    {
-        m_creature->SetInCombatWithZone();
-    }
-
-    void UpdateAI(uint32 const uiDiff) override
-    {
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-            return;
-
-        if (m_uiShieldBash_Timer < uiDiff)
-        {
-            if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_SHIELD_BASH) == CAST_OK)
-                m_uiShieldBash_Timer = 8100;
-        }
-        else
-            m_uiShieldBash_Timer -= uiDiff;
-
-        if (m_uiImprovedBlocking_Timer < uiDiff)
-        {
-            if (DoCastSpellIfCan(m_creature, SPELL_IMPROVED_BLOCKING, true) == CAST_OK)
-                m_uiImprovedBlocking_Timer = urand(6000, 9000);
-        }
-        else
-            m_uiImprovedBlocking_Timer -= uiDiff;
-
-        DoMeleeAttackIfReady();
-    }
-};
-
-CreatureAI* GetAI_RazorfenDefenderAI(Creature* pCreature)
-{
-    return new RazorfenDefenderAI(pCreature);
-}
-
 void AddSC_razorfen_kraul()
 {
     Script* pNewScript;
-
-    pNewScript = new Script;
-    pNewScript->Name = "razorfen_defender";
-    pNewScript->GetAI = &GetAI_RazorfenDefenderAI;
-    pNewScript->RegisterSelf();
-
 
     pNewScript = new Script;
     pNewScript->Name = "npc_willix_the_importer";

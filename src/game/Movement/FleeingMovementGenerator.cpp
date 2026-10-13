@@ -18,13 +18,14 @@
 
 #include "Creature.h"
 #include "CreatureAI.h"
-#include "MapManager.h"
 #include "FleeingMovementGenerator.h"
 #include "ObjectAccessor.h"
 #include "MoveSplineInit.h"
 #include "MoveSpline.h"
 #include "PathFinder.h"
 #include "MoveMap.h"
+#include "Map.h"
+#include "Utilities/Random.h"
 
 #define SEARCH_RANDOM_RADIUS 5.0f
 #define MIN_QUIET_DISTANCE 28.0f
@@ -37,14 +38,18 @@ void FleeingMovementGenerator<T>::_setTargetLocation(T &owner)
         return;
 
     // ignore in case other no reaction state
-    if (owner.HasUnitState((UNIT_STAT_CAN_NOT_REACT | UNIT_STAT_CAN_NOT_MOVE | UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED) & ~UNIT_STAT_FLEEING))
+    if (owner.HasUnitState((UNIT_STATE_CAN_NOT_REACT | UNIT_STATE_CAN_NOT_MOVE | UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED) & ~UNIT_STATE_FLEEING))
         return;
+
+    if (Player* pPlayer = owner.ToPlayer())
+        if (pPlayer->IsBeingTeleported())
+            return;
 
     float x, y, z;
     if (!_getPoint(owner, x, y, z))
         return;
 
-    owner.AddUnitState(UNIT_STAT_FLEEING_MOVE);
+    owner.AddUnitState(UNIT_STATE_FLEEING_MOVE);
 
     PathFinder path(&owner);
     path.SetTransport(owner.GetTransport());
@@ -58,7 +63,7 @@ void FleeingMovementGenerator<T>::_setTargetLocation(T &owner)
         return;
     }
 
-    Movement::MoveSplineInit init(owner, "FleeingMovementGenerator");
+    Movement::MoveSplineInit init(owner, "FleeingMovementGenerator<T>::_setTargetLocation");
     init.Move(&path);
     init.SetWalk(_forceWalking);
     if (_customSpeed > 0)
@@ -74,45 +79,30 @@ bool FleeingMovementGenerator<T>::_getPoint(T &owner, float &x, float &y, float 
     if (!&owner)
         return false;
 
-    float dist_from_caster, angle_to_caster;
+    float dist_from_caster;
     if (Unit* fright = ObjectAccessor::GetUnit(owner, i_frightGuid))
-    {
         dist_from_caster = fright->GetDistance(&owner);
-        if (dist_from_caster > 0.2f)
-            angle_to_caster = fright->GetAngle(&owner);
-        else
-            angle_to_caster = frand(0, 2 * M_PI_F);
-    }
     else
-    {
         dist_from_caster = 0.0f;
-        angle_to_caster = frand(0, 2 * M_PI_F);
-    }
 
-    float dist, angle;
+    float angle = frand(0, 2 * M_PI_F);
+    float dist;
     if (dist_from_caster < MIN_QUIET_DISTANCE)
-    {
         dist = frand(0.4f, 1.3f) * (MIN_QUIET_DISTANCE - dist_from_caster);
-        angle = angle_to_caster + frand(-M_PI_F / 8, M_PI_F / 8);
-    }
     else if (dist_from_caster > MAX_QUIET_DISTANCE)
-    {
         dist = frand(0.4f, 1.0f) * (MAX_QUIET_DISTANCE - MIN_QUIET_DISTANCE);
-        angle = -angle_to_caster + frand(-M_PI_F / 4, M_PI_F / 4);
-    }
     else    // we are inside quiet range
-    {
         dist = frand(0.6f, 1.2f) * (MAX_QUIET_DISTANCE - MIN_QUIET_DISTANCE);
-        angle = frand(0, 2 * M_PI_F);
-    }
 
-    // Nostalrius: pathfinding pour trouver la position de fear (seulement si disponible)
+    // Nostalrius: Pathfinding to find Fear's location (only if available)
     owner.GetSafePosition(x, y, z);
     x += dist * cos(angle);
     y += dist * sin(angle);
+
     // If walking on the border of the map ... Fix crash.
     if (!MaNGOS::IsValidMapCoord(x, y, z))
         return false;
+
     float srcX, srcY, srcZ;
     owner.GetSafePosition(srcX, srcY, srcZ, owner.GetTransport());
     if (!owner.GetMap()->GetWalkHitPosition(owner.GetTransport(), srcX, srcY, srcZ, x, y, z, NAV_WATER | NAV_GROUND))
@@ -123,7 +113,7 @@ bool FleeingMovementGenerator<T>::_getPoint(T &owner, float &x, float &y, float 
 template<class T>
 void FleeingMovementGenerator<T>::Initialize(T &owner)
 {
-    owner.AddUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.AddUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
     owner.StopMoving();
     owner.UpdateControl();
 
@@ -139,7 +129,7 @@ void FleeingMovementGenerator<T>::Initialize(T &owner)
 template<>
 void FleeingMovementGenerator<Player>::Finalize(Player &owner)
 {
-    owner.ClearUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.ClearUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
     owner.StopMoving();
     owner.UpdateControl();
 }
@@ -147,8 +137,8 @@ void FleeingMovementGenerator<Player>::Finalize(Player &owner)
 template<>
 void FleeingMovementGenerator<Creature>::Finalize(Creature &owner)
 {
-    owner.SetWalk(!owner.HasUnitState(UNIT_STAT_RUNNING), false);
-    owner.ClearUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.SetWalk(!owner.HasUnitState(UNIT_STATE_RUNNING), false);
+    owner.ClearUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
     owner.UpdateControl();
 }
 
@@ -156,7 +146,7 @@ template<class T>
 void FleeingMovementGenerator<T>::Interrupt(T &owner)
 {
     // flee state still applied while movegen disabled
-    owner.ClearUnitState(UNIT_STAT_FLEEING_MOVE);
+    owner.ClearUnitState(UNIT_STATE_FLEEING_MOVE);
 }
 
 template<class T>
@@ -172,9 +162,9 @@ bool FleeingMovementGenerator<T>::Update(T &owner, uint32 const&  time_diff)
         return false;
 
     // ignore in case other no reaction state
-    if (owner.HasUnitState((UNIT_STAT_CAN_NOT_REACT | UNIT_STAT_CAN_NOT_MOVE | UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED) & ~UNIT_STAT_FLEEING))
+    if (owner.HasUnitState((UNIT_STATE_CAN_NOT_REACT | UNIT_STATE_CAN_NOT_MOVE | UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED) & ~UNIT_STATE_FLEEING))
     {
-        owner.ClearUnitState(UNIT_STAT_FLEEING_MOVE);
+        owner.ClearUnitState(UNIT_STATE_FLEEING_MOVE);
         return true;
     }
 
@@ -209,11 +199,12 @@ void TimedFleeingMovementGenerator::Initialize(Unit& owner)
 
 void TimedFleeingMovementGenerator::Finalize(Unit &owner)
 {
-    owner.ClearUnitState(UNIT_STAT_FLEEING | UNIT_STAT_FLEEING_MOVE);
+    owner.ClearUnitState(UNIT_STATE_FLEEING | UNIT_STATE_FLEEING_MOVE);
     owner.UpdateControl();
-    if (Unit* victim = owner.GetVictim())
+
+    if (owner.IsAlive() && !owner.HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_CONFUSED | UNIT_FLAG_FLEEING | UNIT_FLAG_POSSESSED))
     {
-        if (owner.IsAlive())
+        if (Unit* victim = owner.GetVictim())
         {
             owner.AttackStop(true);
             ((Creature*)&owner)->AI()->AttackStart(victim);
@@ -227,9 +218,9 @@ bool TimedFleeingMovementGenerator::Update(Unit & owner, uint32 const&  time_dif
         return false;
 
     // ignore in case other no reaction state
-    if (owner.HasUnitState((UNIT_STAT_CAN_NOT_REACT | UNIT_STAT_CAN_NOT_MOVE | UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED) & ~UNIT_STAT_FLEEING))
+    if (owner.HasUnitState((UNIT_STATE_CAN_NOT_REACT | UNIT_STATE_CAN_NOT_MOVE | UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED) & ~UNIT_STATE_FLEEING))
     {
-        owner.ClearUnitState(UNIT_STAT_FLEEING_MOVE);
+        owner.ClearUnitState(UNIT_STATE_FLEEING_MOVE);
         return true;
     }
 

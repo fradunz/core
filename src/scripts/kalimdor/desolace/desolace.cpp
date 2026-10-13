@@ -28,6 +28,7 @@ EndContentData */
 
 #include "scriptPCH.h"
 #include "MoveMapSharedDefines.h"
+#include "CreatureGroups.h"
 
 /*######
 ## go_hand_of_iruxos_crystal
@@ -58,11 +59,11 @@ enum
 
     GO_MELIZZAS_CAGE            = 177706,
 
-    SAY_MELIZZA_START           = -1000784,
-    SAY_MELIZZA_FINISH          = -1000785,
-    SAY_MELIZZA_1               = -1000786,
-    SAY_MELIZZA_2               = -1000787,
-    SAY_MELIZZA_3               = -1000788,
+    SAY_MELIZZA_START           = 7540,
+    SAY_MELIZZA_FINISH          = 7544,
+    SAY_MELIZZA_1               = 7550,
+    SAY_MELIZZA_2               = 7551,
+    SAY_MELIZZA_3               = 7552,
 
     NPC_MARAUDINE_MARAUDER      = 4659,
     NPC_MARAUDINE_BONEPAW       = 4660,
@@ -134,7 +135,7 @@ struct npc_melizza_brimbuzzleAI : public npc_escortAI
                         // Summon 2 Marauders on each point
                         float fX, fY, fZ;
                         m_creature->GetRandomPoint(i.m_fX, i.m_fY, i.m_fZ, 7.0f, fX, fY, fZ);
-                        m_creature->SummonCreature(NPC_MARAUDINE_MARAUDER, fX, fY, fZ, 0.0f, TEMPSUMMON_DEAD_DESPAWN, 0);
+                        m_creature->SummonCreature(NPC_MARAUDINE_MARAUDER, fX, fY, fZ, 0.0f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 25000);
                     }
                 }
                 break;
@@ -143,10 +144,10 @@ struct npc_melizza_brimbuzzleAI : public npc_escortAI
                 {
                     float fX, fY, fZ;
                     m_creature->GetRandomPoint(wranglerSpawn.m_fX, wranglerSpawn.m_fY, wranglerSpawn.m_fZ, 10.0f, fX, fY, fZ);
-                    m_creature->SummonCreature(NPC_MARAUDINE_BONEPAW, fX, fY, fZ, 0.0f, TEMPSUMMON_DEAD_DESPAWN, 0);
+                    m_creature->SummonCreature(NPC_MARAUDINE_BONEPAW, fX, fY, fZ, 0.0f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 25000);
 
                     m_creature->GetRandomPoint(wranglerSpawn.m_fX, wranglerSpawn.m_fY, wranglerSpawn.m_fZ, 10.0f, fX, fY, fZ);
-                    m_creature->SummonCreature(NPC_MARAUDINE_WRANGLER, fX, fY, fZ, 0.0f, TEMPSUMMON_DEAD_DESPAWN, 0);
+                    m_creature->SummonCreature(NPC_MARAUDINE_WRANGLER, fX, fY, fZ, 0.0f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 25000);
                 }
                 break;
             case 12:
@@ -296,78 +297,7 @@ bool QuestAccept_npc_dalinda_malem(Player* pPlayer, Creature* pCreature, Quest c
     }
     return true;
 }
-enum
-{
-//guid 12609 entry 177673 Serpant statue
-    NPC_LORD_KRAGARU            = 12369,
-    QUEST_BOOK_OF_THE_ANCIENTS  = 6027
 
-};
-struct go_serpent_statueAI: public GameObjectAI
-{
-    go_serpent_statueAI(GameObject* pGo) : GameObjectAI(pGo)
-    {
-        timer = 0;
-        state = 0;
-        guid_kragaru = 0;
-    }
-    uint64 guid_kragaru;
-    uint32 timer;
-    bool state;//0 = usual, can launch. //1 = in use, cannot launch
-
-    void UpdateAI(uint32 const uiDiff) override
-    {
-        if (state)
-        {
-            if (timer < uiDiff)
-            {
-                state = 0;
-                me->SetGoState(GO_STATE_READY);
-                me->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_IN_USE);
-            }
-            else
-                timer -= uiDiff;
-        }
-    }
-    bool CheckCanStartEvent()
-    {
-        return !state && !me->GetMap()->GetCreature(guid_kragaru);
-    }
-
-    void SetInUse(Creature* kragaru)
-    {
-        guid_kragaru = kragaru->GetGUID();
-        me->SetGoState(GO_STATE_ACTIVE);
-        me->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_IN_USE);
-        state = 1;
-        timer = 120000;
-    }
-};
-GameObjectAI* GetAIgo_serpent_statue(GameObject *pGo)
-{
-    return new go_serpent_statueAI(pGo);
-}
-bool GOHello_go_serpent_statue(Player* pPlayer, GameObject* pGo)
-{
-    if (go_serpent_statueAI* pMarkAI = dynamic_cast<go_serpent_statueAI*>(pGo->AI()))
-    {
-        if (pMarkAI->CheckCanStartEvent())
-        {
-            if (pGo->GetGoType() == GAMEOBJECT_TYPE_BUTTON)
-            {
-                if (pPlayer->GetQuestStatus(QUEST_BOOK_OF_THE_ANCIENTS) == QUEST_STATUS_INCOMPLETE)
-                {
-                    if (Creature* kragaru = pGo->SummonCreature(NPC_LORD_KRAGARU, 0, 0, 0, 0, TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 310000))
-                    {
-                        kragaru->SetRespawnDelay(350000);
-                        pMarkAI->SetInUse(kragaru);
-                    }
-                }
-            }
-        }
-    }
-    return true;
-}
 enum
 {
     NPC_MAGRAMI_SPECTRE                 = 11560,
@@ -445,11 +375,8 @@ struct go_ghost_magnetAI: public GameObjectAI
         float mx, my, mz;
         me->GetPosition(mx, my, mz);
         me->GetRandomPoint(mx,my,mz, 40, x, y, z);
-        if(Creature* spectre=me->SummonCreature(NPC_MAGRAMI_SPECTRE, x, y, z, 0.0f, TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 120000))
-        {
-            spectre->SetRespawnDelay(425000);
+        if (Creature* spectre=me->SummonCreature(NPC_MAGRAMI_SPECTRE, x, y, z, 0.0f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 120000))
             DefineMagramiMagnet(spectre, me->GetGUID());
-        }
     }
     void MagramiSpectreDied(uint64 guid)
     {
@@ -726,7 +653,7 @@ struct npc_cork_gizeltonAI : npc_escortAI
             }
             else
             {
-                sLog.outError("[Desolace.GizeltonCaravan] Failed to summon caravan. Self-despawn.");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "[Desolace.GizeltonCaravan] Failed to summon caravan. Self-despawn.");
                 DespawnCaravan();
             }
         }
@@ -1136,12 +1063,6 @@ void AddSC_desolace()
     newscript->Name = "npc_dalinda_malem";
     newscript->GetAI = &GetAI_npc_dalinda_malem;
     newscript->pQuestAcceptNPC = &QuestAccept_npc_dalinda_malem;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
-    newscript->Name = "go_serpent_statue";
-    newscript->GOGetAI = &GetAIgo_serpent_statue;
-    newscript->pGOHello = &GOHello_go_serpent_statue;
     newscript->RegisterSelf();
 
     newscript = new Script;

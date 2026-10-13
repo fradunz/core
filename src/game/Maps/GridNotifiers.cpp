@@ -23,32 +23,26 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "UpdateData.h"
-#include "Item.h"
 #include "Map.h"
 #include "Transport.h"
 #include "ObjectAccessor.h"
 #include "BattleGroundMgr.h"
-
-#include "MovementBroadcaster.h"
 #include "PlayerBroadcaster.h"
-#include "World.h"
 
 using namespace MaNGOS;
 
-void
-VisibleChangesNotifier::Visit(CameraMapType& m)
+void VisibleChangesNotifier::Visit(CameraMapType& m)
 {
     for (const auto& iter : m)
         iter.getSource()->UpdateVisibilityOf(&i_object);
 }
 
-void
-VisibleNotifier::Notify()
+void VisibleNotifier::Notify()
 {
     Player& player = *i_camera.GetOwner();
     // at this moment i_clientGUIDs have guids that not iterate at grid level checks
     // but exist one case when this possible and object not out of range: transports
-    if (Transport* transport = player.GetTransport())
+    if (GenericTransport* transport = player.GetTransport())
     {
         for (const auto itr : transport->GetPassengers())
         {
@@ -58,17 +52,17 @@ VisibleNotifier::Notify()
                 switch (itr->GetTypeId())
                 {
                     case TYPEID_GAMEOBJECT:
-                        player.UpdateVisibilityOf(&player, itr->ToGameObject(), i_data, i_visibleNow);
+                        player.UpdateVisibilityOf(&player, itr->ToGameObject(), i_data);
                         break;
                     case TYPEID_PLAYER:
-                        player.UpdateVisibilityOf(&player, itr->ToPlayer(), i_data, i_visibleNow);
+                        player.UpdateVisibilityOf(&player, itr->ToPlayer(), i_data);
                         itr->ToPlayer()->UpdateVisibilityOf(itr, &player);
                         break;
                     case TYPEID_UNIT:
-                        player.UpdateVisibilityOf(&player, itr->ToCreature(), i_data, i_visibleNow);
+                        player.UpdateVisibilityOf(&player, itr->ToCreature(), i_data);
                         break;
                     case TYPEID_DYNAMICOBJECT:
-                        player.UpdateVisibilityOf(&player, (DynamicObject*)itr, i_data, i_visibleNow);
+                        player.UpdateVisibilityOf(&player, (DynamicObject*)itr, i_data);
                         break;
                     default:
                         break;
@@ -80,23 +74,26 @@ VisibleNotifier::Notify()
     // Update current map active objects, modifies i_clientGUIDs so we are not sending
     // out of range updates for an active obj
     if (player.GetMap())
-        player.GetMap()->UpdateActiveObjectVisibility(&player, i_clientGUIDs, i_data, i_visibleNow);
+        player.GetMap()->UpdateActiveObjectVisibility(&player, i_clientGUIDs, i_data);
 
     // generate outOfRange for not iterate objects
     i_data.AddOutOfRangeGUID(i_clientGUIDs);
-    player.m_visibleGUIDs_lock.acquire_write();
+    std::unique_lock<std::shared_timed_mutex> lock(player.m_visibleGUIDs_lock);
     for (ObjectGuidSet::iterator itr = i_clientGUIDs.begin(); itr != i_clientGUIDs.end(); ++itr)
     {
-        if (Player* targetPlayer = player.GetMap()->GetPlayer(*itr))
-            if (targetPlayer->m_broadcaster)
-                targetPlayer->m_broadcaster->RemoveListener(&player);
+        if ((*itr).IsPlayer())
+        {
+            if (Player* targetPlayer = player.GetMap()->GetPlayer(*itr))
+                if (targetPlayer->m_broadcaster)
+                    targetPlayer->m_broadcaster->RemoveListener(&player);
+        }
 
         player.m_visibleGUIDs.erase(*itr);
 
         DEBUG_FILTER_LOG(LOG_FILTER_VISIBILITY_CHANGES, "%s is out of range (no in active cells set) now for %s",
                          itr->GetString().c_str(), player.GetGuidStr().c_str());
     }
-    player.m_visibleGUIDs_lock.release();
+    lock.unlock();
 
     if (i_data.HasData())
     {
@@ -116,8 +113,7 @@ VisibleNotifier::Notify()
     }
 }
 
-void
-MessageDeliverer::Visit(CameraMapType& m)
+void MessageDeliverer::Visit(CameraMapType& m)
 {
     for (const auto& iter : m)
     {
@@ -146,8 +142,7 @@ void MessageDelivererExcept::Visit(CameraMapType& m)
 }
 
 
-void
-ObjectMessageDeliverer::Visit(CameraMapType& m)
+void ObjectMessageDeliverer::Visit(CameraMapType& m)
 {
     for (const auto& iter : m)
     {
@@ -156,8 +151,7 @@ ObjectMessageDeliverer::Visit(CameraMapType& m)
     }
 }
 
-void
-MessageDistDeliverer::Visit(CameraMapType& m)
+void MessageDistDeliverer::Visit(CameraMapType& m)
 {
     for (const auto& iter : m)
     {
@@ -173,8 +167,7 @@ MessageDistDeliverer::Visit(CameraMapType& m)
     }
 }
 
-void
-ObjectMessageDistDeliverer::Visit(CameraMapType& m)
+void ObjectMessageDistDeliverer::Visit(CameraMapType& m)
 {
     for (const auto& iter : m)
     {
@@ -186,8 +179,8 @@ ObjectMessageDistDeliverer::Visit(CameraMapType& m)
     }
 }
 
-template<class T> void
-ObjectUpdater::Visit(GridRefManager<T>& m)
+template<class T>
+void ObjectUpdater::Visit(GridRefManager<T>& m)
 {
     for (typename GridRefManager<T>::iterator iter = m.begin(); iter != m.end(); ++iter)
     {

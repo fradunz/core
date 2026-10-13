@@ -22,6 +22,7 @@
 #include "BIHWrap.h"
 #include "RegularGrid.h"
 #include "GameObjectModel.h"
+#include "Errors.h"
 
 template<> struct HashTrait< GameObjectModel>
 {
@@ -154,15 +155,15 @@ struct DynamicTreeIntersectionCallback
 {
     bool did_hit;
     DynamicTreeIntersectionCallback() : did_hit(false) {}
-    bool operator()(G3D::Ray const& r, GameObjectModel const& obj, float& distance)
+    // Returns true if traversal shoul stop
+    bool operator()(const G3D::Ray& r, GameObjectModel const& obj, float& distance, bool stopAtFirst, bool ignoreM2Model)
     {
-        did_hit = obj.intersectRay(r, distance, true);
-        return did_hit;
+        const bool hit = obj.intersectRay(r, distance, stopAtFirst, ignoreM2Model);
+        if (hit)
+            did_hit = true;
+        return stopAtFirst && hit;
     }
-    bool didHit() const
-    {
-        return did_hit;
-    }
+    bool didHit() const { return did_hit; }
 };
 
 struct DynamicTreeIntersectionCallback_WithLogger
@@ -170,23 +171,38 @@ struct DynamicTreeIntersectionCallback_WithLogger
     bool did_hit;
     DynamicTreeIntersectionCallback_WithLogger() : did_hit(false)
     {
-        DEBUG_LOG("Dynamic Intersection log");
+        sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Dynamic Intersection log");
     }
-    bool operator()(G3D::Ray const& r, GameObjectModel const& obj, float& distance)
+    bool operator()(const G3D::Ray& r, GameObjectModel const& obj, float& distance, bool stopAtFirst, bool ignoreM2Model)
     {
-        DEBUG_LOG("testing intersection with %s", obj.name.c_str());
-        bool hit = obj.intersectRay(r, distance, true);
+        sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "testing intersection with %s", obj.name.c_str());
+        bool hit = obj.intersectRay(r, distance, stopAtFirst, ignoreM2Model);
         if (hit)
         {
             did_hit = true;
-            DEBUG_LOG("result: intersects");
+            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "result: intersects");
         }
         return hit;
     }
-    bool didHit() const
+    bool didHit() const { return did_hit; }
+};
+
+struct DynamicTreeIntersectionCallback_findCollisionObject
+{
+    bool did_hit;
+    GameObjectModel const* hitObj;
+    DynamicTreeIntersectionCallback_findCollisionObject() : did_hit(false), hitObj(nullptr) {}
+    bool operator()(G3D::Ray const &r, GameObjectModel const &obj, float& distance, bool stopAtFirst, bool ignoreM2Model)
     {
+        bool hit = obj.intersectRay(r, distance, stopAtFirst, ignoreM2Model);
+        if (hit)
+        {
+            hitObj = &obj;
+            did_hit = true;
+        }
         return did_hit;
     }
+    bool didHit() const { return did_hit; }
 };
 
 //=========================================================
@@ -195,11 +211,11 @@ If intersection is found within pMaxDist, sets pMaxDist to intersection distance
 Else, pMaxDist is not modified and returns false;
 */
 
-bool DynamicMapTree::getIntersectionTime(G3D::Ray const& ray, Vector3 const& endPos, float& pMaxDist) const
+bool DynamicMapTree::getIntersectionTime(G3D::Ray const& ray, Vector3 const& endPos, float& pMaxDist, bool stopAtFirst) const
 {
     float distance = pMaxDist;
     DynamicTreeIntersectionCallback callback;
-    impl.intersectRay(ray, callback, distance, endPos);
+    impl.intersectRay(ray, callback, distance, endPos, stopAtFirst, false); 
     if (callback.didHit())
         pMaxDist = distance;
     return callback.didHit();
@@ -230,7 +246,7 @@ bool DynamicMapTree::getObjectHitPos(Vector3 const& pPos1, Vector3 const& pPos2,
     // valid map coords should *never ever* produce float overflow, but this would produce NaNs too:
     MANGOS_ASSERT(maxDist < std::numeric_limits<float>::max());
     // prevent NaN values which can cause BIH intersection to enter infinite loop
-    if (maxDist < 1e-10f)
+    if (maxDist < 1e-10f || pPos1 == pPos2)
     {
         pResultHitPos = pPos2;
         return false;
@@ -238,7 +254,7 @@ bool DynamicMapTree::getObjectHitPos(Vector3 const& pPos1, Vector3 const& pPos2,
     Vector3 dir = (pPos2 - pPos1) / maxDist;            // direction with length of 1
     G3D::Ray ray(pPos1, dir);
     float dist = maxDist;
-    if (getIntersectionTime(ray, pPos2, dist))
+    if (getIntersectionTime(ray, pPos2, dist, false /*stopAtFirsthit*/)) 
     {
         pResultHitPos = pPos1 + dir * dist;
         if (pModifyDist < 0)
@@ -260,7 +276,7 @@ bool DynamicMapTree::getObjectHitPos(Vector3 const& pPos1, Vector3 const& pPos2,
     return result;
 }
 
-bool DynamicMapTree::isInLineOfSight(float x1, float y1, float z1, float x2, float y2, float z2) const
+bool DynamicMapTree::isInLineOfSight(float x1, float y1, float z1, float x2, float y2, float z2, bool ignoreM2Model) const
 {
     Vector3 v1(x1, y1, z1), v2(x2, y2, z2);
 
@@ -272,7 +288,7 @@ bool DynamicMapTree::isInLineOfSight(float x1, float y1, float z1, float x2, flo
 
     G3D::Ray r(v1, (v2 - v1) / maxDist);
     DynamicTreeIntersectionCallback callback;
-    impl.intersectRay(r, callback, maxDist, v2);
+    impl.intersectRay(r, callback, maxDist, v2, true /*stopAtFirst*/, ignoreM2Model);
 
     return !callback.did_hit;
 }
@@ -280,11 +296,24 @@ bool DynamicMapTree::isInLineOfSight(float x1, float y1, float z1, float x2, flo
 float DynamicMapTree::getHeight(float x, float y, float z, float maxSearchDist) const
 {
     Vector3 v(x, y, z);
-    G3D::Ray r(v, Vector3(0, 0, -1));
+    G3D::Ray r(v, -Vector3::unitZ()); // down
     DynamicTreeIntersectionCallback callback;
-    impl.intersectZAllignedRay(r, callback, maxSearchDist);
+    impl.intersectZAllignedRay(r, callback, maxSearchDist, true /*stopatfirst*/); // TODO: stopatfirst should probably be false - need testing
 
     if (callback.didHit())
         return v.z - maxSearchDist;
     return -G3D::inf();
+}
+
+GameObjectModel const* DynamicMapTree::getObjectHit(Vector3 const& pPos1, Vector3 const& pPos2) const
+{
+    float distance = (pPos2 - pPos1).magnitude();
+    Vector3 const dir = (pPos2 - pPos1) / distance;
+    G3D::Ray const ray(pPos1, dir);
+
+    DynamicTreeIntersectionCallback_findCollisionObject callback;
+    impl.intersectRay(ray, callback, distance, pPos2, true /*stopAtFirst*/, false /*ignoreM2Model*/);
+    if (callback.hitObj)
+        return callback.hitObj;
+    return nullptr;
 }

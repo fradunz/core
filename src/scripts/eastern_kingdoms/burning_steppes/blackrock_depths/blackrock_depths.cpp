@@ -38,6 +38,7 @@ npc_GorShak
 
 #include "scriptPCH.h"
 #include "blackrock_depths.h"
+#include "CreatureGroups.h"
 
 /*######
 ## go_shadowforge_brazier
@@ -62,7 +63,16 @@ bool GOHello_go_shadowforge_brazier(Player* pPlayer, GameObject* pGo)
 enum
 {
     //4 or 6 in total? 1+2+1 / 2+2+2 / 3+3. Depending on this, code should be changed.
-    MAX_MOB_AMOUNT      = 8
+    MAX_MOB_AMOUNT      = 8,
+
+    SAY_GRIMSTONE_ARENA1    = 5441,
+    SAY_GRIMSTONE_ARENA2    = 5442,
+    SAY_GRIMSTONE_ARENA3    = 5443,
+    SAY_GRIMSTONE_ARENA4    = 5444,
+    SAY_GRIMSTONE_ARENA5    = 5445,
+    SAY_GRIMSTONE_ARENA6    = 5446,
+
+    SPELL_GRIMSTONE_TELEPORT = 6422,
 };
 
 uint32 RingMob[] =
@@ -120,7 +130,7 @@ struct npc_grimstoneAI : public npc_escortAI
 
     void Reset() override
     {
-        m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+        m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
 
         EventPhase = 0;
         Event_Timer = 1000;
@@ -146,7 +156,7 @@ struct npc_grimstoneAI : public npc_escortAI
         if (GameObject* pGo = m_pInstance->instance->GetGameObject(m_pInstance->GetData64(id)))
             pGo->SetGoState(GOState(state));
 
-        sLog.outDebug("npc_grimstone, arena gate update state.");
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "npc_grimstone, arena gate update state.");
     }
 
     //TODO: move them to center
@@ -189,7 +199,7 @@ struct npc_grimstoneAI : public npc_escortAI
             Player *challenger = m_creature->GetMap()->GetPlayer(m_pInstance->GetData64(DATA_ARENA_CHALLENGER));
             if (!challenger)
             {
-                sLog.outError("[Blackrock Depths] Ring of Law challenger player not found!");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "[Blackrock Depths] Ring of Law challenger player not found!");
                 return;
             }
 
@@ -269,12 +279,12 @@ struct npc_grimstoneAI : public npc_escortAI
         switch (i)
         {
             case 0:
-                DoScriptText(-1000011, m_creature);
+                DoScriptText(SAY_GRIMSTONE_ARENA2, m_creature);
                 CanWalk = false;
                 Event_Timer = 5000;
                 break;
             case 1:
-                DoScriptText(-1000012, m_creature);
+                DoScriptText(SAY_GRIMSTONE_ARENA3, m_creature);
                 CanWalk = false;
                 Event_Timer = 5000;
                 break;
@@ -282,10 +292,10 @@ struct npc_grimstoneAI : public npc_escortAI
                 CanWalk = false;
                 break;
             case 3:
-                //DoScriptText(-1000013, m_creature);//5
+                //DoScriptText(SAY_GRIMSTONE_ARENA4, m_creature);//5
                 break;
             case 4:
-                DoScriptText(-1000015, m_creature);
+                DoScriptText(SAY_GRIMSTONE_ARENA6, m_creature);
                 CanWalk = false;
                 Event_Timer = 5000;
                 break;
@@ -296,7 +306,7 @@ struct npc_grimstoneAI : public npc_escortAI
 
                     if (m_pInstance->GetData(DATA_THELDREN) == IN_PROGRESS)
                         m_pInstance->SetData(DATA_THELDREN, DONE);
-                    sLog.outDebug("npc_grimstone: event reached end and set complete.");
+                    sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "npc_grimstone: event reached end and set complete.");
                 }
                 break;
         }
@@ -377,7 +387,7 @@ struct npc_grimstoneAI : public npc_escortAI
                 switch (EventPhase)
                 {
                     case 0:
-                        DoScriptText(-1000010, m_creature);
+                        DoScriptText(SAY_GRIMSTONE_ARENA1, m_creature);
                         DoGate(DATA_ARENA4, GO_STATE_READY);
                         Start(false);
                         CanWalk = true;
@@ -393,6 +403,7 @@ struct npc_grimstoneAI : public npc_escortAI
                     case 3:
                         DoGate(DATA_ARENA1, GO_STATE_ACTIVE);
                         Event_Timer = 3000;
+                        DoCastSpellIfCan(m_creature, SPELL_GRIMSTONE_TELEPORT);
                         break;
                     case 4:
                         CanWalk = true;
@@ -418,12 +429,12 @@ struct npc_grimstoneAI : public npc_escortAI
                         SummonRingMob();
                         SummonRingMob();
                         m_creature->SetVisibility(VISIBILITY_ON);
-                        DoScriptText(-1000013, m_creature);
+                        DoScriptText(SAY_GRIMSTONE_ARENA4, m_creature);
                         Event_Timer = 4000;
                         break;
                     case 9:
                         SummonRingMob();
-                        DoScriptText(-1000014, m_creature);
+                        DoScriptText(SAY_GRIMSTONE_ARENA5, m_creature);
                         m_creature->SetVisibility(VISIBILITY_OFF);
                         Event_Timer = 0;
                         break;
@@ -435,14 +446,18 @@ struct npc_grimstoneAI : public npc_escortAI
                         break;
                     case 11:
                         DoGate(DATA_ARENA2, GO_STATE_ACTIVE);
-                        Event_Timer = 5000;
+                        Event_Timer = 3000;
                         break;
                     case 12:
+                        DoCastSpellIfCan(m_creature, SPELL_GRIMSTONE_TELEPORT);
+                        Event_Timer = 2000;
+                        break;
+                    case 13:
                         m_creature->SetVisibility(VISIBILITY_OFF);
                         SummonRingBoss();
                         Event_Timer = 0;
                         break;
-                    case 13:
+                    case 14:
                         //if quest, complete
                         DoGate(DATA_ARENA2, GO_STATE_READY);
                         DoGate(DATA_ARENA3, GO_STATE_ACTIVE);
@@ -492,9 +507,13 @@ struct npc_grimstoneAI : public npc_escortAI
             if (!RingBossGUID)
             {
                 m_pInstance->SetData(TYPE_RING_OF_LAW, NOT_STARTED);
+                
+                for (uint64& guid : RingMobGUID)
+                    if (Creature* mob = m_creature->GetMap()->GetCreature(guid))
+                        mob->ForcedDespawn();                     
 
-                Reset();
                 m_creature->ForcedDespawn();
+                Reset();
             }
         }
         
@@ -560,7 +579,7 @@ enum
     SPELL_FIREBALLVOLLEY    = 15285,
     SPELL_MIGHTYBLOW        = 14099,
 
-    YELL_PHALANX_AGGRO      = -1230041
+    YELL_PHALANX_AGGRO      = 5300
 };
 
 struct mob_phalanxAI : public ScriptedAI
@@ -685,10 +704,10 @@ enum
     SPELL_POTION_LOVE           = 14928,
     SPELL_NAGMARA_ROCKNOT       = 15064,
 
-    SAY_NAGMARA_1               = -1230071,
-    SAY_NAGMARA_2               = -1230072,
-    TEXTEMOTE_NAGMARA           = -1230073,
-    TEXTEMOTE_ROCKNOT           = -1230074,
+    SAY_NAGMARA_1               = 5000,
+    SAY_NAGMARA_2               = 5001,
+    TEXTEMOTE_NAGMARA           = 5002,
+    TEXTEMOTE_ROCKNOT           = 5003,
 
     QUEST_POTION_LOVE           = 4201
 };
@@ -851,11 +870,11 @@ CreatureAI* GetAI_npc_mistress_nagmara(Creature* pCreature)
 
 enum
 {
-    SAY_GOT_BEER       = -1230060,
-    SAY_MORE_BEER      = -1230061,
-    SAY_BARREL_1       = -1230062,
-    SAY_BARREL_2       = -1230063,
-    SAY_BARREL_3       = -1230064,
+    SAY_GOT_BEER       = 5172,
+    SAY_MORE_BEER      = 5166,
+    SAY_BARREL_1       = 5167,
+    SAY_BARREL_2       = 5168,
+    SAY_BARREL_3       = 5169,
 
     SPELL_DRUNKEN_RAGE = 14872,
 
@@ -1176,11 +1195,6 @@ enum
 {
     NPC_HURLEY             = 9537,
     NPC_HURLEY_CRONY       = 9541,
-
-    YELL_HURLEY_SPAWN      = -1230069,
-    SAY_HURLEY_AGGRO       = -1230070,
-
-    SPELL_FLAME_BREATH     = 9573
 };
 
 bool GOHello_go_thunderbrew_laguer_keg(Player* pPlayer, GameObject* pGo)
@@ -1204,9 +1218,9 @@ bool GOHello_go_thunderbrew_laguer_keg(Player* pPlayer, GameObject* pGo)
         if (!pHurley)
             return true;
 
-        DoScriptText(YELL_HURLEY_SPAWN, pHurley);
         pHurley->SetWalk(false);
-        pHurley->GetMotionMaster()->MovePoint(0, 886.652f, -152.042f, -49.76f);
+        pHurley->GetMotionMaster()->Clear(false, true);
+        pHurley->GetMotionMaster()->MoveWaypoint(0, 0, 1000, 0, 0, false);
 
         // Summon cronies around Hurley
         for (uint8 i = 0; i < 4; ++i)
@@ -1215,90 +1229,12 @@ bool GOHello_go_thunderbrew_laguer_keg(Player* pPlayer, GameObject* pGo)
             pPlayer->GetRandomPoint(856.087f, -149.747f, -49.672f, 2.0f, fX, fY, fZ);
             if (Creature* pSummoned = pPlayer->SummonCreature(NPC_HURLEY_CRONY, fX, fY, fZ, 0.059f, TEMPSUMMON_DEAD_DESPAWN, 0))
             {
-                pSummoned->GetMotionMaster()->MoveFollow(pHurley, 2.0f, 0);
+                pSummoned->JoinCreatureGroup(pHurley, 3.0, i * (M_PI_F / 2.0f), OPTION_FORMATION_MOVE | OPTION_AGGRO_TOGETHER | OPTION_EVADE_TOGETHER);
             }
         }
     }
 
     return false;
-}
-
-
-/*######
-## npc_hurley_blackbreath
-######*/
-
-struct npc_hurley_blackbreathAI : public ScriptedAI
-{
-    npc_hurley_blackbreathAI(Creature* pCreature) : ScriptedAI(pCreature)
-    {
-        m_pInstance = (ScriptedInstance*)pCreature->GetInstanceData();
-        Reset();
-    }
-
-    ScriptedInstance* m_pInstance;
-
-    uint32 uiFlameBreathTimer;
-    uint32 m_uiEventTimer;
-    bool   bIsEnraged;
-
-    void Reset() override
-    {
-        uiFlameBreathTimer = 5000;
-        bIsEnraged = false;
-    }
-
-
-    void MovementInform(uint32 uiType, uint32 uiPointId) override
-    {
-        if (uiType != POINT_MOTION_TYPE)
-            return;
-
-        switch (uiPointId)
-        {
-            case 0:
-                m_creature->GetMotionMaster()->MovePoint(1, 902.31f, -140.33f, -49.75f);
-                break;
-            case 1:
-                m_creature->GetMotionMaster()->MovePoint(2, 910.31f, -156.713f, -49.759f);
-                break;
-            case 2:
-                m_creature->GetMotionMaster()->MoveTargetedHome();
-                break;
-        }
-    }
-
-    void Aggro(Unit* pWho) override
-    {
-        DoScriptText(SAY_HURLEY_AGGRO, m_creature);
-    }
-
-    void UpdateAI(uint32 const uiDiff) override
-    {
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-            return; 
-
-        if (uiFlameBreathTimer < uiDiff)
-        {
-            if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_FLAME_BREATH) == CAST_OK)
-                uiFlameBreathTimer = urand(8000, 12000);
-        }
-        else
-            uiFlameBreathTimer -= uiDiff;
-
-        if (m_creature->GetHealthPercent() <= 30.0f && !bIsEnraged)
-        {
-            if (DoCastSpellIfCan(m_creature, SPELL_DRUNKEN_RAGE) == CAST_OK)
-                bIsEnraged = true;
-        }
-
-        DoMeleeAttackIfReady();
-    }
-};
-
-CreatureAI* GetAI_npc_hurley_blackbreath(Creature* pCreature)
-{
-    return new npc_hurley_blackbreathAI(pCreature);
 }
 
 /*######
@@ -1382,7 +1318,7 @@ struct npc_watchman_doomgripAI : public ScriptedAI
                 if (pGolem->IsAlive())
                 {
                     pGolem->RemoveAurasDueToSpell(10255);
-                    pGolem->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_NPC);
+                    pGolem->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_SPAWNING | UNIT_FLAG_IMMUNE_TO_NPC);
                     if (pWho)
                         pGolem->AI()->AttackStart(pWho);
                 }
@@ -1520,7 +1456,7 @@ static float const aGuardSpawnPositions[2][4] =
 enum
 {
     NPC_ANVILRAGE_GUARDMAN             = 8891,
-    SAY_GUARD_AGGRO                    = -1230043
+    SAY_GUARD_AGGRO                    = 5271
 };
 
 // When players cross the shadowforge bridge for the first time, two guards spawn and attack.
@@ -1557,18 +1493,18 @@ bool AreaTrigger_at_shadowforge_bridge(Player* pPlayer, AreaTriggerEntry const* 
 
 enum
 {
-    SAY_OOC_1                       = -1230065,
-    SAY_OOC_2                       = -1230066,
-    SAY_OOC_3                       = -1230067,
-    SAY_OOC_4                       = -1230068,
+    SAY_OOC_1                       = 5310,
+    SAY_OOC_2                       = 5308,
+    SAY_OOC_3                       = 5307,
+    SAY_OOC_4                       = 5309,
 
-    YELL_STOLEN_1                   = -1230054,
-    YELL_STOLEN_2                   = -1230055,
-    YELL_STOLEN_3                   = -1230056,
+    YELL_STOLEN_1                   = 5054,
+    YELL_STOLEN_2                   = 5053,
+    YELL_STOLEN_3                   = 5055,
     
-    YELL_AGRRO_1                    = -1230057,
-    YELL_AGRRO_2                    = -1230058,
-    YELL_PICKPOCKETED               = -1230059,
+    YELL_AGRRO_1                    = 5060,
+    YELL_AGRRO_2                    = 5267,
+    YELL_PICKPOCKETED               = 5266,
 
     // spells
     SPELL_BANISH                    = 8994,
@@ -1637,7 +1573,7 @@ struct boss_plugger_spazzringAI : public ScriptedAI
         }
     }
 
-    void SpellHit(Unit* pCaster, SpellEntry const* pSpell) override
+    void SpellHit(SpellCaster* pCaster, SpellEntry const* pSpell) override
     {
         if (pCaster->GetTypeId() == TYPEID_PLAYER)
         {
@@ -1791,40 +1727,39 @@ bool GOUse_go_bar_ale_mug(Player* pPlayer, GameObject* pGo)
 
 enum
 {
-    SAY_DUGHAL_FREE             = -1230010,
-    SAY_WINDSOR_AGGRO1          = -1230011,
-    SAY_WINDSOR_AGGRO2          = -1230012,
-    SAY_WINDSOR_AGGRO3          = -1230013,
-    SAY_WINDSOR_1               = -1230014,
-    SAY_WINDSOR_4_1             = -1230015,
-    SAY_WINDSOR_4_2             = -1230016,
-    SAY_WINDSOR_4_3             = -1230017,
-    SAY_WINDSOR_6               = -1230018,
-    SAY_WINDSOR_9               = -1230019,
+    SAY_DUGHAL_FREE             = 5210,
+    SAY_WINDSOR_AGGRO1          = 5253,
+    SAY_WINDSOR_AGGRO2          = 5252,
+    SAY_WINDSOR_AGGRO3          = 5250,
+    SAY_WINDSOR_1               = 5205,
+    SAY_WINDSOR_4_1             = 5207,
+    SAY_WINDSOR_4_2             = 5230,
+    SAY_WINDSOR_4_3             = 5213,
+    SAY_WINDSOR_6               = 5214,
+    SAY_WINDSOR_9               = 5215,
 
-    SAY_REGINALD_WINDSOR_0_1    = -1230020,
-    SAY_REGINALD_WINDSOR_0_2    = -1230021,
-    SAY_REGINALD_WINDSOR_5_1    = -1230022,
-    SAY_REGINALD_WINDSOR_5_2    = -1230023,
-    SAY_REGINALD_WINDSOR_5_3    = -1230040,
-    SAY_REGINALD_WINDSOR_7_1    = -1230024,
-    SAY_REGINALD_WINDSOR_7_2    = -1230025,
-    SAY_REGINALD_WINDSOR_7_3    = -1230026,
-    SAY_REGINALD_WINDSOR_7_4    = -1230037,
-    SAY_REGINALD_WINDSOR_13_1   = -1230027,
-    SAY_REGINALD_WINDSOR_13_2   = -1230028,
-    SAY_REGINALD_WINDSOR_13_3   = -1230029,
-    SAY_REGINALD_WINDSOR_14_1   = -1230030,
-    SAY_REGINALD_WINDSOR_14_2   = -1230031,
-    SAY_REGINALD_WINDSOR_20_1   = -1230032,
-    SAY_REGINALD_WINDSOR_20_2   = -1230033,
+    SAY_REGINALD_WINDSOR_0_1    = 5216,
+    SAY_REGINALD_WINDSOR_0_2    = 5217,
+    SAY_REGINALD_WINDSOR_5_1    = 5222,
+    SAY_REGINALD_WINDSOR_5_2    = 5223,
+    SAY_REGINALD_WINDSOR_5_3    = 5265,
+    SAY_REGINALD_WINDSOR_7_1    = 5224,
+    SAY_REGINALD_WINDSOR_7_2    = 5225,
+    SAY_REGINALD_WINDSOR_7_3    = 5227,
+    SAY_REGINALD_WINDSOR_7_4    = 5249,
+    SAY_REGINALD_WINDSOR_13_1   = 5228,
+    SAY_REGINALD_WINDSOR_13_2   = 5249,
+    SAY_REGINALD_WINDSOR_13_3   = 5229,
+    SAY_REGINALD_WINDSOR_14_1   = 5230,
+    SAY_REGINALD_WINDSOR_14_2   = 5221,
+    SAY_REGINALD_WINDSOR_20_1   = 5231,
+    SAY_REGINALD_WINDSOR_20_2   = 5232,
 
-    SAY_TOBIAS_FREE_1           = -1230034,
-    SAY_TOBIAS_FREE_2           = -1230039,
+    SAY_TOBIAS_FREE             = 5218,
 
-    SAY_SHILL_DINGER            = -1230035,
-    SAY_CREST_KILLER            = -1230036,
-    SAY_OGRABISI                = -1230038,
+    SAY_SHILL_DINGER            = 5203,
+    SAY_CREST_KILLER            = 5258,
+    SAY_OGRABISI                = 5199,
 
     NPC_REGINALD_WINDSOR        = 9682,
     NPC_DUGHAL                  = 9022,
@@ -2185,7 +2120,7 @@ struct npc_marshal_windsorAI : npc_escortAI
             case 19:
                 m_creature->SetVisibility(VISIBILITY_OFF);
                 m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-                m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
                 if (Creature* pTemp = m_creature->SummonCreature(NPC_REGINALD_WINDSOR, 
                     m_creature->GetPositionX(), 
                     m_creature->GetPositionY(), 
@@ -2294,11 +2229,8 @@ struct npc_tobias_seecherAI : npc_escortAI
         switch (uiPointId)
         {
             case 0:
-                switch (urand(0, 1))
-                {
-                    case 0: DoScriptText(SAY_TOBIAS_FREE_1, m_creature); break;
-                    case 1: DoScriptText(SAY_TOBIAS_FREE_2, m_creature); break;
-                }
+                DoScriptText(SAY_TOBIAS_FREE, m_creature);
+                break;
             case 2:
                 m_pInstance->SetData(TYPE_JAIL_TOBIAS, IN_PROGRESS);
                 break;
@@ -2336,10 +2268,6 @@ CreatureAI* GetAI_npc_tobias_seecher(Creature* pCreature)
     return new npc_tobias_seecherAI(pCreature);
 }
 
-/*
- *
- */
-
 struct go_cell_doorAI : GameObjectAI
 {
     explicit go_cell_doorAI(GameObject* pGo) : GameObjectAI(pGo)
@@ -2369,9 +2297,41 @@ GameObjectAI* GetAI_go_cell_door(GameObject* pGo)
     return new go_cell_doorAI(pGo);
 }
 
-/*
- *
- */
+// 27673 - Five Fat Finger Exploding Heart Technique
+struct FiveFatFingerExplodingHeartTechniqueScript : public AuraScript
+{
+    Position m_originalPosition;
+
+    void OnAuraInit(Aura* aura) final
+    {
+        m_originalPosition = aura->GetTarget()->GetPosition();
+    }
+
+    void OnPeriodicTrigger(Aura* aura, Unit* caster, Unit* target, WorldObject* targetObject, SpellEntry const*& spellInfo) final
+    {
+        if (aura->GetStackAmount() < 5)
+            return;
+
+        // 5 steps 5 yards?
+        if (aura->GetTarget()->GetDistance(m_originalPosition) >= 5.0f)
+            spellInfo = sSpellMgr.GetSpellEntry(27676); // Exploding Heart
+    }
+
+    void OnPeriodicTickEnd(Aura* aura) final
+    {
+        if (aura->GetStackAmount() < 5)
+            return;
+
+        // 5 steps 5 yards?
+        if (aura->GetTarget()->GetDistance(m_originalPosition) >= 5.0f)
+            aura->GetTarget()->RemoveAurasDueToSpell(aura->GetId());
+    }
+};
+
+AuraScript* GetScript_FiveFatFingerExplodingHeartTechnique(SpellEntry const*)
+{
+    return new FiveFatFingerExplodingHeartTechniqueScript();
+}
 
 void AddSC_blackrock_depths()
 {
@@ -2443,11 +2403,6 @@ void AddSC_blackrock_depths()
     newscript->RegisterSelf();
 
     newscript = new Script;
-    newscript->Name = "npc_hurley_blackbreath";
-    newscript->GetAI = &GetAI_npc_hurley_blackbreath;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
     newscript->Name = "boss_plugger_spazzring";
     newscript->GetAI = &GetAI_boss_plugger_spazzring;
     newscript->RegisterSelf();
@@ -2482,5 +2437,10 @@ void AddSC_blackrock_depths()
     newscript = new Script;
     newscript->Name = "go_cell_door";
     newscript->GOGetAI = &GetAI_go_cell_door;
+    newscript->RegisterSelf();
+
+    newscript = new Script;
+    newscript->Name = "spell_five_fat_finger_exploding_heart_technique";
+    newscript->GetAuraScript = &GetScript_FiveFatFingerExplodingHeartTechnique;
     newscript->RegisterSelf();
 }

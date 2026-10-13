@@ -19,7 +19,7 @@ Full rewrite by Gemt
 
 Current semi-unknowns:
 The aoe manaburn; not seen it used in videos, despite all original vanilla guides mentioning it.
-Probably because its pretty much a wipe if ranged/healers are hit by it. 
+Probably because its pretty much a wipe if ranged/healers are hit by it.
 While Decrepit fever is very aggressive on its cooldown after a dance phase, the mana burn does not seem to be,
 so we should give "plenty" of time for casters to get to the platform, and tank to move the boss away.
 
@@ -40,7 +40,7 @@ enum HeiganData
     SAY_AGGRO2              = 13042,
     SAY_AGGRO3              = 13043,
     SAY_SLAY                = 13045,
-    
+
     SAY_TAUNT1              = 13046,
     SAY_TAUNT2              = 13047,
     SAY_TAUNT3              = 13048,
@@ -52,6 +52,7 @@ enum HeiganData
     EMOTE_RETURN            = -1533137, // need find correct bct id!
 
     SPELL_ERUPTION          = 29371,
+    SPELL_PLAGUE_WAVE       = 30243,
 
     //Spells by boss
     SPELL_DECREPIT_FEVER    = 29998,
@@ -59,8 +60,7 @@ enum HeiganData
     SPELL_TELEPORT_SELF     = 30211,
     SPELL_MANABURN          = 29310,
 
-    NPC_PLAGUE_FISSURE      = 533001,
-    NPC_PLAGUE_CLOUD        = 533002
+    NPC_PLAGUE_WAVE         = 17293
 };
 
 enum Events
@@ -91,14 +91,14 @@ static uint8 const numSections = 4;
 };*/
 
 // in tunnel
-static constexpr float safespotFissures[3][3] = 
-{   
+static constexpr float safespotFissures[3][3] =
+{
     {2747.0f, -3754.0f, 274.0f},
     {2805.8f, -3695.88f, 273.61f},
     {2812.95f, -3703.52f, 273.61f},
 };
 
-static constexpr float sect1SafeSpot[3][3] = 
+static constexpr float sect1SafeSpot[3][3] =
 {
     { 2799.5f, -3691.0f, 273.62f },
     { 2810.67f, -3706.06f, 275.0f },
@@ -107,7 +107,7 @@ static constexpr float sect1SafeSpot[3][3] =
 
 static constexpr float sect2SafeSpot[3] = { 2790.51f, -3690.45f, 273.622f };
 static constexpr float sect3SafeSpot[3] = { 2778.40f, -3702.645f, 273.621f };
-static constexpr float sect4SafeSpot[3][3] = 
+static constexpr float sect4SafeSpot[3][3] =
 {
     { 2777.2f, -3712.41f, 273.63f },
     { 2783.06f, -3717.7f, 273.63f },
@@ -167,7 +167,7 @@ struct boss_heiganAI : public ScriptedAI
         {
             if (pWho->GetPositionX() > 2825.0f)
                 return;
-            if (m_creature->CanInitiateAttack() && pWho->IsTargetableForAttack() && m_creature->IsHostileTo(pWho))
+            if (m_creature->CanInitiateAttack() && pWho->IsTargetableBy(m_creature) && m_creature->IsHostileTo(pWho))
             {
                 if (pWho->IsInAccessablePlaceFor(m_creature) && m_creature->IsWithinLOSInMap(pWho))
                 {
@@ -219,7 +219,7 @@ struct boss_heiganAI : public ScriptedAI
 
     void SendEruptCustomLocation(float x, float y, float z)
     {
-        if (Creature* fissureCreature = m_creature->SummonCreature(NPC_PLAGUE_FISSURE, x, y, z, 0, TEMPSUMMON_TIMED_DESPAWN, 50))
+        if (Creature* fissureCreature = m_creature->SummonCreature(NPC_PLAGUE_WAVE, x, y, z, 0, TEMPSUMMON_TIMED_DESPAWN, 50))
         {
             fissureCreature->CastSpell(fissureCreature, SPELL_ERUPTION, true);
         }
@@ -229,10 +229,10 @@ struct boss_heiganAI : public ScriptedAI
     {
         if (!m_pInstance)
             return;
-        Creature* fissureCreature = m_creature->SummonCreature(NPC_PLAGUE_FISSURE, 2773.0f, -3684.0f, 292.0f, 0.0f, TEMPSUMMON_TIMED_DESPAWN, 1000);
+        Creature* fissureCreature = m_creature->SummonCreature(NPC_PLAGUE_WAVE, 2773.0f, -3684.0f, 292.0f, 0.0f, TEMPSUMMON_TIMED_DESPAWN, 1000);
         if (!fissureCreature)
         {
-            sLog.outError("Heigan: failed spawning fissure creature");
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Heigan: failed spawning fissure creature");
             return;
         }
 
@@ -280,12 +280,12 @@ struct boss_heiganAI : public ScriptedAI
         ++eruptionPhase;
     }
 
-    void SummmonPlagueCloud(float x, float y, float z, float o)
+    void SummmonPlagueWave(float x, float y, float z, float o)
     {
-        if (Creature* pCloud = m_creature->SummonCreature(NPC_PLAGUE_CLOUD, x, y, z, o,
+        if (Creature* pCloud = m_creature->SummonCreature(NPC_PLAGUE_WAVE, x, y, z, o,
             TEMPSUMMON_TIMED_DESPAWN, 45000))
         {
-            pCloud->CastSpell((Unit*)nullptr, SPELL_PLAGUE_CLOUD, true);
+            pCloud->CastSpell(pCloud, SPELL_PLAGUE_WAVE, true);
         }
     }
 
@@ -315,7 +315,7 @@ struct boss_heiganAI : public ScriptedAI
         // the regular ones
         for (const auto& eyeStalkPossition : eyeStalkPossitions)
         {
-            SummmonPlagueCloud(eyeStalkPossition[0], eyeStalkPossition[1], eyeStalkPossition[2], eyeStalkPossition[3]);
+            SummmonPlagueWave(eyeStalkPossition[0], eyeStalkPossition[1], eyeStalkPossition[2], eyeStalkPossition[3]);
         }
 
         DoScriptText(SAY_CHANNELING, m_creature);
@@ -335,7 +335,7 @@ struct boss_heiganAI : public ScriptedAI
         m_events.ScheduleEvent(EVENT_MANABURN,  Seconds(10));
         m_events.ScheduleEvent(EVENT_PORT_PLAYER, Seconds(18));
         m_events.ScheduleEvent(EVENT_PORT_PLAYER, Seconds(48));
-        m_creature->CastStop();
+        m_creature->InterruptNonMeleeSpells(false);
         m_creature->SetReactState(REACT_AGGRESSIVE);
         eruptionPhase = 0;
 
@@ -350,12 +350,12 @@ struct boss_heiganAI : public ScriptedAI
         std::vector<Unit*> candidates;
         auto it = tl.begin();
         ++it; // skip the tank
-        for (it; it != tl.end(); it++)
+        for (; it != tl.end(); ++it)
         {
-            if (Unit* pUnit = m_creature->GetMap()->GetUnit((*it)->getUnitGuid()))
+            if (Player* pUnit = (*it)->getTarget()->ToPlayer())
             {
                 // Candidates are only alive players who have not yet been ported during this phase rotation
-                if (pUnit->IsPlayer() && pUnit->IsAlive()
+                if (pUnit->IsAlive()
                     && std::find(portedPlayersThisPhase.begin(), portedPlayersThisPhase.end(), pUnit->GetObjectGuid()) == portedPlayersThisPhase.end())
                 {
                     candidates.push_back(pUnit);
@@ -373,7 +373,7 @@ struct boss_heiganAI : public ScriptedAI
             candidates.erase(candidates.begin() + idx);
             portedPlayersThisPhase.push_back(target->GetObjectGuid());
             // getting the spell visual to show both where you were TPed from and where you are TPed too
-            if (Creature* pCreature = m_creature->SummonCreature(NPC_PLAGUE_FISSURE, 
+            if (Creature* pCreature = m_creature->SummonCreature(NPC_PLAGUE_WAVE,
                 target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetOrientation(),
                 TEMPSUMMON_TIMED_DESPAWN, 2000))
             {
@@ -399,9 +399,9 @@ struct boss_heiganAI : public ScriptedAI
         bool found_mana_in_range = false;
         for (const auto it : tl)
         {
-            if (Unit* pTarget = m_creature->GetMap()->GetUnit(it->getUnitGuid()))
+            if (Player* pTarget = it->getTarget()->ToPlayer())
             {
-                if (pTarget->GetPowerType() == POWER_MANA && pTarget->GetTypeId() == TYPEID_PLAYER && pTarget->IsAlive())
+                if (pTarget->GetPowerType() == POWER_MANA && pTarget->IsAlive())
                 {
                     if (m_creature->GetDistance3dToCenter(it->getTarget()) < 28.0f)
                     {
@@ -480,45 +480,37 @@ struct boss_heiganAI : public ScriptedAI
     }
 };
 
-struct mob_plague_cloudAI : public ScriptedAI
-{
-    mob_plague_cloudAI(Creature* pCreature) : ScriptedAI(pCreature)
-    {
-        Reset();
-    }
-
-    void Reset() override
-    {
-        m_creature->AddUnitState(UNIT_STAT_ROOT);
-        m_creature->StopMoving();
-        m_creature->SetRooted(true);
-    }
-
-    void AttackStart(Unit*) override { }
-    void MoveInLineOfSight(Unit*) override { }
-    void UpdateAI(uint32 const) override { }
-};
-
 CreatureAI* GetAI_boss_heigan(Creature* pCreature)
 {
     return new boss_heiganAI(pCreature);
 }
 
-CreatureAI* GetAI_mob_plagueCloud(Creature* pCreature)
+// 29310 - Mana Burn (Heigan, naxxramas)
+struct HeiganManaBurnScript : SpellScript
 {
-    return new mob_plague_cloudAI(pCreature);
+    void OnSetTargetMap(Spell* /*spell*/, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& radius, uint32& /*unMaxTargets*/, bool& /*selectClosestTargets*/) const final
+    {
+        // Without a bigger raidus its possible to tank heigan in one corner of the platform, and have ranged stay in the other corner
+        radius = 28.0f;
+    }
+};
+
+SpellScript* GetScript_HeiganManaBurn(SpellEntry const*)
+{
+    return new HeiganManaBurnScript();
 }
 
 void AddSC_boss_heigan()
 {
-    Script* NewScript;
-    NewScript = new Script;
-    NewScript->Name = "boss_heigan";
-    NewScript->GetAI = &GetAI_boss_heigan;
-    NewScript->RegisterSelf();
+    Script* pNewScript;
 
-    NewScript = new Script;
-    NewScript->Name = "mob_plague_cloud";
-    NewScript->GetAI = &GetAI_mob_plagueCloud;
-    NewScript->RegisterSelf();
+    pNewScript = new Script;
+    pNewScript->Name = "boss_heigan";
+    pNewScript->GetAI = &GetAI_boss_heigan;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "spell_heigan_mana_burn";
+    pNewScript->GetSpellScript = &GetScript_HeiganManaBurn;
+    pNewScript->RegisterSelf();
 }

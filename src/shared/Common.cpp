@@ -21,6 +21,10 @@
 
 #include "Common.h"
 
+#if COMPILER != COMPILER_MICROSOFT
+#include <strings.h>
+#endif
+
 char const* localeNames[MAX_LOCALE] = {
   "enUS",                                                   // also enGB
   "koKR",
@@ -48,6 +52,18 @@ LocaleNameStr const fullLocaleNameList[] =
     { "ruRU", LOCALE_ruRU },
     { NULL,   LOCALE_enUS }
 };
+
+bool StringStartsWithCaseInsensitive(std::string const& str, std::string const& prefix)
+{
+    std::size_t const n = prefix.length();
+    if (str.length() < n)
+        return false;
+#if COMPILER == COMPILER_MICROSOFT
+    return _strnicmp(str.c_str(), prefix.c_str(), n) == 0;
+#else
+    return strncasecmp(str.c_str(), prefix.c_str(), n) == 0;
+#endif
+}
 
 LocaleConstant GetLocaleByName(std::string const& name)
 {
@@ -77,7 +93,7 @@ LocaleConstant GetDbcLocaleFromDbLocale(DBLocaleConstant localeIndex)
         case DB_LOCALE_esES:
             return LOCALE_esES;
         case DB_LOCALE_esMX:
-            return LOCALE_esMX;
+            return LOCALE_esMX; // index exists in dbcs, but no actual client
         case DB_LOCALE_ruRU:
             return LOCALE_enUS; // there are no russian dbcs for vanilla
     }

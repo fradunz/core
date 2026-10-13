@@ -15,6 +15,8 @@
 */
 
 #include "Anticheat.h"
+#include "IO/Multithreading/CreateThread.h"
+#include "Log.h"
 
 AnticheatManager* AnticheatManager::instance()
 {
@@ -27,54 +29,157 @@ AnticheatManager* GetAnticheatLib()
     return AnticheatManager::instance();
 }
 
-#ifdef USE_ANTICHEAT
-
 #include "World.h"
 #include "WorldSession.h"
 
 #include "MovementAnticheat/MovementAnticheat.h"
-#include "WardenAnticheat/Warden.h"
-#include "WardenAnticheat/WardenWin.h"
-#include "WardenAnticheat/WardenMac.h"
+#include "WardenAnticheat/Warden.hpp"
+#include "WardenAnticheat/WardenScanMgr.hpp"
+#include "WardenAnticheat/WardenModuleMgr.hpp"
+#include "WardenAnticheat/WardenWin.hpp"
+#include "WardenAnticheat/WardenMac.hpp"
+
+AnticheatManager::~AnticheatManager()
+{
+    StopWardenUpdateThread();
+
+    AddOrRemovePendingSessions();
+    for (auto const& warden : m_wardenSessions)
+        if (warden)
+            delete warden;
+}
 
 void AnticheatManager::LoadAnticheatData()
 {
-    sLog.outString();
-    sLog.outString("Loading warden checks...");
-    sWardenMgr->LoadWardenChecks();
-    
-    sLog.outString();
-    sLog.outString("Loading warden modules...");
-    sWardenMgr->LoadWardenModules();
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_5_1
+    sLog.Out(LOG_ANTICHEAT, LOG_LVL_MINIMAL, "");
+    sLog.Out(LOG_ANTICHEAT, LOG_LVL_MINIMAL, "Loading warden checks...");
+    sWardenScanMgr.LoadFromDB();
+    Warden::LoadScriptedScans();
+
+    sLog.Out(LOG_ANTICHEAT, LOG_LVL_MINIMAL, "");
+    sLog.Out(LOG_ANTICHEAT, LOG_LVL_MINIMAL, "Loading warden modules...");
+    sWardenModuleMgr;
+#endif
 }
 
 MovementAnticheat* AnticheatManager::CreateAnticheatFor(Player* player)
 {
     MovementAnticheat* cd = new MovementAnticheat(player);
     cd->Init();
-    cd->InitSpeeds(player);
     return cd;
 }
 
-Warden* AnticheatManager::CreateWardenFor(WorldSession* client, BigNumber* K)
+Warden* AnticheatManager::CreateWardenForInternal(WorldSession* client, BigNumber* K)
 {
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_5_1
     if ((client->GetSecurity() != SEC_PLAYER) &&
         sWorld.getConfig(CONFIG_BOOL_AC_WARDEN_PLAYERS_ONLY))
         return nullptr;
 
-    Warden* warden;
     ClientOSType os = client->GetOS();
 
     if (os == CLIENT_OS_MAC && sWorld.getConfig(CONFIG_BOOL_AC_WARDEN_OSX_ENABLED))
-        warden = new WardenMac();
+        return new WardenMac(client, *K);
     else if (os == CLIENT_OS_WIN && sWorld.getConfig(CONFIG_BOOL_AC_WARDEN_WIN_ENABLED))
-        warden = new WardenWin();
-    else
-        return nullptr;
+        return new WardenWin(client, *K);
+#endif
 
-    warden->Init(client, K);
+    return nullptr;
+}
+
+Warden* AnticheatManager::CreateWardenFor(WorldSession* client, BigNumber* K)
+{
+    Warden* warden = CreateWardenForInternal(client, K);
+    if (warden)
+        AddWardenSession(warden);
 
     return warden;
 }
 
-#endif
+void AnticheatManager::StartWardenUpdateThread()
+{
+   m_wardenUpdateThread = IO::Multithreading::CreateThread("WardenSessions", [this]() { UpdateWardenSessions(); });
+}
+
+void AnticheatManager::StopWardenUpdateThread()
+{
+    if (m_wardenUpdateThread.joinable())
+        m_wardenUpdateThread.join();
+}
+
+void AnticheatManager::UpdateWardenSessions()
+{
+    while (!World::IsStopped())
+    {
+        {
+            std::lock_guard<std::mutex> guard(m_wardenSessionsMutex);
+            AddOrRemovePendingSessions();
+        }
+
+        for (uint32 i = 0; i < m_wardenSessions.size(); i++)
+        {
+            if (Warden* warden = m_wardenSessions[i])
+                warden->Update();
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
+void AnticheatManager::AddOrRemovePendingSessions()
+{
+    if (!m_wardenSessionsToAdd.empty())
+    {
+        for (auto const& warden : m_wardenSessionsToAdd)
+            AddWardenSessionInternal(warden);
+        m_wardenSessionsToAdd.clear();
+    }
+    if (!m_wardenSessionsToRemove.empty())
+    {
+        for (auto const& warden : m_wardenSessionsToRemove)
+            RemoveWardenSessionInternal(warden);
+        m_wardenSessionsToRemove.clear();
+    }
+}
+
+void AnticheatManager::AddWardenSessionInternal(Warden* warden)
+{
+    for (uint32 i = 0; i < m_wardenSessions.size(); i++)
+    {
+        if (m_wardenSessions[i] == nullptr)
+        {
+            m_wardenSessions[i] = warden;
+            return;
+        }
+    }
+
+    m_wardenSessions.push_back(warden);
+}
+
+void AnticheatManager::RemoveWardenSessionInternal(Warden* warden)
+{
+    for (uint32 i = 0; i < m_wardenSessions.size(); i++)
+    {
+        if (m_wardenSessions[i] == warden)
+        {
+            m_wardenSessions[i] = nullptr;
+            break;
+        }
+    }
+
+    delete warden;
+}
+
+void AnticheatManager::AddWardenSession(Warden* warden)
+{
+    std::lock_guard<std::mutex> guard(m_wardenSessionsMutex);
+    m_wardenSessionsToAdd.push_back(warden);
+}
+
+void AnticheatManager::RemoveWardenSession(Warden* warden)
+{
+    std::lock_guard<std::mutex> guard(m_wardenSessionsMutex);
+    m_wardenSessionsToRemove.push_back(warden);
+}
+

@@ -1,16 +1,13 @@
 #include "Database/DatabaseEnv.h"
-#include "World.h"
 #include "Log.h"
-#include "ProgressBar.h"
 #include "Policies/SingletonImp.h"
-#include "Player.h"
 #include "Item.h"
 #include "AuctionHouseMgr.h"
-#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "AuctionHouseBotMgr.h"
 #include "Config/Config.h"
 #include "Chat.h"
+#include "Utilities/Random.h"
 
 INSTANTIATE_SINGLETON_1(AuctionHouseBotMgr);
 
@@ -39,8 +36,8 @@ void AuctionHouseBotMgr::Load()
         BarGoLink bar(1);
         bar.step();
 
-        sLog.outString();
-        sLog.outString(">> Loaded 0 AuctionHouseBot items");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded 0 AuctionHouseBot items");
         return;
     }
 
@@ -64,22 +61,19 @@ void AuctionHouseBotMgr::Load()
     }
     while (result->NextRow());
 
-    sLog.outString();
-    sLog.outString(">> Loaded %u AuctionHouseBot items", count);
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u AuctionHouseBot items", count);
 
     /* CONFIG */
     m_config                 = std::make_unique<AuctionHouseBotConfig>();
     m_config->enable         = sConfig.GetBoolDefault("AHBot.Enable", false);
-    m_config->ahid           = sConfig.GetIntDefault("AHBot.ah.id", 7);
-    m_config->botguid        = sConfig.GetIntDefault("AHBot.bot.guid", 1123);
-    m_config->botaccount     = sConfig.GetIntDefault("AHBot.bot.account", 32377);
     m_config->ahfid          = sConfig.GetIntDefault("AHBot.ah.fid", 120);
     m_config->itemcount      = sConfig.GetIntDefault("AHBot.itemcount", 2);
 
     m_auctionHouseEntry = sAuctionMgr.GetAuctionHouseEntry(m_config->ahfid);
     if (!m_auctionHouseEntry)
     {
-        sLog.outInfo("AHBot::Load() : No auction house for faction %u.", m_config->ahfid);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::Load() : No auction house for faction %u.", m_config->ahfid);
         return;
     }
     m_loaded = true;
@@ -96,16 +90,16 @@ void AuctionHouseBotMgr::Update(bool force /* = false */)
     if (!(m_config->enable || force))
         return;
 
-    if (m_items.empty() ||  /*m_config->botguid==0 ||*/ m_config->botaccount == 0)
+    if (m_items.empty())
     {
-        sLog.outError("AHBot::Update() : Bad config or empty table.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "AHBot::Update() : Bad config or empty table.");
         return;
     }
 
     AuctionHouseObject* auctionHouse = sAuctionMgr.GetAuctionsMap(m_auctionHouseEntry);
     if (!auctionHouse)
     {
-        sLog.outError("AHBot::Update() : No auction house for faction %u.", m_config->ahfid);
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "AHBot::Update() : No auction house for faction %u.", m_config->ahfid);
         return;
     }
 
@@ -137,18 +131,18 @@ void AuctionHouseBotMgr::AddItem(AuctionHouseBotEntry e, AuctionHouseObject *auc
     ItemPrototype const* prototype = sObjectMgr.GetItemPrototype(e.item);
     if (prototype == nullptr)
     {
-        sLog.outInfo("AHBot::AddItem() : Item %u does not exist.", e.item);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::AddItem() : Item %u does not exist.", e.item);
         return;
     }
 
-    Item* item = Item::CreateItem(e.item, 1, nullptr);
+    Item* item = Item::CreateItem(e.item, 1);
     if (!item)
     {
-        sLog.outInfo("AHBot::AddItem() : Cannot create item.");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::AddItem() : Cannot create item.");
         return;
     }
 
-    //sLog.outInfo("AHBot::AddItem() : Adding item %u.", e.item);
+    //sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::AddItem() : Adding item %u.", e.item);
 
     uint32 randomPropertyId = Item::GenerateItemRandomPropertyId(e.item);
     if (randomPropertyId != 0)
@@ -247,7 +241,7 @@ void AuctionHouseBotMgr::Create(uint32 itemId)
     ItemPrototype const* prototype = sObjectMgr.GetItemPrototype(itemId);
     if (prototype == nullptr)
     {
-        sLog.outInfo("AHBot::Create() : Item %u does not exist.", itemId);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::Create() : Item %u does not exist.", itemId);
         return;
     }
 
@@ -259,7 +253,7 @@ void AuctionHouseBotMgr::Create(uint32 itemId)
 
     if (!WorldDatabase.PExecute("INSERT INTO `auctionhousebot` (`item`, `stack`, `bid`, `buyout`) VALUES (%u, %u, %u, %u)", itemId, stack, bid, buyout))
     {
-        sLog.outInfo("AHBot::Create() : Error creating auction for item %u.", itemId);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::Create() : Error creating auction for item %u.", itemId);
         return;
     }
 

@@ -16,7 +16,7 @@
 
 /* ScriptData
 SDName: Boss_Gluth
-SD%Complete: 
+SD%Complete:
 SDComment:
 SDCategory: Naxxramas
 EndScriptData */
@@ -84,7 +84,7 @@ struct boss_gluthAI : public ScriptedAI
     EventMap m_events;
 
     uint32 five_percent;
-    
+
     void Reset() override
     {
         m_events.Reset();
@@ -109,10 +109,10 @@ struct boss_gluthAI : public ScriptedAI
 
     void MoveInLineOfSight(Unit* pWho) override
     {
-        // He should aggro just at the edge of the sewer pipe players jump from 
-        if (pWho->GetTypeId() == TYPEID_PLAYER 
-            && !m_creature->IsInCombat() 
-            && m_creature->IsWithinDistInMap(pWho, 49.0f) 
+        // He should aggro just at the edge of the sewer pipe players jump from
+        if (pWho->GetTypeId() == TYPEID_PLAYER
+            && !m_creature->IsInCombat()
+            && m_creature->IsWithinDistInMap(pWho, 49.0f)
             && !pWho->HasAuraType(SPELL_AURA_FEIGN_DEATH))
         {
             AttackStart(pWho);
@@ -124,7 +124,7 @@ struct boss_gluthAI : public ScriptedAI
     {
         if (m_pInstance)
             m_pInstance->SetData(TYPE_GLUTH, IN_PROGRESS);
-        
+
         m_events.ScheduleEvent(EVENT_MORTAL_WOUND,    MORTAL_WOUND_CD);
         m_events.ScheduleEvent(EVENT_DECIMATE,        DECIMATE_CD);
         m_events.ScheduleEvent(EVENT_FRENZY,          FRENZY_CD);
@@ -141,10 +141,10 @@ struct boss_gluthAI : public ScriptedAI
             m_pInstance->SetData(TYPE_GLUTH, FAIL);
     }
 
-    void SpellHit(Unit*, SpellEntry const* pSpell) override
+    void SpellHit(SpellCaster*, SpellEntry const* pSpell) override
     {
         // only want to do these calculations inside naxx
-        if (m_pInstance->GetMap()->GetId() != 533)
+        if (m_pInstance->GetMap()->GetId() != MAP_NAXXRAMAS)
             return;
 
         if (pSpell->Id == SPELL_DECIMATE)
@@ -235,8 +235,8 @@ struct boss_gluthAI : public ScriptedAI
                 case EVENT_EVADE_CHECK:
                 {
                     m_events.Repeat(Seconds(5));
-                    float curZ = m_creature->GetPositionZ();
-                    if (curZ < 293.0f && curZ > 300.0f) // avoid getting stuck in wall on pull
+                    float curZ = m_creature->GetPositionZ(); // encounter floor at ~297.78f
+                    if (curZ < 293.0f || curZ > 300.0f) // avoid getting stuck in wall on pull
                     {
                         EnterEvadeMode();
                     }
@@ -327,7 +327,7 @@ struct mob_zombieChow : public ScriptedAI
         return false;
     }
 
-    void SpellHit(Unit* pWho, SpellEntry const* pSpell) override
+    void SpellHit(SpellCaster* pWho, SpellEntry const* pSpell) override
     {
         ScriptedAI::SpellHit(pWho, pSpell);
         if (pWho->GetEntry() == NPC_GLUTH && pSpell->Id == SPELL_DECIMATE)
@@ -375,6 +375,25 @@ CreatureAI* GetAI_mob_zombieChow(Creature* pCreature)
     return new mob_zombieChow(pCreature);
 }
 
+// 28375 - Decimate (Gluth)
+struct GluthDecimateScript : public SpellScript
+{
+    bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0 && spell->GetUnitTarget())
+        {
+            // damage should put target at maximum 5% hp, but not reduce it below that
+            spell->damage = std::max(0, int32(spell->GetUnitTarget()->GetHealth() - uint32(spell->GetUnitTarget()->GetMaxHealth() * 0.05f)));
+        }
+        return true;
+    }
+};
+
+SpellScript* GetScript_GluthDecimate(SpellEntry const*)
+{
+    return new GluthDecimateScript();
+}
+
 void AddSC_boss_gluth()
 {
     Script* NewScript;
@@ -386,5 +405,10 @@ void AddSC_boss_gluth()
     NewScript = new Script;
     NewScript->Name = "mob_zombie_chow";
     NewScript->GetAI = &GetAI_mob_zombieChow;
+    NewScript->RegisterSelf();
+
+    NewScript = new Script;
+    NewScript->Name = "spell_gluth_decimate";
+    NewScript->GetSpellScript = &GetScript_GluthDecimate;
     NewScript->RegisterSelf();
 }

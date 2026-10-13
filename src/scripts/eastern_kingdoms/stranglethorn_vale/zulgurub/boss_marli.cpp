@@ -31,10 +31,9 @@ enum
     // the spider
     NPC_SPAWN_OF_MARLI          = 15041,
 
-    SAY_AGGRO                   = -1309005,
-    SAY_TRANSFORM               = -1309006,
-    SAY_SPIDER_SPAWN            = -1309007,
-    SAY_DEATH                   = -1309008,
+    SAY_TRANSFORM               = 10443,
+    SAY_SPIDER_SPAWN            = 10448,
+    SAY_DEATH                   = 10459,
 
     SPELL_CHARGE                = 22911,
     SPELL_ENVELOPINGWEBS        = 24110,
@@ -46,9 +45,6 @@ enum
     SPELL_TRASH                 = 3391,
     SPELL_HATCH                 = 24083,                    //visual
     SPELL_AGGRANDIR             = 24109,
-
-    //The Spider Spells
-    SPELL_LEVELUP               = 24312                     //visual
 };
 
 struct boss_marliAI : public ScriptedAI
@@ -102,7 +98,7 @@ struct boss_marliAI : public ScriptedAI
         std::list<GameObject*> lSpiderEggs;
         GetGameObjectListWithEntryInGrid(lSpiderEggs, m_creature, GO_EGG, DEFAULT_VISIBILITY_INSTANCE);
         if (lSpiderEggs.empty())
-            sLog.outDebug("boss_marli, no Eggs with the entry %u were found", GO_EGG);
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "boss_marli, no Eggs with the entry %u were found", GO_EGG);
         else
         {
             for (const auto& pGo : lSpiderEggs)
@@ -132,8 +128,6 @@ struct boss_marliAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        DoScriptText(SAY_AGGRO, m_creature);
-
         if (m_pInstance)
             if (m_pInstance->GetData(TYPE_MARLI) != IN_PROGRESS)
                 m_pInstance->SetData(TYPE_MARLI, IN_PROGRESS);
@@ -161,7 +155,7 @@ struct boss_marliAI : public ScriptedAI
         std::list<GameObject*> lEggs;
         GetGameObjectListWithEntryInGrid(lEggs, m_creature, GO_EGG, DEFAULT_VISIBILITY_INSTANCE);
         if (lEggs.empty())
-            sLog.outDebug("boss_marli, no Eggs with the entry %i were found", GO_EGG);
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "boss_marli, no Eggs with the entry %i were found", GO_EGG);
         else
         {
             lEggs.sort(ObjectDistanceOrder(m_creature));
@@ -319,9 +313,11 @@ struct boss_marliAI : public ScriptedAI
                 DoScriptText(SAY_TRANSFORM, m_creature);
                 DoCastSpellIfCan(m_creature, SPELL_SPIDER_FORM);
 
-                CreatureInfo const *cinfo = m_creature->GetCreatureInfo();
-                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, (cinfo->dmg_min + ((cinfo->dmg_min / 100) * 35)));
-                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, (cinfo->dmg_max + ((cinfo->dmg_max / 100) * 35)));
+                float dmgMin;
+                float dmgMax;
+                m_creature->GetDefaultDamageRange(dmgMin, dmgMax);
+                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, (dmgMin + ((dmgMin / 100) * 35)));
+                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, (dmgMax + ((dmgMax / 100) * 35)));
                 m_creature->UpdateDamagePhysical(BASE_ATTACK);
 
                 DoResetThreat();
@@ -337,9 +333,11 @@ struct boss_marliAI : public ScriptedAI
 
                 m_creature->SetDisplayId(m_uiDefaultModel);
 
-                CreatureInfo const *cinfo = m_creature->GetCreatureInfo();
-                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, (cinfo->dmg_min + ((cinfo->dmg_min / 100) * 1)));
-                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, (cinfo->dmg_max + ((cinfo->dmg_max / 100) * 1)));
+                float dmgMin;
+                float dmgMax;
+                m_creature->GetDefaultDamageRange(dmgMin, dmgMax);
+                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, (dmgMin + ((dmgMin / 100) * 1)));
+                m_creature->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, (dmgMax + ((dmgMax / 100) * 1)));
                 m_creature->UpdateDamagePhysical(BASE_ATTACK);
 
                 m_bIsInPhaseTwo = false;
@@ -362,49 +360,9 @@ struct boss_marliAI : public ScriptedAI
     }
 };
 
-//Spawn of Marli
-struct mob_spawn_of_marliAI : public ScriptedAI
-{
-    mob_spawn_of_marliAI(Creature* pCreature) : ScriptedAI(pCreature)
-    {
-        Reset();
-        m_pInstance = (ScriptedInstance*)m_creature->GetInstanceData();
-    }
-
-    ScriptedInstance* m_pInstance;
-    uint32 m_uiLevelUp_Timer;
-
-    void Reset() override
-    {
-        m_uiLevelUp_Timer = 3000;
-    }
-
-    void UpdateAI(uint32 const uiDiff) override
-    {
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-            return;
-
-        if (m_uiLevelUp_Timer < uiDiff)
-        {
-            DoCastSpellIfCan(m_creature, SPELL_LEVELUP);
-            m_creature->SetLevel(m_creature->GetLevel() + 1);
-            m_uiLevelUp_Timer = 3000;
-        }
-        else
-            m_uiLevelUp_Timer -= uiDiff;
-
-        DoMeleeAttackIfReady();
-    }
-};
-
 CreatureAI* GetAI_boss_marli(Creature* pCreature)
 {
     return new boss_marliAI(pCreature);
-}
-
-CreatureAI* GetAI_mob_spawn_of_marli(Creature* pCreature)
-{
-    return new mob_spawn_of_marliAI(pCreature);
 }
 
 void AddSC_boss_marli()
@@ -414,10 +372,5 @@ void AddSC_boss_marli()
     newscript = new Script;
     newscript->Name = "boss_marli";
     newscript->GetAI = &GetAI_boss_marli;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
-    newscript->Name = "mob_spawn_of_marli";
-    newscript->GetAI = &GetAI_mob_spawn_of_marli;
     newscript->RegisterSelf();
 }

@@ -1,27 +1,22 @@
 #include "PlayerBroadcaster.h"
+
 #include "MovementBroadcaster.h"
-#include "World.h"
+#include "WorldPacket.h"
+#include "WorldSocket.h"
 #include "Player.h"
 
 uint32 PlayerBroadcaster::num_bcaster_created = 0;
 uint32 PlayerBroadcaster::num_bcaster_deleted = 0;
 
-PlayerBroadcaster::PlayerBroadcaster(WorldSocket* w_socket, ObjectGuid const& self, std::size_t max_queue)
-    : MAX_QUEUE_SIZE(max_queue), m_socket(w_socket), m_self(self), instanceId(0), lastUpdatePackets(0)
+PlayerBroadcaster::PlayerBroadcaster(std::shared_ptr<WorldSocket> socket, ObjectGuid const& self, std::size_t max_queue)
+    : MAX_QUEUE_SIZE(max_queue), m_socket(std::move(socket)), m_self(self), instanceId(0), lastUpdatePackets(0)
 {
-    if (m_socket)
-        m_socket->AddReference();
-
     m_queue.reserve(max_queue);
     ++num_bcaster_created;
 }
 
-void PlayerBroadcaster::ChangeSocket(WorldSocket* new_socket)
+void PlayerBroadcaster::ChangeSocket(std::shared_ptr<WorldSocket> const& new_socket)
 {
-    if (m_socket)
-        m_socket->RemoveReference();
-    if (new_socket)
-        new_socket->AddReference();
     m_socket = new_socket;
 }
 
@@ -31,20 +26,20 @@ void PlayerBroadcaster::AddListener(Player const* player)
     if (player->GetObjectGuid() == m_self)
         return;
 
-    ACE_Guard<ACE_Thread_Mutex> guard(m_listeners_lock);
+    std::lock_guard<std::mutex> guard(m_listeners_lock);
     m_listeners[player->GetObjectGuid()] = player->m_broadcaster;
 }
 
 void PlayerBroadcaster::RemoveListener(Player const* player)
 {
     ASSERT(player);
-    ACE_Guard<ACE_Thread_Mutex> guard(m_listeners_lock);
+    std::lock_guard<std::mutex> guard(m_listeners_lock);
     m_listeners.erase(player->GetObjectGuid());
 }
 
 void PlayerBroadcaster::ClearListeners()
 {
-    ACE_Guard<ACE_Thread_Mutex> guard(m_listeners_lock);
+    std::lock_guard<std::mutex> guard(m_listeners_lock);
     m_listeners.clear();
 }
 
@@ -59,9 +54,9 @@ void PlayerBroadcaster::ProcessQueue(uint32& num_packets)
     if (m_queue.empty())
         return;
 
-    ACE_Guard<ACE_Thread_Mutex> q_g(m_queue_lock), v_g(m_listeners_lock);
+    std::unique_lock<std::mutex> q_g(m_queue_lock), v_g(m_listeners_lock);
     auto queue = std::move(m_queue);
-    q_g.release();
+    q_g.unlock();
 
     lastUpdatePackets = queue.size() * m_listeners.size();
     num_packets += lastUpdatePackets;
@@ -72,12 +67,12 @@ void PlayerBroadcaster::ProcessQueue(uint32& num_packets)
         if (data.sendToSelf && data.except != GetGUID())
             SendPacket(data.packet);
 
-        for (const auto& itr : m_listeners)
+        for (auto it = m_listeners.begin(); it != m_listeners.end(); ++it)
         {
-            if (itr.first == data.except)
+            if (it->first == data.except)
                 continue;
 
-            itr.second->SendPacket(data.packet);
+            it->second->SendPacket(data.packet);
         }
     }
 }
@@ -89,7 +84,9 @@ void PlayerBroadcaster::QueuePacket(WorldPacket packet, bool self, ObjectGuid ex
     data.sendToSelf = self;
     data.except = except;
 
-    ACE_Guard<ACE_Thread_Mutex> guard(m_queue_lock);
+    std::unique_lock<std::mutex> guard(m_queue_lock, std::defer_lock);
+
+    guard.lock();
 
     // We need to drop a packet here - if possible
     if (m_queue.size() >= MAX_QUEUE_SIZE)
@@ -98,13 +95,13 @@ void PlayerBroadcaster::QueuePacket(WorldPacket packet, bool self, ObjectGuid ex
         if (CanSkipPacket(last_in_queue.packet.GetOpcode()) && CanSkipPacket(packet.GetOpcode()))
         {
             m_queue[m_queue.size() - 1] = std::move(data);
-            guard.release();
+            guard.unlock();
             return;
         }
     }
     m_queue.emplace_back(std::move(data));
 
-    guard.release();
+    guard.unlock();
 }
 
 ObjectGuid PlayerBroadcaster::GetGUID() const
@@ -114,19 +111,14 @@ ObjectGuid PlayerBroadcaster::GetGUID() const
 
 void PlayerBroadcaster::FreeAtLogout()
 {
-    if (m_socket)
-    {
-        m_socket->RemoveReference();
-        m_socket = nullptr;
-    }
-    ACE_Guard<ACE_Thread_Mutex> q_g(m_queue_lock), v_g(m_listeners_lock);
+    m_socket = nullptr;
+    std::unique_lock<std::mutex> q_g(m_queue_lock), v_g(m_listeners_lock);
     m_queue.clear();
     m_listeners.clear();
 }
 
 PlayerBroadcaster::~PlayerBroadcaster()
 {
-    if (m_socket)
-        m_socket->RemoveReference();
+    m_socket = nullptr;
     ++num_bcaster_deleted;
 }

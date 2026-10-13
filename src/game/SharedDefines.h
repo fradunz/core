@@ -38,6 +38,20 @@ enum Gender
     GENDER_NONE                        = 2
 };
 
+static char const* GenderToString(uint32 gender)
+{
+    switch (gender)
+    {
+        case GENDER_MALE:
+            return "Male";
+        case GENDER_FEMALE:
+            return "Female";
+        case GENDER_NONE:
+            return "None";
+    }
+    return "UNKNOWN";
+}
+
 // Race value is index in ChrRaces.dbc
 enum Races
 {
@@ -153,7 +167,27 @@ enum Powers
     POWER_HEALTH                        = 0xFFFFFFFE    // (-2 as signed value)
 };
 
-#define MAX_POWERS                        5                 // not count POWER_RUNES for now
+#define MAX_POWERS                        5
+
+static char const* PowerToString(uint32 power)
+{
+    switch (power)
+    {
+        case POWER_MANA:
+            return "Mana";
+        case POWER_RAGE:
+            return "Rage";
+        case POWER_FOCUS:
+            return "Focus";
+        case POWER_ENERGY:
+            return "Energy";
+        case POWER_HAPPINESS:
+            return "Happiness";
+        case POWER_HEALTH:
+            return "Health";
+    }
+    return "UNKNOWN";
+}
 
 enum ItemQualities
 {
@@ -263,118 +297,7 @@ enum DamageEffectType
     DOT                     = 2,
     HEAL                    = 3,
     NODAMAGE                = 4,                            // used also in case when damage applied to health but not applied to spell channelInterruptFlags/etc
-    SELF_DAMAGE             = 5,
-};
-
-enum GameobjectTypes
-{
-    GAMEOBJECT_TYPE_DOOR                   = 0,
-    GAMEOBJECT_TYPE_BUTTON                 = 1,
-    GAMEOBJECT_TYPE_QUESTGIVER             = 2,
-    GAMEOBJECT_TYPE_CHEST                  = 3,
-    GAMEOBJECT_TYPE_BINDER                 = 4,
-    GAMEOBJECT_TYPE_GENERIC                = 5,
-    GAMEOBJECT_TYPE_TRAP                   = 6,
-    GAMEOBJECT_TYPE_CHAIR                  = 7,
-    GAMEOBJECT_TYPE_SPELL_FOCUS            = 8,
-    GAMEOBJECT_TYPE_TEXT                   = 9,
-    GAMEOBJECT_TYPE_GOOBER                 = 10,
-    GAMEOBJECT_TYPE_TRANSPORT              = 11,
-    GAMEOBJECT_TYPE_AREADAMAGE             = 12,
-    GAMEOBJECT_TYPE_CAMERA                 = 13,
-    GAMEOBJECT_TYPE_MAP_OBJECT             = 14,
-    GAMEOBJECT_TYPE_MO_TRANSPORT           = 15,
-    GAMEOBJECT_TYPE_DUEL_ARBITER           = 16,
-    GAMEOBJECT_TYPE_FISHINGNODE            = 17,
-    GAMEOBJECT_TYPE_SUMMONING_RITUAL       = 18,
-    GAMEOBJECT_TYPE_MAILBOX                = 19,
-    GAMEOBJECT_TYPE_AUCTIONHOUSE           = 20,
-    GAMEOBJECT_TYPE_GUARDPOST              = 21,
-    GAMEOBJECT_TYPE_SPELLCASTER            = 22,
-    GAMEOBJECT_TYPE_MEETINGSTONE           = 23,
-    GAMEOBJECT_TYPE_FLAGSTAND              = 24,
-    GAMEOBJECT_TYPE_FISHINGHOLE            = 25,
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-    GAMEOBJECT_TYPE_FLAGDROP               = 26,
-#endif
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
-    GAMEOBJECT_TYPE_MINI_GAME              = 27,
-    GAMEOBJECT_TYPE_LOTTERY_KIOSK          = 28,
-#endif
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_11_2
-    GAMEOBJECT_TYPE_CAPTURE_POINT          = 29,
-    GAMEOBJECT_TYPE_AURA_GENERATOR         = 30,
-#endif
-    GAMEOBJECT_TYPE_MAX
-};
-
-#define MAX_GAMEOBJECT_TYPE                  31             // sending to client this or greater value can crash client.
-
-enum GameObjectFlags
-{
-    GO_FLAG_IN_USE          = 0x00000001,                   //disables interaction while animated
-    GO_FLAG_LOCKED          = 0x00000002,                   //require key, spell, event, etc to be opened. Makes "Locked" appear in tooltip
-    GO_FLAG_INTERACT_COND   = 0x00000004,                   //cannot interact (condition to interact)
-    GO_FLAG_TRANSPORT       = 0x00000008,                   //any kind of transport? Object can transport (elevator, boat, car)
-    GO_FLAG_NO_INTERACT     = 0x00000010,                   //players cannot interact with this go (often need to remove flag in event)
-    GO_FLAG_NODESPAWN       = 0x00000020,                   //never despawn, typically for doors, they just change state
-    GO_FLAG_TRIGGERED       = 0x00000040                    //typically, summoned objects. Triggered by spell or other events
-};
-
-enum GameObjectDynamicLowFlags
-{
-    GO_DYNFLAG_LO_ACTIVATE          = 0x01,                 // enables interaction with GO
-    GO_DYNFLAG_LO_ANIMATE           = 0x02,                 // possibly more distinct animation of GO
-    GO_DYNFLAG_LO_NO_INTERACT       = 0x04,                 // appears to disable interaction (not fully verified)
-};
-
-enum class GameObjectActions : uint32
-{                                   // Name from client executable      // Comments
-    None,                           // -NONE-
-    AnimateCustom0,                 // Animate Custom0
-    AnimateCustom1,                 // Animate Custom1
-    AnimateCustom2,                 // Animate Custom2
-    AnimateCustom3,                 // Animate Custom3
-    Disturb,                        // Disturb                          // Triggers trap
-    Unlock,                         // Unlock                           // Resets GO_FLAG_LOCKED
-    Lock,                           // Lock                             // Sets GO_FLAG_LOCKED
-    Open,                           // Open                             // Sets GO_STATE_ACTIVE
-    OpenAndUnlock,                  // Open + Unlock                    // Sets GO_STATE_ACTIVE and resets GO_FLAG_LOCKED
-    Close,                          // Close                            // Sets GO_STATE_READY
-    ToggleOpen,                     // Toggle Open
-    Destroy,                        // Destroy                          // Sets GO_STATE_DESTROYED
-    Rebuild,                        // Rebuild                          // Resets from GO_STATE_DESTROYED
-    Creation,                       // Creation
-    Despawn,                        // Despawn
-    MakeInert,                      // Make Inert                       // Disables interactions
-    MakeActive,                     // Make Active                      // Enables interactions
-    CloseAndLock,                   // Close + Lock                     // Sets GO_STATE_READY and sets GO_FLAG_LOCKED
-    UseArtKit0,                     // Use ArtKit0                      // 46904: 121
-    UseArtKit1,                     // Use ArtKit1                      // 36639: 81, 46903: 122
-    UseArtKit2,                     // Use ArtKit2
-    UseArtKit3,                     // Use ArtKit3
-    SetTapList,                     // Set Tap List
-    GoTo1stFloor,                   // Go to 1st floor
-    GoTo2ndFloor,                   // Go to 2nd floor
-    GoTo3rdFloor,                   // Go to 3rd floor
-    GoTo4thFloor,                   // Go to 4th floor
-    GoTo5thFloor,                   // Go to 5th floor
-    GoTo6thFloor,                   // Go to 6th floor
-    GoTo7thFloor,                   // Go to 7th floor
-    GoTo8thFloor,                   // Go to 8th floor
-    GoTo9thFloor,                   // Go to 9th floor
-    GoTo10thFloor,                  // Go to 10th floor
-    UseArtKit4,                     // Use ArtKit4
-    PlayAnimKit,                    // Play Anim Kit "%s"               // MiscValueB -> Anim Kit ID
-    OpenAndPlayAnimKit,             // Open + Play Anim Kit "%s"        // MiscValueB -> Anim Kit ID
-    CloseAndPlayAnimKit,            // Close + Play Anim Kit "%s"       // MiscValueB -> Anim Kit ID
-    PlayOneshotAnimKit,             // Play One-shot Anim Kit "%s"      // MiscValueB -> Anim Kit ID
-    StopAnimKit,                    // Stop Anim Kit
-    OpenAndStopAnimKit,             // Open + Stop Anim Kit
-    CloseAndStopAnimKit,            // Close + Stop Anim Kit
-    PlaySpellVisual,                // Play Spell Visual "%s"           // MiscValueB -> Spell Visual ID
-    StopSpellVisual,                // Stop Spell Visual
-    SetTappedToChallengePlayers,    // Set Tapped to Challenge Players
+    SELF_DAMAGE             = 5,                            // used for environmental damage
 };
 
 enum TextEmotes
@@ -934,85 +857,6 @@ enum LockType
     LOCKTYPE_FISHING               = 19
 };
 
-enum TrainerType                                            // this is important type for npcs!
-{
-    TRAINER_TYPE_CLASS             = 0,
-    TRAINER_TYPE_MOUNTS            = 1,                     // on blizz it's 2
-    TRAINER_TYPE_TRADESKILLS       = 2,
-    TRAINER_TYPE_PETS              = 3
-};
-
-#define MAX_TRAINER_TYPE 4
-
-// CreatureType.dbc
-enum CreatureType
-{
-    CREATURE_TYPE_BEAST            = 1,
-    CREATURE_TYPE_DRAGONKIN        = 2,
-    CREATURE_TYPE_DEMON            = 3,
-    CREATURE_TYPE_ELEMENTAL        = 4,
-    CREATURE_TYPE_GIANT            = 5,
-    CREATURE_TYPE_UNDEAD           = 6,
-    CREATURE_TYPE_HUMANOID         = 7,
-    CREATURE_TYPE_CRITTER          = 8,
-    CREATURE_TYPE_MECHANICAL       = 9,
-    CREATURE_TYPE_NOT_SPECIFIED    = 10,
-    CREATURE_TYPE_TOTEM            = 11,
-};
-
-uint32 const CREATURE_TYPEMASK_HUMANOID_OR_UNDEAD = (1 << (CREATURE_TYPE_HUMANOID - 1)) | (1 << (CREATURE_TYPE_UNDEAD - 1));
-uint32 const CREATURE_TYPEMASK_MECHANICAL_OR_ELEMENTAL = (1 << (CREATURE_TYPE_MECHANICAL - 1)) | (1 << (CREATURE_TYPE_ELEMENTAL - 1));
-
-// CreatureFamily.dbc
-enum CreatureFamily
-{
-    CREATURE_FAMILY_WOLF           = 1,
-    CREATURE_FAMILY_CAT            = 2,
-    CREATURE_FAMILY_SPIDER         = 3,
-    CREATURE_FAMILY_BEAR           = 4,
-    CREATURE_FAMILY_BOAR           = 5,
-    CREATURE_FAMILY_CROCOLISK      = 6,
-    CREATURE_FAMILY_CARRION_BIRD   = 7,
-    CREATURE_FAMILY_CRAB           = 8,
-    CREATURE_FAMILY_GORILLA        = 9,
-    CREATURE_FAMILY_HORSE_CUSTOM   = 10,                    // not exist in DBC but used for horse like beasts in DB
-    CREATURE_FAMILY_RAPTOR         = 11,
-    CREATURE_FAMILY_TALLSTRIDER    = 12,
-    CREATURE_FAMILY_FELHUNTER      = 15,
-    CREATURE_FAMILY_VOIDWALKER     = 16,
-    CREATURE_FAMILY_SUCCUBUS       = 17,
-    CREATURE_FAMILY_DOOMGUARD      = 19,
-    CREATURE_FAMILY_SCORPID        = 20,
-    CREATURE_FAMILY_TURTLE         = 21,
-    CREATURE_FAMILY_IMP            = 23,
-    CREATURE_FAMILY_BAT            = 24,
-    CREATURE_FAMILY_HYENA          = 25,
-    CREATURE_FAMILY_OWL            = 26,
-    CREATURE_FAMILY_WIND_SERPENT   = 27,
-    CREATURE_FAMILY_REMOTE_CONTROL = 28,
-};
-
-enum CreatureTypeFlags
-{
-    CREATURE_TYPEFLAGS_TAMEABLE             = 0x00000001,       // Tameable by any hunter
-    CREATURE_TYPEFLAGS_GHOST_VISIBLE        = 0x00000002,       // Creatures which can _also_ be seen when player is a ghost, used in CanInteract function by client, can't be attacked
-    CREATURE_TYPEFLAGS_BOSS                 = 0x00000004,       // Changes creature's visible level to "??" in the creature's portrait
-    CREATURE_TYPEFLAGS_NO_WOUND_ANIM        = 0x00000008,       // Disables "wounded" animations at spell taken
-    CREATURE_TYPEFLAGS_HIDE_FACTION_TOOLTIP = 0x00000010,       // Controls something in client tooltip related to creature faction
-    CREATURE_TYPEFLAGS_UNK6                 = 0x00000020,       // May be sound related
-    CREATURE_TYPEFLAGS_SPELL_ATTACKABLE     = 0x00000040,       // May be related to attackable / not attackable creatures with spells, used together with lua_IsHelpfulSpell/lua_IsHarmfulSpell
-};
-
-enum CreatureEliteType
-{
-    CREATURE_ELITE_NORMAL          = 0,
-    CREATURE_ELITE_ELITE           = 1,
-    CREATURE_ELITE_RAREELITE       = 2,
-    CREATURE_ELITE_WORLDBOSS       = 3,
-    CREATURE_ELITE_RARE            = 4,
-    CREATURE_UNKNOWN               = 5                      // found in 2.2.3 for 2 mobs
-};
-
 enum HolidayIds
 {
     HOLIDAY_NONE                     = 0,
@@ -1267,6 +1111,9 @@ enum SkillCategory
     SKILL_CATEGORY_GENERIC       = 12
 };
 
+#define MAX_TRIAL_MAIN_PROFESSION_SKILL 100
+#define MAX_TRIAL_SECONDARY_PROFESSION_SKILL 150
+
 // These errors are only printed in client console.
 enum TrainingFailureReason
 {
@@ -1305,7 +1152,7 @@ enum UnitDynFlags
     UNIT_DYNFLAG_NONE                       = 0x0000,
     UNIT_DYNFLAG_LOOTABLE                   = 0x0001,
     UNIT_DYNFLAG_TRACK_UNIT                 = 0x0002,
-    UNIT_DYNFLAG_TAPPED                     = 0x0004,       // Lua_UnitIsTapped
+    UNIT_DYNFLAG_TAPPED                     = 0x0004, // Lua_UnitIsTapped
     UNIT_DYNFLAG_TAPPED_BY_PLAYER           = 0x0008, // Et non *_ROOTED !
     UNIT_DYNFLAG_SPECIALINFO                = 0x0010,
     UNIT_DYNFLAG_DEAD                       = 0x0020,
@@ -1317,6 +1164,8 @@ enum CorpseDynFlags
 };
 
 // Passive Spell codes explicit used in code
+#define SPELL_ID_LOGIN_EFFECT                   836
+#define SPELL_ID_DAZE                           1604
 #define SPELL_ID_PASSIVE_BATTLE_STANCE          2457
 #define SPELL_ID_PASSIVE_RESURRECTION_SICKNESS  15007
 
@@ -1341,68 +1190,114 @@ enum WeatherType
 
 enum ChatMsg
 {
-    CHAT_MSG_ADDON                  = 0xFFFFFFFF,
-    CHAT_MSG_SAY                    = 0x00,
-    CHAT_MSG_PARTY                  = 0x01,
-    CHAT_MSG_RAID                   = 0x02,
-    CHAT_MSG_GUILD                  = 0x03,
-    CHAT_MSG_OFFICER                = 0x04,
-    CHAT_MSG_YELL                   = 0x05,
-    CHAT_MSG_WHISPER                = 0x06,
-    CHAT_MSG_WHISPER_INFORM         = 0x07,
-    CHAT_MSG_EMOTE                  = 0x08,
-    CHAT_MSG_TEXT_EMOTE             = 0x09,
-    CHAT_MSG_SYSTEM                 = 0x0A,
-    CHAT_MSG_MONSTER_SAY            = 0x0B,
-    CHAT_MSG_MONSTER_YELL           = 0x0C,
-    CHAT_MSG_MONSTER_EMOTE          = 0x0D,
-    CHAT_MSG_CHANNEL                = 0x0E,
-    CHAT_MSG_CHANNEL_JOIN           = 0x0F,
-    CHAT_MSG_CHANNEL_LEAVE          = 0x10,
-    CHAT_MSG_CHANNEL_LIST           = 0x11,
-    CHAT_MSG_CHANNEL_NOTICE         = 0x12,
-    CHAT_MSG_CHANNEL_NOTICE_USER    = 0x13,
-    CHAT_MSG_AFK                    = 0x14,
-    CHAT_MSG_DND                    = 0x15,
-    CHAT_MSG_IGNORED                = 0x16,
-    CHAT_MSG_SKILL                  = 0x17,
-    CHAT_MSG_LOOT                   = 0x18,
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
-    CHAT_MSG_BG_SYSTEM_NEUTRAL      = 0x52,
-    CHAT_MSG_BG_SYSTEM_ALLIANCE     = 0x53,
-    CHAT_MSG_BG_SYSTEM_HORDE        = 0x54,
-    CHAT_MSG_RAID_LEADER            = 0x57,
-    CHAT_MSG_RAID_WARNING           = 0x58,
-    CHAT_MSG_BATTLEGROUND           = 0x5C,
-    CHAT_MSG_BATTLEGROUND_LEADER    = 0x5D,
-#else
-    CHAT_MSG_BG_SYSTEM_NEUTRAL      = CHAT_MSG_SYSTEM,
-    CHAT_MSG_BG_SYSTEM_ALLIANCE     = CHAT_MSG_SYSTEM,
-    CHAT_MSG_BG_SYSTEM_HORDE        = CHAT_MSG_SYSTEM,
-    CHAT_MSG_RAID_LEADER            = CHAT_MSG_RAID,
-    CHAT_MSG_RAID_WARNING           = CHAT_MSG_RAID,
-    CHAT_MSG_BATTLEGROUND           = CHAT_MSG_RAID,
-    CHAT_MSG_BATTLEGROUND_LEADER    = CHAT_MSG_RAID,
+    CHAT_MSG_ADDON                                = 0xFFFFFFFF,
+    CHAT_MSG_SAY                                  = 0x00,
+    CHAT_MSG_PARTY                                = 0x01,
+    CHAT_MSG_RAID                                 = 0x02,
+    CHAT_MSG_GUILD                                = 0x03,
+    CHAT_MSG_OFFICER                              = 0x04,
+    CHAT_MSG_YELL                                 = 0x05,
+    CHAT_MSG_WHISPER                              = 0x06,
+    CHAT_MSG_WHISPER_INFORM                       = 0x07,
+    CHAT_MSG_EMOTE                                = 0x08,
+    CHAT_MSG_TEXT_EMOTE                           = 0x09,
+    CHAT_MSG_SYSTEM                               = 0x0A,
+    CHAT_MSG_MONSTER_SAY                          = 0x0B,
+    CHAT_MSG_MONSTER_YELL                         = 0x0C,
+    CHAT_MSG_MONSTER_EMOTE                        = 0x0D,
+    CHAT_MSG_CHANNEL                              = 0x0E,
+    CHAT_MSG_CHANNEL_JOIN                         = 0x0F,
+    CHAT_MSG_CHANNEL_LEAVE                        = 0x10,
+    CHAT_MSG_CHANNEL_LIST                         = 0x11,
+    CHAT_MSG_CHANNEL_NOTICE                       = 0x12,
+    CHAT_MSG_CHANNEL_NOTICE_USER                  = 0x13,
+    CHAT_MSG_AFK                                  = 0x14,
+    CHAT_MSG_DND                                  = 0x15,
+    CHAT_MSG_IGNORED                              = 0x16,
+    CHAT_MSG_SKILL                                = 0x17,
+    CHAT_MSG_LOOT                                 = 0x18,
+    CHAT_MSG_COMBAT_MISC_INFO                     = 0x19,
+    CHAT_MSG_MONSTER_WHISPER                      = 0x1A,
+    CHAT_MSG_COMBAT_SELF_HITS                     = 0x1B,
+    CHAT_MSG_COMBAT_SELF_MISSES                   = 0x1C,
+    CHAT_MSG_COMBAT_PET_HITS                      = 0x1D,
+    CHAT_MSG_COMBAT_PET_MISSES                    = 0x1E,
+    CHAT_MSG_COMBAT_PARTY_HITS                    = 0x1F,
+    CHAT_MSG_COMBAT_PARTY_MISSES                  = 0x20,
+    CHAT_MSG_COMBAT_FRIENDLYPLAYER_HITS           = 0x21,
+    CHAT_MSG_COMBAT_FRIENDLYPLAYER_MISSES         = 0x22,
+    CHAT_MSG_COMBAT_HOSTILEPLAYER_HITS            = 0x23,
+    CHAT_MSG_COMBAT_HOSTILEPLAYER_MISSES          = 0x24,
+    CHAT_MSG_COMBAT_CREATURE_VS_SELF_HITS         = 0x25,
+    CHAT_MSG_COMBAT_CREATURE_VS_SELF_MISSES       = 0x26,
+    CHAT_MSG_COMBAT_CREATURE_VS_PARTY_HITS        = 0x27,
+    CHAT_MSG_COMBAT_CREATURE_VS_PARTY_MISSES      = 0x28,
+    CHAT_MSG_COMBAT_CREATURE_VS_CREATURE_HITS     = 0x29,
+    CHAT_MSG_COMBAT_CREATURE_VS_CREATURE_MISSES   = 0x2A,
+    CHAT_MSG_COMBAT_FRIENDLY_DEATH                = 0x2B,
+    CHAT_MSG_COMBAT_HOSTILE_DEATH                 = 0x2C,
+    CHAT_MSG_COMBAT_XP_GAIN                       = 0x2D,
+    CHAT_MSG_SPELL_SELF_DAMAGE                    = 0x2E,
+    CHAT_MSG_SPELL_SELF_BUFF                      = 0x2F,
+    CHAT_MSG_SPELL_PET_DAMAGE                     = 0x30,
+    CHAT_MSG_SPELL_PET_BUFF                       = 0x31,
+    CHAT_MSG_SPELL_PARTY_DAMAGE                   = 0x32,
+    CHAT_MSG_SPELL_PARTY_BUFF                     = 0x33,
+    CHAT_MSG_SPELL_FRIENDLYPLAYER_DAMAGE          = 0x34,
+    CHAT_MSG_SPELL_FRIENDLYPLAYER_BUFF            = 0x35,
+    CHAT_MSG_SPELL_HOSTILEPLAYER_DAMAGE           = 0x36,
+    CHAT_MSG_SPELL_HOSTILEPLAYER_BUFF             = 0x37,
+    CHAT_MSG_SPELL_CREATURE_VS_SELF_DAMAGE        = 0x38,
+    CHAT_MSG_SPELL_CREATURE_VS_SELF_BUFF          = 0x39,
+    CHAT_MSG_SPELL_CREATURE_VS_PARTY_DAMAGE       = 0x3A,
+    CHAT_MSG_SPELL_CREATURE_VS_PARTY_BUFF         = 0x3B,
+    CHAT_MSG_SPELL_CREATURE_VS_CREATURE_DAMAGE    = 0x3C,
+    CHAT_MSG_SPELL_CREATURE_VS_CREATURE_BUFF      = 0x3D,
+    CHAT_MSG_SPELL_TRADESKILLS                    = 0x3E,
+    CHAT_MSG_SPELL_DAMAGESHIELDS_ON_SELF          = 0x3F,
+    CHAT_MSG_SPELL_DAMAGESHIELDS_ON_OTHERS        = 0x40,
+    CHAT_MSG_SPELL_AURA_GONE_SELF                 = 0x41,
+    CHAT_MSG_SPELL_AURA_GONE_PARTY                = 0x42,
+    CHAT_MSG_SPELL_AURA_GONE_OTHER                = 0x43,
+    CHAT_MSG_SPELL_ITEM_ENCHANTMENTS              = 0x44,
+    CHAT_MSG_SPELL_BREAK_AURA                     = 0x45,
+    CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE           = 0x46,
+    CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS            = 0x47,
+    CHAT_MSG_SPELL_PERIODIC_PARTY_DAMAGE          = 0x48,
+    CHAT_MSG_SPELL_PERIODIC_PARTY_BUFFS           = 0x49,
+    CHAT_MSG_SPELL_PERIODIC_FRIENDLYPLAYER_DAMAGE = 0x4A,
+    CHAT_MSG_SPELL_PERIODIC_FRIENDLYPLAYER_BUFFS  = 0x4B,
+    CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_DAMAGE  = 0x4C,
+    CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_BUFFS   = 0x4D,
+    CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE       = 0x4E,
+    CHAT_MSG_SPELL_PERIODIC_CREATURE_BUFFS        = 0x4F,
+    CHAT_MSG_SPELL_FAILED_LOCALPLAYER             = 0x50,
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_3_1
+    CHAT_MSG_COMBAT_HONOR_GAIN                    = 0x51,
 #endif
-
-    // [-ZERO] Need find correct values
-    // Valeurs trouvees (Nostalrius)
-    CHAT_MSG_REPLY                  = 0x09,
-    CHAT_MSG_MONSTER_PARTY          = 0x30, //0x0D, just selected some free random value for avoid duplicates with really existed values
-    // 0x1A et non 0x31 (Nostalrius)
-    CHAT_MSG_MONSTER_WHISPER        = 0x1A, //0x0F, just selected some free random value for avoid duplicates with really existed values
-    //CHAT_MSG_MONEY                  = 0x1C,
-    //CHAT_MSG_OPENING                = 0x1D,
-    //CHAT_MSG_TRADESKILLS            = 0x1E,
-    //CHAT_MSG_PET_INFO               = 0x1F,
-    //CHAT_MSG_COMBAT_MISC_INFO       = 0x20,
-    //CHAT_MSG_COMBAT_XP_GAIN         = 0x21,
-    //CHAT_MSG_COMBAT_HONOR_GAIN      = 0x22,
-    //CHAT_MSG_COMBAT_FACTION_CHANGE  = 0x23,
-    CHAT_MSG_RAID_BOSS_WHISPER      = CHAT_MSG_MONSTER_WHISPER, // Et non 0x29. Y'a pas mieux.
-    CHAT_MSG_RAID_BOSS_EMOTE        = 0x5A, // 0x5A et non 0x2A (Nostalrius)
-    //CHAT_MSG_FILTERED               = 0x2B,
-    //CHAT_MSG_RESTRICTED             = 0x2E,
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
+    CHAT_MSG_BG_SYSTEM_NEUTRAL                    = 0x52,
+    CHAT_MSG_BG_SYSTEM_ALLIANCE                   = 0x53,
+    CHAT_MSG_BG_SYSTEM_HORDE                      = 0x54,
+#endif
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+    CHAT_MSG_COMBAT_FACTION_CHANGE                = 0x55,
+    CHAT_MSG_MONEY                                = 0x56,
+#endif
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
+    CHAT_MSG_RAID_LEADER                          = 0x57,
+    CHAT_MSG_RAID_WARNING                         = 0x58,
+#endif
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_11_2
+    CHAT_MSG_RAID_BOSS_WHISPER                    = 0x59, // appears as whisper, yet name is not in client
+    CHAT_MSG_RAID_BOSS_EMOTE                      = 0x5A,
+    CHAT_MSG_FILTERED                             = 0x5B,
+    CHAT_MSG_BATTLEGROUND                         = 0x5C,
+    CHAT_MSG_BATTLEGROUND_LEADER                  = 0x5D,
+#else
+    CHAT_MSG_RAID_BOSS_WHISPER                    = CHAT_MSG_MONSTER_WHISPER,
+    CHAT_MSG_RAID_BOSS_EMOTE                      = CHAT_MSG_MONSTER_EMOTE, // added in 1.11.2, but is broken, ChatFrame.lua was edited in 1.12 to fix it
+#endif
 };
 
 #define MAX_CHAT_MSG_TYPE 0x5E
@@ -1430,11 +1325,6 @@ enum PetDiet
 #define MAX_PET_DIET 9
 
 #define CHAIN_SPELL_JUMP_RADIUS 10
-
-// Max values for Guild
-#define GUILD_EVENTLOG_MAX_RECORDS  100
-#define GUILD_RANKS_MIN_COUNT       5
-#define GUILD_RANKS_MAX_COUNT       10
 
 enum AiReaction
 {
@@ -1551,15 +1441,40 @@ enum ShapeshiftForm
     FORM_SPIRITOFREDEMPTION = 0x20
 };
 
-enum ShapeshiftFormFlags
+inline bool IsTankingForm(ShapeshiftForm form)
 {
-    SHAPESHIFT_FORM_FLAG_ALLOW_ACTIVITY     = 0x00000001,   // Form allows various player activities, which normally cause "You can't X while shapeshifted." errors (npc/go interaction, item use, etc)
-    SHAPESHIFT_FORM_FLAG_UNK2               = 0x00000002,
-    SHAPESHIFT_FORM_FLAG_UNK3               = 0x00000004,
-    SHAPESHIFT_FORM_FLAG_ALLOW_NPC_INTERACT = 0x00000008,   // Form unconditionally allows talking to NPCs while shapeshifted (even if other activities are disabled)
-    SHAPESHIFT_FORM_FLAG_UNK5               = 0x00000010,
-    SHAPESHIFT_FORM_FLAG_UNK6               = 0x00000020,
-    SHAPESHIFT_FORM_FLAG_UNK7               = 0x00000040,
+    switch (form)
+    {
+        case FORM_BEAR:
+        case FORM_DIREBEAR:
+        case FORM_DEFENSIVESTANCE:
+            return true;
+    }
+    return false;
+}
+
+inline bool IsAttackSpeedOverridenForm(ShapeshiftForm form)
+{
+    switch (form)
+    {
+        case FORM_CAT:
+        case FORM_BEAR:
+        case FORM_DIREBEAR:
+            return true;
+    }
+
+    return false;
+}
+
+enum ShapeshiftFlags
+{
+    SHAPESHIFT_FLAG_STANCE                  = 0x00000001,   // Form allows various player activities, which normally cause "You can't X while shapeshifted." errors (npc/go interaction, item use, etc)
+    SHAPESHIFT_FLAG_NOT_TOGGLEABLE          = 0x00000002,   // NYI
+    SHAPESHIFT_FLAG_PERSIST_ON_DEATH        = 0x00000004,   // NYI
+    SHAPESHIFT_FLAG_CAN_INTERACT_NPC        = 0x00000008,   // Form unconditionally allows talking to NPCs while shapeshifted (even if other activities are disabled)
+    SHAPESHIFT_FLAG_DONT_USE_WEAPON         = 0x00000010,   // Not using weapon damage in combat
+    SHAPESHIFT_FLAG_AGILITY_ATTACK_BONUS    = 0x00000020,   // Druid Cat form
+    SHAPESHIFT_FLAG_CAN_USE_EQUIPPED_ITEMS  = 0x00000040,   // NYI
 };
 
 enum ResponseCodes
@@ -1666,7 +1581,7 @@ enum ResponseCodes
     CHAR_NAME_SUCCESS,
 };
 
-/// Ban function modes
+// Ban function modes
 enum BanMode
 {
     BAN_ACCOUNT,
@@ -1674,13 +1589,62 @@ enum BanMode
     BAN_IP
 };
 
-/// Ban function return codes
+// Ban function return codes
 enum BanReturn
 {
     BAN_SUCCESS,
     BAN_SYNTAX_ERROR,
     BAN_NOTFOUND,
     BAN_INPROGRESS
+};
+
+enum Maps
+{
+    MAP_EASTERN_KINGDOMS    = 0,
+    MAP_KALIMDOR            = 1,
+    MAX_CONTINENT_ID        = 1,
+    MAP_TESTING             = 13,
+    MAP_SCOTT_TEST          = 25,
+    MAP_CASH_TEST           = 29,
+    MAP_ALTERAC_VALLEY      = 30,
+    MAP_SHADOWFANG_KEEP     = 33,
+    MAP_STORMWIND_STOCKADE  = 34,
+    MAP_STORMWIND_PRISON    = 35,
+    MAP_DEADMINES           = 36,
+    MAP_AZSHARA_CRATER      = 37,
+    MAP_COLLIN_TEST         = 42,
+    MAP_WAILING_CAVERNS     = 43,
+    MAP_MONASTERY           = 44,
+    MAP_RAZORFEN_KRAUL      = 47,
+    MAP_BLACKFATHOM_DEEPS   = 48,
+    MAP_ULDAMAN             = 70,
+    MAP_GNOMEREGAN          = 90,
+    MAP_SUNKEN_TEMPLE       = 109,
+    MAP_RAZORFEN_DOWNS      = 129,
+    MAP_EMERALD_DREAM       = 169,
+    MAP_SCARLET_MONASTERY   = 189,
+    MAP_ZUL_FARRAK          = 209,
+    MAP_BLACKROCK_SPIRE     = 229,
+    MAP_BLACKROCK_DEPTHS    = 230,
+    MAP_ONYXIAS_LAIR        = 249,
+    MAP_CAVERNS_OF_TIME     = 269,
+    MAP_SCHOLOMANCE         = 289,
+    MAP_ZUL_GURUB           = 309,
+    MAP_STRATHOLME          = 329,
+    MAP_MARAUDON            = 349,
+    MAP_DEEPRUN_TRAM        = 369,
+    MAP_RAGEFIRE_CHASM      = 389,
+    MAP_MOLTEN_CORE         = 409,
+    MAP_DIRE_MAUL           = 429,
+    MAP_CHAMPIONS_HALL      = 449,
+    MAP_HALL_OF_LEGENDS     = 450,
+    MAP_DEVELOPMENT_LAND    = 451,
+    MAP_BLACKWING_LAIR      = 469,
+    MAP_WARSONG_GULCH       = 489,
+    MAP_AHN_QIRAJ_RUINS     = 509,
+    MAP_ARATHI_BASIN        = 529,
+    MAP_AHN_QIRAJ_TEMPLE    = 531,
+    MAP_NAXXRAMAS           = 533
 };
 
 // Indexes of BattlemasterList.dbc
@@ -1697,10 +1661,10 @@ inline BattleGroundTypeId GetBattleGroundTypeIdByMapId(uint32 mapId)
 {
     switch(mapId)
     {
-        case 30:    return BATTLEGROUND_AV;
-        case 489:   return BATTLEGROUND_WS;
-        case 529:   return BATTLEGROUND_AB;
-        default:    return BATTLEGROUND_TYPE_NONE;
+        case MAP_ALTERAC_VALLEY: return BATTLEGROUND_AV;
+        case MAP_WARSONG_GULCH:  return BATTLEGROUND_WS;
+        case MAP_ARATHI_BASIN:   return BATTLEGROUND_AB;
+        default:                 return BATTLEGROUND_TYPE_NONE;
     }
 }
 
@@ -1708,14 +1672,11 @@ inline uint32 GetBattleGrounMapIdByTypeId(BattleGroundTypeId bgTypeId)
 {
     switch(bgTypeId)
     {
-        case BATTLEGROUND_AV:   return 30;
-        case BATTLEGROUND_WS:   return 489;
-        case BATTLEGROUND_AB:   return 529;
+        case BATTLEGROUND_AV:   return MAP_ALTERAC_VALLEY;
+        case BATTLEGROUND_WS:   return MAP_WARSONG_GULCH;
+        case BATTLEGROUND_AB:   return MAP_ARATHI_BASIN;
         default:                return 0;   //none
     }
-
-    // impossible, just make compiler happy
-    return 0;
 }
 
 enum MailResponseType
@@ -1745,6 +1706,7 @@ enum MailResponseResult
 // in fact, these are also used elsewhere
 enum PetTameFailureReason
 {
+    PETTAME_NONE                    = 0,                    // no error, don't send to client
     PETTAME_INVALIDCREATURE         = 1,
     PETTAME_TOOMANY                 = 2,
     PETTAME_CREATUREALREADYOWNED    = 3,
@@ -1827,6 +1789,8 @@ enum TicketType
 // Used for some dynamic scaling systems, depending on total population
 #define BLIZZLIKE_REALM_POPULATION 2500
 
+struct WorldLocation;
+
 struct Position
 {
     Position() = default;
@@ -1835,19 +1799,32 @@ struct Position
     float y = 0.0f;
     float z = 0.0f;
     float o = 0.0f;
+
+    bool IsEmpty() const
+    {
+        return !x && !y && !z && !o;
+    }
+
+    WorldLocation WithMapId(uint32 mapId) const;
 };
 
-struct WorldLocation
+struct WorldLocation : public Position
 {
-    uint16 mapId = 0;
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    float o = 0.0f;
-    explicit WorldLocation(uint16 _mapid = 0, float _x = 0, float _y = 0, float _z = 0, float _o = 0)
-        : mapId(_mapid), x(_x), y(_y), z(_z), o(_o) {}
+    uint32 mapId = 0;
+    explicit WorldLocation(uint32 _mapid = 0, float _x = 0, float _y = 0, float _z = 0, float _o = 0)
+        : Position(_x, _y, _z, _o), mapId(_mapid) {}
     WorldLocation(WorldLocation const& loc)
-        : mapId(loc.mapId), x(loc.x), y(loc.y), z(loc.z), o(loc.o) {}
+        : Position(loc.x, loc.y, loc.z, loc.o), mapId(loc.mapId) {}
+
+    bool IsEmpty() const
+    {
+        return !mapId && Position::IsEmpty();
+    }
 };
+
+inline WorldLocation Position::WithMapId(uint32 mapId) const
+{
+    return WorldLocation(mapId, x, y, z, o);
+}
 
 #endif

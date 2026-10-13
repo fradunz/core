@@ -44,7 +44,6 @@ enum
     SPELL_TAILSWEEP             = 15847,
     SPELL_KNOCK_AWAY            = 19633,
     SPELL_BELLOWINGROAR         = 18431,
-    SPELL_ERUPTION              = 17731,
 
     SPELL_FIREBALL              = 18392,
   //SPELL_ENGULFINGFLAMES       = 20019,
@@ -70,7 +69,6 @@ enum
         
     NPC_ONYXIAN_WHELP           = 11262,
     NPC_ONYXIAN_WARDER          = 12129,
-    NPC_ERUPTION_TRIGGER        = 20009,
 
     GO_LAVATRAP_1               = 177984,
     GO_LAVATRAP_2               = 177985,
@@ -148,7 +146,6 @@ struct boss_onyxiaAI : public ScriptedAI
     bool   m_bIsSummoningWhelps;
     
     uint32 m_uiBellowingRoarTimer;
-    uint32 m_uiEruptTimer;
     bool   m_bEruptPhase;
 
     uint32 m_uiAggroRadiusTimer;
@@ -185,7 +182,6 @@ struct boss_onyxiaAI : public ScriptedAI
         m_bIsSummoningWhelps   = false;
 
         m_uiBellowingRoarTimer = 10000;
-        m_uiEruptTimer         = 0;
         
         m_uiAggroRadiusTimer   = 5000;
         m_uiLeashCheckTimer    = 5000;
@@ -196,8 +192,6 @@ struct boss_onyxiaAI : public ScriptedAI
         
         SetCombatMovement(true);
         m_creature->SetSpeedRate(MOVE_RUN, ONYXIA_NORMAL_SPEED);
-        m_creature->SetFloatValue(UNIT_FIELD_BOUNDINGRADIUS, 15.0f);
-        m_creature->SetFloatValue(UNIT_FIELD_COMBATREACH, 16.0f);
 
         // Daemon: remise en mode "dort"
         m_creature->SetStandState(UNIT_STAND_STATE_SLEEP);
@@ -239,7 +233,7 @@ struct boss_onyxiaAI : public ScriptedAI
             {
                 if (Player* pPlayer = itr.getSource())
                 {
-                    if (m_creature->IsWithinDistInMap(pPlayer, ONYXIA_AGGRO_RANGE) && pPlayer->IsTargetableForAttack())
+                    if (m_creature->IsWithinDistInMap(pPlayer, ONYXIA_AGGRO_RANGE) && pPlayer->IsTargetableBy(m_creature))
                     {
                         pPlayer->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
                         m_creature->AI()->AttackStart(pPlayer);
@@ -355,19 +349,6 @@ struct boss_onyxiaAI : public ScriptedAI
 
         return nullptr;
     } 
-
-    void SpellHitTarget(Unit* pTarget, SpellEntry const* pSpell) override
-    {
-        if (pSpell->Id == SPELL_BELLOWINGROAR)
-        {
-            if (!m_uiEruptTimer)
-            {
-                GetGameObjectListWithEntryInGrid(GOListe, m_creature, GO_LAVATRAP_1, 100.0f);
-                GetGameObjectListWithEntryInGrid(GOListe, m_creature, GO_LAVATRAP_2, 100.0f);
-            }
-            m_uiEruptTimer = 500;
-        }
-    }
     
     void PhaseOne(uint32 uiDiff)
     {
@@ -583,35 +564,10 @@ struct boss_onyxiaAI : public ScriptedAI
         PhaseOne(uiDiff);
     }
 
-    bool Erupt()
-    {
-        uint32 Var = 0;
-        while (Var < 10 && !GOListe.empty())
-        {
-            std::list<GameObject*>::iterator itr = GOListe.begin();
-            std::advance(itr, rand() % GOListe.size());
-            if (GameObject* GO = *itr)
-            {
-                GO->Use(m_creature);
-                if (Creature* Cre = m_creature->SummonCreature(NPC_ERUPTION_TRIGGER, GO->GetPositionX(), GO->GetPositionY(), GO->GetPositionZ(), GO->GetOrientation(), TEMPSUMMON_TIMED_DESPAWN, 2000))
-                {
-                    Cre->CastSpell(Cre, SPELL_ERUPTION, true);
-                    Cre->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
-                    Cre->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-                    Cre->AI()->EnterEvadeMode();
-                }
-                GOListe.erase(itr);
-                Var++;
-            }
-        }
-
-        return !GOListe.empty();
-    }
-
     void PhaseTransition(uint32 uiDiff, bool bDebut)
     {
 //        m_creature->CombatStop(true);
-        m_creature->ClearUnitState(UNIT_STAT_MELEE_ATTACKING);
+        m_creature->ClearUnitState(UNIT_STATE_MELEE_ATTACKING);
 
         /** P2 Event to take off */
         if (m_uiPhase == PHASE_TWO)
@@ -646,10 +602,6 @@ struct boss_onyxiaAI : public ScriptedAI
                 m_creature->CastSpell(m_creature, 17131, true); /** Start flying */
                 m_bTransition = false;
                 m_uiTransTimer = 0;
-
-                // increase Onyxia's hitbox while in the air to make it slightly easier for melee to use specials on her
-                m_creature->SetFloatValue(UNIT_FIELD_BOUNDINGRADIUS, 21.0f);
-                m_creature->SetFloatValue(UNIT_FIELD_COMBATREACH, 22.0f);
                 
                 m_pPointData = GetMoveData();
                 m_creature->GetMotionMaster()->MovePoint(m_pPointData->uiLocId, m_pPointData->fX, m_pPointData->fY, m_pPointData->fZ, MOVE_PATHFINDING | MOVE_FLY_MODE);
@@ -672,8 +624,6 @@ struct boss_onyxiaAI : public ScriptedAI
                     m_creature->GetMotionMaster()->MovePoint(LANDING_FLIGHT, -8.86f, -212.752f, -88.542f, MOVE_FLY_MODE);   // North
 
                 m_creature->RemoveAurasDueToSpell(17131); /** Stop flying */
-                m_creature->SetFloatValue(UNIT_FIELD_BOUNDINGRADIUS, 15.0f);
-                m_creature->SetFloatValue(UNIT_FIELD_COMBATREACH, 16.0f);
                 m_uiTransTimer = 60000; // handled by MovementInform
             }
             /** Landing in progress */
@@ -752,15 +702,6 @@ struct boss_onyxiaAI : public ScriptedAI
         /** whenever Onyxia is moving to a waypoint or casting Deep Breath, clear her target */
         if (m_bTransition || m_bDeepBreathIsCasting || (m_uiPhase == PHASE_TWO && m_creature->IsMoving()))
             m_creature->SetTargetGuid(ObjectGuid()); 
-
-        if (m_uiEruptTimer)
-        {
-            // handle Erupt here because of mid-air fear cast during P3 transition
-            if (m_uiEruptTimer <= uiDiff)
-                m_uiEruptTimer = Erupt() ? 500 : 0;
-            else
-                m_uiEruptTimer -= uiDiff;
-        }
 
         if (m_bTransition)
         {

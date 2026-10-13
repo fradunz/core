@@ -48,7 +48,7 @@ struct mob_yennikuAI : public ScriptedAI
         m_creature->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_NONE);
     }
 
-    void SpellHit(Unit *caster, SpellEntry const* spell) override
+    void SpellHit(SpellCaster* caster, SpellEntry const* spell) override
     {
         if (caster->GetTypeId() == TYPEID_PLAYER)
         {
@@ -158,298 +158,6 @@ GameObjectAI* GetAIgo_transpolyporter(GameObject *pGo)
 }
 
 /*######
-## npc_molthor
-######*/
-
-enum MolthorData
-{
-    NPC_HEART_OF_HAKKAR                 = 15069,
-
-    GO_HEART_OF_HAKKAR_SPELL_EMITTER    = 180391,
-
-    QUEST_THE_HEART_OF_HAKKAR           = 8183,
-
-    SAY_MOLTHOR_1                       = 10473,
-    SAY_MOLTHOR_2                       = 10474,
-    SAY_MOLTHOR_3                       = 10537
-};
-
-static float const heartPosition[4] = { -11818.55f, 1344.4f, 7.93f, 0.0f };
-static int const emitterCount = 5;
-static float const emitterPositions[emitterCount][4] = {
-    { -11818.55f, 1344.40f,  7.93f, 0.0f }, // Zandalar Isle
-    { -11771.92f, 1273.80f,  3.96f, 0.0f },
-    { -11881.53f, 1250.42f,  6.72f, 0.0f },
-    { -14335.85f,  513.95f,  8.86f, 0.0f }, // Booty Bay
-    { -14421.20f,  475.50f, 11.54f, 0.0f }
-};
-
-struct npc_molthorAI : public npc_escortAI
-{
-    npc_molthorAI(Creature *pCreature) : npc_escortAI(pCreature)
-    {
-        Reset();
-    } 
-
-    uint32 m_uiTimer;
-    uint32 m_uiPhase;
-
-    void Reset() override
-    {
-        m_uiTimer = 0;
-        m_uiPhase = 0;
-    }
-
-    void WaypointReached(uint32 uiPointId) override
-    {
-        if (uiPointId == 7)
-        {
-            SetEscortPaused(true);
-            m_creature->SetStandState(UNIT_STAND_STATE_KNEEL);
-            DoScriptText(SAY_MOLTHOR_2, m_creature);
-
-            float x = heartPosition[0];
-            float y = heartPosition[1];
-            float z = heartPosition[2];
-            float o = heartPosition[3];
-            m_creature->SummonCreature(NPC_HEART_OF_HAKKAR, x, y, z, o, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 30000);
-
-            m_uiTimer = 20000;
-            m_uiPhase = 1;
-        }
-    }
-
-    void SummonSpellEmitters()
-    {
-        Player *player = GetPlayerForEscort();
-        if (!player)
-            return;
-
-        for (const auto& emitterPosition : emitterPositions)
-        {
-            float x = emitterPosition[0];
-            float y = emitterPosition[1];
-            float z = emitterPosition[2];
-            float o = emitterPosition[3];
-
-            GameObject *emitter = m_creature->SummonGameObject(GO_HEART_OF_HAKKAR_SPELL_EMITTER, x, y, z, o, 0.0f, 0.0f, 0.0f, 0.0f, 5000);
-            if (emitter) {
-                emitter->SetOwnerGuid(ObjectGuid()); // FIXME
-                emitter->Use(player);
-                emitter->SetOwnerGuid(m_creature->GetObjectGuid());
-            }
-        }
-    }
-
-    void UpdateEscortAI(uint32 const uiDiff) override
-    {
-        if (m_uiPhase)
-        {
-            if (m_uiTimer <= uiDiff)
-            {
-                switch (m_uiPhase)
-                {
-                    case 1:
-                        m_creature->HandleEmote(EMOTE_ONESHOT_SHOUT);
-                        m_creature->MonsterYellToZone(SAY_MOLTHOR_3, 0, GetPlayerForEscort());
-                        SummonSpellEmitters();
-
-                        m_uiTimer = 5000;
-                        m_uiPhase = 2;
-                        break;
-                    case 2:
-                        m_creature->SetStandState(UNIT_STAND_STATE_STAND);
-                        m_creature->SetWalk(false);
-                        SetEscortPaused(false);
-
-                        m_uiTimer = 0;
-                        m_uiPhase = 0;
-                        break;
-                }
-            }
-            else
-                m_uiTimer -= uiDiff;
-        }
-
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-            return;
-
-        DoMeleeAttackIfReady();
-    }
-};
-
-CreatureAI* GetAI_npc_molthor(Creature *pCreature)
-{
-    return new npc_molthorAI(pCreature);
-}
-
-bool QuestComplete_npc_molthor(Player *pPlayer, Creature *pCreature, Quest const *pQuest)
-{
-    npc_molthorAI *molthorAI = dynamic_cast<npc_molthorAI*>(pCreature->AI());
-
-    if (pQuest->GetQuestId() == QUEST_THE_HEART_OF_HAKKAR && molthorAI)
-    {
-        molthorAI->Start(false, pPlayer->GetObjectGuid(), nullptr, true);
-        pCreature->MonsterSay(SAY_MOLTHOR_1);
-    }
-
-    return true;
-}
-
-/*######
-## npc_heart_of_hakkar
-######*/
-
-enum HeartOfHakkarData
-{
-    SPELL_CREATE_HEART_OF_HAKKAR_RIFT           = 24202,
-    SPELL_HEART_OF_HAKKAR_BANNING               = 24203,
-    SPELL_HEART_OF_HAKKAR_IMPLODE               = 24204,
-    SPELL_CREATE_HEART_OF_HAKKAR_EXPLOSION      = 24215,
-    SPELL_RITUAL_CAST_VISUAL                    = 24217,
-    SPELL_CREATE_HEART_OF_HAKKAR_SUMMON_CIRCLE  = 24602,
-
-    NPC_SERVANT_OF_THE_HAND                     = 15080,
-
-    GO_HEART_OF_HAKKAR_OBJECT                   = 180402
-};
-
-static int const servantCount = 4;
-static float const servantPositions[servantCount][4] = {
-    {-11817.5f, 1325.0f, 1.46f, 1.58f},
-    {-11831.3f, 1331.3f, 1.84f, 0.75f},
-    {-11834.8f, 1349.4f, 2.01f, 6.00f},
-    {-11800.9f, 1335.2f, 1.26f, 2.65f}
-};
-
-struct npc_heart_of_hakkarAI : public ScriptedAI
-{
-    npc_heart_of_hakkarAI(Creature *pCreature) : ScriptedAI(pCreature)
-    {
-        Reset();
-    }
-
-    bool m_bInitialized;
-    uint32 m_uiTimer;
-
-    void Reset() override
-    {
-        m_bInitialized = false;
-        m_uiTimer = 0;
-    }
-
-    void SummonServants()
-    {
-        for (const auto& servantPosition : servantPositions)
-        {
-            float x = servantPosition[0];
-            float y = servantPosition[1];
-            float z = servantPosition[2];
-            float o = servantPosition[3];
-
-            Creature *servant = m_creature->SummonCreature(NPC_SERVANT_OF_THE_HAND, x, y, z, o, TEMPSUMMON_TIMED_DESPAWN, 30000);
-
-            if (servant)
-            {
-                servant->CastSpell(servant, SPELL_CREATE_HEART_OF_HAKKAR_SUMMON_CIRCLE, true);
-                servant->CastSpell(servant, SPELL_RITUAL_CAST_VISUAL, true);
-            }
-        }
-    }
-
-    void UpdateAI(uint32 const uiDiff) override
-    {
-        if (!m_bInitialized)
-        {
-            m_creature->CastSpell(m_creature, SPELL_CREATE_HEART_OF_HAKKAR_RIFT, true);
-            m_creature->CastSpell(m_creature, SPELL_HEART_OF_HAKKAR_BANNING, true);
-
-            float x, y, z;
-            m_creature->GetPosition(x, y, z);
-            float o = m_creature->GetOrientation();
-            m_creature->SummonGameObject(GO_HEART_OF_HAKKAR_OBJECT, x, y, z, o, 0.0f, 0.0f, 0.0f, 0.0f, 30000);
-
-            SummonServants();
-
-            m_bInitialized = true;
-            m_uiTimer = 13000;
-        }
-
-        if (m_uiTimer)
-        {
-            if (m_uiTimer <= uiDiff)
-            {
-                m_creature->CastSpell(m_creature, SPELL_CREATE_HEART_OF_HAKKAR_EXPLOSION, true);
-                m_creature->CastSpell(m_creature, SPELL_HEART_OF_HAKKAR_IMPLODE, true);
-                m_creature->ForcedDespawn(2000);
-                m_uiTimer = 0;
-            }
-            else
-                m_uiTimer -= uiDiff;
-        }
-    }
-};
-
-CreatureAI* GetAI_npc_heart_of_hakkar(Creature *pCreature)
-{
-    return new npc_heart_of_hakkarAI(pCreature);
-}
-
-/*######
-## npc_servant_of_the_hand
-######*/
-
-enum ServantOfTheHandData
-{
-    SPELL_TELEPORT_SPAWN_OUT = 24221
-};
-
-struct npc_servant_of_the_handAI : public ScriptedAI
-{
-    npc_servant_of_the_handAI(Creature *pCreature) : ScriptedAI(pCreature)
-    {
-        Reset();
-    }
-
-    uint32 m_uiSpawnOutTimer;
-
-    void Reset() override
-    {
-        if (m_creature->IsTemporarySummon())
-        {
-            m_creature->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-            m_uiSpawnOutTimer = urand(0, 1) ? 25500 : 26500;
-        }
-        else
-            m_uiSpawnOutTimer = 0;
-    }
-
-    void UpdateAI(uint32 const uiDiff) override
-    {
-        if (m_uiSpawnOutTimer)
-        {
-            if (m_uiSpawnOutTimer <= uiDiff)
-            {
-                m_creature->CastSpell(m_creature, SPELL_TELEPORT_SPAWN_OUT, false);
-                m_uiSpawnOutTimer = 0;
-            }
-            else
-                m_uiSpawnOutTimer -= uiDiff;
-        }
-
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-            return;
-
-        DoMeleeAttackIfReady();
-    }
-}; 
-
-CreatureAI* GetAI_npc_servant_of_the_hand(Creature *pCreature)
-{
-    return new npc_servant_of_the_handAI(pCreature);
-}
-
-/*######
 ## npc_pats_hellfire_guy
 ######*/
 
@@ -511,8 +219,6 @@ float const ApesSummon[4] =
 {
     -13773.6231f, -3.8856f, 41.5641f, 5.7f
 };
-
-#define UNBAGWA_EVENT_START "Get ready everyone! Here come de apes!"
 
 struct npc_witch_doctor_unbagwaAI : ScriptedAI
 {
@@ -578,7 +284,6 @@ struct npc_witch_doctor_unbagwaAI : ScriptedAI
 
     void StartEvent()
     {
-        m_creature->MonsterYell(UNBAGWA_EVENT_START);
         m_creature->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_QUESTGIVER);
         m_creature->SetFactionTemporary(FACTION_ESCORT_N_NEUTRAL_PASSIVE, TEMPFACTION_NONE);
         m_bStartEvent = true;
@@ -668,22 +373,6 @@ void AddSC_stranglethorn_vale()
     newscript->Name = "go_transpolyporter";
     newscript->GOGetAI = &GetAIgo_transpolyporter;
     //newscript->pGOHello = &GOHello_go_transpolyporter;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
-    newscript->Name = "npc_molthor";
-    newscript->GetAI = &GetAI_npc_molthor;
-    newscript->pQuestRewardedNPC = &QuestComplete_npc_molthor;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
-    newscript->Name = "npc_heart_of_hakkar";
-    newscript->GetAI = &GetAI_npc_heart_of_hakkar;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
-    newscript->Name = "npc_servant_of_the_hand";
-    newscript->GetAI = &GetAI_npc_servant_of_the_hand;
     newscript->RegisterSelf();
 
     newscript = new Script;

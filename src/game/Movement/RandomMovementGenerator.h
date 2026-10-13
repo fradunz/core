@@ -20,17 +20,19 @@
 #define MANGOS_RANDOMMOTIONGENERATOR_H
 
 #include "MovementGenerator.h"
+#include "G3D/Vector3.h"
 
 class RandomMovementGenerator
 : public MovementGeneratorMedium< Creature, RandomMovementGenerator >
 {
     public:
-        explicit RandomMovementGenerator(Creature const& creature, bool use_current_position = false, float wander_distance = 0.0f, uint32 expire_time = 0) : i_nextMoveTime(1000), i_positionX(0.0f), i_positionY(0.0f), i_positionZ(0.0f), i_wanderDistance(5.0f), i_expireTime(expire_time), i_wanderSteps(0)
+        explicit RandomMovementGenerator(Creature const& creature, bool use_current_position = false, float wander_distance = 0.0f, uint32 expire_time = 0) : 
+            i_nextMoveTime(1000), i_wanderDistance(5.0f), i_expireTime(expire_time), i_wanderSteps(0)
         {
             if (use_current_position)
-                creature.GetPosition(i_positionX, i_positionY, i_positionZ);
+                creature.GetPosition(i_startPosition.x, i_startPosition.y, i_startPosition.z);
             else
-                creature.GetRespawnCoord(i_positionX, i_positionY, i_positionZ, nullptr, &i_wanderDistance);
+                creature.GetRespawnCoord(i_startPosition.x, i_startPosition.y, i_startPosition.z, nullptr, &i_wanderDistance);
 
             if (wander_distance > 0.0f)
                 i_wanderDistance = wander_distance;
@@ -44,13 +46,17 @@ class RandomMovementGenerator
         bool Update(Creature&, uint32 const&);
         void UpdateAsync(Creature&, uint32 diff);
         MovementGeneratorType GetMovementGeneratorType() const { return RANDOM_MOTION_TYPE; }
-
         bool GetResetPosition(Creature&, float& x, float& y, float& z);
+
+        void AddPauseTime(int32 waitTimeDiff)
+        {
+            if (i_nextMoveTime.GetExpiry() < waitTimeDiff)
+                i_nextMoveTime.Reset(waitTimeDiff);
+        }
+        
     private:
         ShortTimeTracker i_nextMoveTime;
-        float i_positionX;
-        float i_positionY;
-        float i_positionZ;
+        G3D::Vector3 i_startPosition;
         float i_wanderDistance;
         uint32 i_expireTime;
         uint8 i_wanderSteps;

@@ -2,6 +2,15 @@
 #include "Player.h"
 #include "MasterPlayer.h"
 
+template<typename T>
+PlayerWrapper<T>::PlayerWrapper(T &pl) : player(pl) {}
+
+template<typename T>
+PlayerWrapper<T>::PlayerWrapper(T *pl) : player(*pl) {}
+
+template<typename T>
+PlayerWrapper<T>::PlayerWrapper(const PlayerWrapper<T> &other) : player(other.player) {}
+
 template <typename T>
 ObjectGuid PlayerWrapper<T>::GetObjectGuid() const { return player.GetObjectGuid(); }
 template <typename T>

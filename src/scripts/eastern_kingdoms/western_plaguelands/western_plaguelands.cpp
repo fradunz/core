@@ -23,11 +23,15 @@ struct npc_the_scourge_cauldronAI : public ScriptedAI
         Reset();
     }
 
-    void Reset() override {}
+    void Reset() override
+    {
+        m_creature->EnableMoveInLosEvent();
+    }
 
     void DoDie()
     {
         //summoner dies here
+        m_creature->SetInvincibilityHpThreshold(0);
         m_creature->DealDamage(m_creature, m_creature->GetHealth(), nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
         //override any database `spawntimesecs` to prevent duplicated summons
         uint32 rTime = m_creature->GetRespawnDelay();
@@ -92,11 +96,14 @@ enum eAndorhalTower
 
 struct npc_andorhal_towerAI : public Scripted_NoMovementAI
 {
-    npc_andorhal_towerAI(Creature *c) : Scripted_NoMovementAI(c) {}
+    npc_andorhal_towerAI(Creature *c) : Scripted_NoMovementAI(c)
+    {
+        Reset();
+    }
 
     void Reset() override
     {
-
+        m_creature->EnableMoveInLosEvent();
     }
 
     void MoveInLineOfSight(Unit* pWho) override

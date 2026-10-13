@@ -23,7 +23,9 @@
 #define MANGOS_FORMULAS_H
 
 #include "World.h"
-#include "ObjectMgr.h"
+#include "Creature.h"
+#include "Player.h"
+#include "Map.h"
 
 namespace MaNGOS
 {
@@ -35,24 +37,23 @@ namespace MaNGOS
         {
             if (pl_level <= 5)
                 return 0;
-            else if (pl_level <= 39)
+            if (pl_level <= 39)
                 return pl_level - 5 - pl_level / 10;
-            else
-                return pl_level - 1 - pl_level / 5;
+
+            return pl_level - 1 - pl_level / 5;
         }
 
         inline XPColorChar GetColorCode(uint32 pl_level, uint32 mob_level)
         {
             if (mob_level >= pl_level + 5)
                 return RED;
-            else if (mob_level >= pl_level + 3)
+            if (mob_level >= pl_level + 3)
                 return ORANGE;
-            else if (mob_level >= pl_level - 2)
+            if (mob_level >= pl_level - 2)
                 return YELLOW;
-            else if (mob_level > GetGrayLevel(pl_level))
+            if (mob_level > GetGrayLevel(pl_level))
                 return GREEN;
-            else
-                return GRAY;
+            return GRAY;
         }
 
         inline uint32 GetZeroDifference(uint32 pl_level)
@@ -80,45 +81,66 @@ namespace MaNGOS
                     nLevelDiff = 4;
                 return 1.0f + 0.05f * nLevelDiff;
             }
-            else
+
+            uint32 const gray_level = GetGrayLevel(pl_level);
+            if (victim_level > gray_level)
             {
-                uint32 gray_level = GetGrayLevel(pl_level);
-                if (victim_level > gray_level)
-                {
-                    uint32 ZD = GetZeroDifference(pl_level);
-                    return (ZD + victim_level - pl_level) / float(ZD);
-                }
+                uint32 const ZD = GetZeroDifference(pl_level);
+                return (ZD + victim_level - pl_level) / float(ZD);
             }
-            return 0;
-        }
-        inline uint32 BaseGain(uint32 pl_level, uint32 mob_level)
-        {
-            uint32 const nBaseExp = 45;
-            return (pl_level * 5 + nBaseExp) * BaseGainLevelFactor(pl_level, mob_level);
+            return 0.f;
         }
 
-        inline uint32 Gain(Unit* pUnit, Creature* pCreature)
+        inline float BaseGain(uint32 ownerLevel, uint32 unitLevel, uint32 mob_level)
+        {
+            float const nBaseExp = 45.f;
+            return (ownerLevel * 5 + nBaseExp) * BaseGainLevelFactor(unitLevel, mob_level);
+        }
+
+        inline uint32 Gain(Unit const* pUnit, Creature const* pCreature)
         {
             if (pCreature->GetUInt32Value(UNIT_CREATED_BY_SPELL) &&
                ((pCreature->GetCreatureInfo()->type == CREATURE_TYPE_CRITTER) ||
                 (pCreature->GetCreatureInfo()->type == CREATURE_TYPE_NOT_SPECIFIED) ||
                 (pCreature->GetCreatureInfo()->type == CREATURE_TYPE_TOTEM) ||
-                (pCreature->GetCreatureInfo()->health_min <= 50)))
+                (pCreature->GetCreatureInfo()->health_multiplier <= 0.1f)))
                 return 0;
 
-            if (pCreature->HasUnitState(UNIT_STAT_NO_KILL_REWARD))
+            if (pCreature->HasUnitState(UNIT_STATE_NO_KILL_REWARD))
                 return 0;
 
-            float xp_gain = BaseGain(pUnit->GetLevel(), pCreature->GetLevel());
+            if (pCreature->HasStaticFlag(CREATURE_STATIC_FLAG_NO_XP))
+                return 0;
+            
+            uint32 ownerLevel = pUnit->GetLevel();
+            uint32 unitLevel = pUnit->GetLevel();
+            if (pUnit->IsPet())
+            {
+                if (Unit* pOwner = pUnit->GetOwner())
+                {
+                    ownerLevel = pOwner->GetLevel();
+
+                    // World of Warcraft Client Patch 1.7.0 (2005-09-13)
+                    // - Hunter pets now gain experience based on the level difference between
+                    //   them and their target rather than the difference between the Hunters
+                    //   and their target.This will make it much easier to level up a low
+                    //   level pet.Keep in mind that the Hunter must still kill creatures
+                    //   from which he / she will gain experience.
+                    if (sWorld.GetWowPatch() < WOW_PATCH_107)
+                        unitLevel = pOwner->GetLevel();
+                }
+            }
+
+            float xp_gain = BaseGain(ownerLevel, unitLevel, pCreature->GetLevel());
             if (!xp_gain)
                 return 0;
 
             if (pCreature->IsElite())
             {
                 if (pCreature->GetMap()->IsNonRaidDungeon())
-                    xp_gain *= 2.5;
+                    xp_gain *= 2.5f;
                 else
-                    xp_gain *= 2;
+                    xp_gain *= 2.f;
 
                 xp_gain *= sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL_ELITE);
             }
@@ -128,14 +150,7 @@ namespace MaNGOS
 
             xp_gain *= pCreature->GetCreatureInfo()->xp_multiplier;
             xp_gain *= pCreature->GetXPModifierDueToDamageOrigin();
-
-            Player* pPlayer = pUnit->GetCharmerOrOwnerPlayerOrPlayerItself();
-            float personalRate = pPlayer ? pPlayer->GetPersonalXpRate() : -1.0f;
-
-            if (personalRate >= 0.0f)
-                xp_gain *= personalRate;
-            else
-                xp_gain *= sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL);
+            xp_gain *= sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL);
 
             return std::nearbyint(xp_gain);
         }
@@ -165,30 +180,33 @@ namespace MaNGOS
     {
         inline float GetHonorGain(uint8 killerLevel, uint8 victimLevel, uint32 victimRank, uint32 totalKills = 0, uint32 groupSize = 1)
         {
-            // Penalty due to level diff
-            float diffLevelPenalty = XP::BaseGainLevelFactor(killerLevel, victimLevel);
-
             // Same unit killing penalty
             // [-PROGRESSIVE] Total kills per day cahnged in 1.12 (http://wow.gamepedia.com/Patch_1.12.0#General)
             // Honorable Kills now diminish at a rate 10% per kill rather than 25% per kill.
             float penalty = 4.0f;
-            if (sWorld.GetWowPatch() >= WOW_PATCH_112 && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_REWARDS))
+            if (sWorld.GetWowPatch() >= WOW_PATCH_112 || !sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_REWARDS))
                 penalty = 10.0f;
 
-            double sameVictimPenalty = totalKills >= static_cast<uint32>(penalty) ? 0 : 1 - totalKills / penalty;
+            if (totalKills >= static_cast<uint32>(penalty))
+                return 0.0f;
+
+            // Penalty due to level diff
+            float const diffLevelPenalty = XP::BaseGainLevelFactor(killerLevel, victimLevel);
+
+            double const sameVictimPenalty = 1 - totalKills / penalty;
 
             // Level related coefficient
             double levelCoeff;
 
             if (killerLevel >= 60)
                 levelCoeff = 1;
-            else if ((killerLevel <= 59) && (killerLevel >= 50))
+            else if (killerLevel >= 50)
                 levelCoeff = 0.9545;
-            else if ((killerLevel <= 49) && (killerLevel >= 40))
+            else if (killerLevel >= 40)
                 levelCoeff = 0.5707;
-            else if ((killerLevel <= 39) && (killerLevel >= 30))
+            else if (killerLevel >= 30)
                 levelCoeff = 0.3434;
-            else if ((killerLevel <= 29) && (killerLevel >= 20))
+            else if (killerLevel >= 20)
                 levelCoeff = 0.2070;
             else if (killerLevel <= 19)
                 levelCoeff = 0.1212;

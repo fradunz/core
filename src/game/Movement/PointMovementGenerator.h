@@ -87,11 +87,11 @@ class EffectMovementGenerator : public MovementGenerator
 {
     public:
         explicit EffectMovementGenerator(uint32 Id) : m_id(Id) {}
-        void Initialize(Unit&) {}
-        void Finalize(Unit& unit);
-        void Interrupt(Unit&) {}
-        void Reset(Unit&) {}
-        bool Update(Unit& u, uint32 const&);
+        void Initialize(Unit&) override {}
+        void Finalize(Unit& unit) override;
+        void Interrupt(Unit&) override {}
+        void Reset(Unit&) override {}
+        bool Update(Unit& u, uint32 const&) override;
         MovementGeneratorType GetMovementGeneratorType() const override { return EFFECT_MOTION_TYPE; }
     private:
         uint32 m_id;
@@ -102,8 +102,8 @@ class ChargeMovementGenerator
 : public MovementGeneratorMedium< T, ChargeMovementGenerator<T> >
 {
     public:
-        ChargeMovementGenerator(T& attacker, Unit& victim, uint32 interpolationDelay = 0, bool triggerAttack = false, float speed = 0.0f) :
-            path(&attacker), m_victimGuid(victim.GetObjectGuid()), m_recalculateSpeed(false), m_triggerAttack(triggerAttack), m_interpolateDelay(interpolationDelay), m_scheduleStopMoving(false), m_speed(speed)
+        ChargeMovementGenerator(T& attacker, Unit& victim, uint32 extrapolationDelay = 0, bool triggerAttack = false, float speed = 0.0f, float meleeReach = 0.0f) :
+            path(&attacker), m_victimGuid(victim.GetObjectGuid()), m_recalculateSpeed(false), m_triggerAttack(triggerAttack), m_extrapolateDelay(extrapolationDelay), m_scheduleStopMoving(false), m_forceDestination(false), m_speed(speed), m_meleeReach(meleeReach)
         {
             ComputePath(attacker, victim);
         }
@@ -122,9 +122,11 @@ class ChargeMovementGenerator
         ObjectGuid m_victimGuid;
         bool m_recalculateSpeed;
         bool m_triggerAttack;
-        uint32 m_interpolateDelay;
+        uint32 m_extrapolateDelay;
         bool m_scheduleStopMoving;
+        bool m_forceDestination;
         float m_speed;
+        float m_meleeReach;
 };
 
 #endif

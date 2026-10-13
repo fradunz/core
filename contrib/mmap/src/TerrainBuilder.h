@@ -54,6 +54,7 @@ namespace MMAP
     static const int V9_SIZE_SQ = V9_SIZE * V9_SIZE;
     static const int V8_SIZE = 128;
     static const int V8_SIZE_SQ = V8_SIZE * V8_SIZE;
+
     static const float GRID_SIZE = 533.33333f;
     static const float GRID_PART_SIZE = GRID_SIZE / V8_SIZE;
 
@@ -97,7 +98,7 @@ namespace MMAP
             void loadMap(uint32 mapID, uint32 tileX, uint32 tileY, MeshData& meshData);
             bool loadVMap(uint32 mapID, uint32 tileX, uint32 tileY, MeshData& meshData);
             void unloadVMap(uint32 mapID, uint32 tileX, uint32 tileY);
-            void loadOffMeshConnections(uint32 mapID, uint32 tileX, uint32 tileY, MeshData& meshData, const char* offMeshFilePath);
+            void loadOffMeshConnections(uint32 mapID, uint32 tileX, uint32 tileY, MeshData& meshData, const char* offMeshFilePath, bool printOffmeshData = false);
 
             bool usesLiquids() { return !m_skipLiquid; }
 
@@ -144,6 +145,11 @@ namespace MMAP
             TerrainBuilder(const TerrainBuilder& tb);
             float* m_V9;
             float* m_V8;
+            /// m_V9/m_V8 hold data of exactly one tile - getHeight() must know which
+            /// one, and must not serve stale data from a previously built tile
+            bool m_heightDataValid;
+            uint32 m_heightDataTileX;
+            uint32 m_heightDataTileY;
             bool m_quick;
             uint32 m_mapId;
             VMAP::VMapManager2 vmapManager;

@@ -54,28 +54,16 @@
 
 #include "Platform/Define.h"
 
-#if COMPILER == COMPILER_MICROSOFT
-#  pragma warning(disable:4996)                             // 'function': was declared deprecated
-#ifndef __SHOW_STUPID_WARNINGS__
-#  pragma warning(disable:4244)                             // 'argument' : conversion from 'type1' to 'type2', possible loss of data
-#  pragma warning(disable:4355)                             // 'this' : used in base member initializer list
-#endif                                                      // __SHOW_STUPID_WARNINGS__
-#endif                                                      // __GNUC__
-
 #include "Platform/CompilerDefs.h"
 #include "Platform/Define.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <math.h>
-#include <errno.h>
-#include <signal.h>
-#include <assert.h>
-
-#if defined(__sun__)
-#include <ieeefp.h> // finite() on Solaris
-#endif
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <cmath>
+#include <cerrno>
+#include <csignal>
+#include <cassert>
 
 #include <set>
 #include <list>
@@ -90,52 +78,14 @@
 typedef std::chrono::system_clock Clock;
 typedef std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> TimePoint;
 
-#include "Errors.h"
-#include "LockedQueue.h"
-#include "Threading.h"
-
-#include <ace/Basic_Types.h>
-#include <ace/Guard_T.h>
-#include <ace/RW_Thread_Mutex.h>
-#include <ace/Thread_Mutex.h>
-#include <ace/OS_NS_arpa_inet.h>
-
-// Old ACE versions (pre-ACE-5.5.4) not have this type (add for allow use at Unix side external old ACE versions)
-#if PLATFORM != PLATFORM_WINDOWS
-#  ifndef ACE_OFF_T
-typedef off_t ACE_OFF_T;
-#  endif
-#endif
-
-#if PLATFORM == PLATFORM_WINDOWS
-#  if !defined (FD_SETSIZE)
-#    define FD_SETSIZE 4096
-#  endif
-#  include <ace/config-all.h>
-#  include <ws2tcpip.h>
-#else
-#  include <sys/types.h>
-#  include <sys/ioctl.h>
-#  include <sys/socket.h>
-#  include <netinet/in.h>
-#  include <unistd.h>
-#  include <netdb.h>
-#endif
-
 #if COMPILER == COMPILER_MICROSOFT
 
-#  include <float.h>
+#  include <cfloat>
 
 #  define I32FMT "%08I32X"
 #  define I64FMT "%016I64X"
-//#  define snprintf _snprintf
-#  define vsnprintf _vsnprintf
-#  define finite(X) _finite(X)
 
 #else
-
-#  define stricmp strcasecmp
-#  define strnicmp strncasecmp
 
 #  define I32FMT "%08X"
 #  if ACE_SIZEOF_LONG == 8
@@ -146,24 +96,25 @@ typedef off_t ACE_OFF_T;
 
 #endif
 
-#define UI64FMTD ACE_UINT64_FORMAT_SPECIFIER
-#define UI64LIT(N) ACE_UINT64_LITERAL(N)
+#include <cinttypes>
 
-#define SI64FMTD ACE_INT64_FORMAT_SPECIFIER
-#define SI64LIT(N) ACE_INT64_LITERAL(N)
+#define UI64FMTD "%" PRIu64
+#define SI64FMTD "%" PRId64
 
-#define SIZEFMTD ACE_SIZE_T_FORMAT_SPECIFIER
+#define SIZEFMTD "%zu"
 
-inline float finiteAlways(float f) { return finite(f) ? f : 0.0f; }
+/// Will always return a finite float. If the provided float is infinite it will return 0
+inline float finiteAlways(float f) { return std::isfinite(f) ? f : 0.0f; }
+
+/// Case-insensitive check whether str starts with prefix
+bool StringStartsWithCaseInsensitive(std::string const& str, std::string const& prefix);
 
 #define atol(a) strtoul(a, nullptr, 10)
 
-#define STRINGIZE(a) #a
-
 // used for creating values for respawn for example
 #define MAKE_PAIR64(l, h)  uint64( uint32(l) | ( uint64(h) << 32 ) )
-#define PAIR64_HIPART(x)   (uint32)((uint64(x) >> 32) & UI64LIT(0x00000000FFFFFFFF))
-#define PAIR64_LOPART(x)   (uint32)(uint64(x)         & UI64LIT(0x00000000FFFFFFFF))
+#define PAIR64_HIPART(x)   (uint32)((uint64(x) >> 32) & uint64(0x00000000FFFFFFFF))
+#define PAIR64_LOPART(x)   (uint32)(uint64(x)         & uint64(0x00000000FFFFFFFF))
 
 #define MAKE_PAIR32(l, h)  uint32( uint16(l) | ( uint32(h) << 16 ) )
 #define PAIR32_HIPART(x)   (uint16)((uint32(x) >> 16) & 0x0000FFFF)
@@ -189,7 +140,7 @@ enum AccountTypes
     SEC_TICKETMASTER   = 2,
     SEC_GAMEMASTER     = 3,
     SEC_BASIC_ADMIN    = 4,
-    SEC_DEVELOPPER     = 5,
+    SEC_DEVELOPER      = 5,
     SEC_ADMINISTRATOR  = 6,
     SEC_CONSOLE        = 7                                  // must be always last in list, accounts must have less security level always also
 };
@@ -211,15 +162,18 @@ enum RealmFlags
 // Index returned by GetSessionDbcLocale.
 enum LocaleConstant
 {
-    LOCALE_enUS = 0,   // also enGB
+    LOCALE_enUS = 0, // also enGB
     LOCALE_koKR = 1,
     LOCALE_frFR = 2,
     LOCALE_deDE = 3,
     LOCALE_zhCN = 4,
     LOCALE_zhTW = 5,
     LOCALE_esES = 6,
-    LOCALE_esMX = 7,
-    LOCALE_ruRU = 8    // not in vanilla                             
+
+    // no official vanilla clients for these exist
+    // the locale strings first appear in the binary in 2.2.0
+    LOCALE_esMX = 7, // unused text column exists for this index in dbc files
+    LOCALE_ruRU = 8  // did not exist in any way, but has fan made client now (english texts replaced with russian)
 };
 
 // Index returned by GetSessionDbLocaleIndex.
@@ -256,8 +210,9 @@ extern LocaleNameStr const fullLocaleNameList[];
 //operator new[] based version of strdup() function! Release memory by using operator delete[] !
 inline char* mangos_strdup(char const* source)
 {
-    char* dest = new char[strlen(source) + 1];
-    strcpy(dest, source);
+    size_t size = std::strlen(source) + 1;
+    char* dest = new char[size];
+    std::memcpy(dest, source, size);
     return dest;
 }
 
@@ -278,8 +233,6 @@ inline char* mangos_strdup(char const* source)
 #  define M_PI_F        float(M_PI)
 #endif
 
-#ifndef countof
-#define countof(array) (sizeof(array) / sizeof((array)[0]))
-#endif
+#define BATCHING_INTERVAL 400 // TODO, why is this here? What is "Spell.*Delay" in the config used for then?
 
 #endif

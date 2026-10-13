@@ -25,11 +25,10 @@
 #include "Common.h"
 #include "Platform/Define.h"
 #include "Policies/Singleton.h"
-#include "ace/Recursive_Thread_Mutex.h"
-#include "ace/Thread_Mutex.h"
-#include "Map.h"
 #include "GridStates.h"
+#include <condition_variable>
 
+class Map;
 class BattleGround;
 
 enum
@@ -74,15 +73,16 @@ struct MapID
     uint32 nInstanceId;
 };
 
+class ThreadPool;
 struct ScheduledTeleportData;
 
-class MapManager : public MaNGOS::Singleton<MapManager, MaNGOS::ClassLevelLockable<MapManager, ACE_Recursive_Thread_Mutex> >
+class MapManager : public MaNGOS::Singleton<MapManager, MaNGOS::ClassLevelLockable<MapManager, std::recursive_mutex> >
 {
     friend class MaNGOS::OperatorNew<MapManager>;
 
-    typedef ACE_Recursive_Thread_Mutex LOCK_TYPE;
-    typedef ACE_Guard<LOCK_TYPE> LOCK_TYPE_GUARD;
-    typedef MaNGOS::ClassLevelLockable<MapManager, ACE_Recursive_Thread_Mutex>::Lock Guard;
+    using  LOCK_TYPE = std::recursive_mutex;
+    using LOCK_TYPE_GUARD = std::unique_lock<LOCK_TYPE>;
+    typedef MaNGOS::ClassLevelLockable<MapManager, std::recursive_mutex>::Lock Guard;
 
     public:
         typedef std::map<MapID, Map* > MapMapType;
@@ -93,7 +93,8 @@ class MapManager : public MaNGOS::Singleton<MapManager, MaNGOS::ClassLevelLockab
         Map* CreateTestMap(uint32 mapid, bool instanced, float posX, float posY);
         void DeleteTestMap(Map* map);
         Map* FindMap(uint32 mapid, uint32 instanceId = 0) const;
-
+        void ScheduleNewWorldOnFarTeleport(Player* pPlayer);
+        void CancelInstanceCreationForPlayer(Player* pPlayer) { m_scheduledNewInstancesForPlayers.erase(pPlayer); }
 
         void UpdateGridState(grid_state_t state, Map& map, NGridType& ngrid, GridInfo& ginfo, uint32 const& x, uint32 const& y, uint32 const& t_diff);
 
@@ -146,21 +147,6 @@ class MapManager : public MaNGOS::Singleton<MapManager, MaNGOS::ClassLevelLockab
             return IsValidMapCoord(loc.mapId,loc.x,loc.y,loc.z,loc.o);
         }
 
-        // modulos a radian orientation to the range of 0..2PI
-        static float NormalizeOrientation(float o)
-        {
-            // fmod only supports positive numbers. Thus we have
-            // to emulate negative numbers
-            if (o < 0)
-            {
-                float mod = o *-1;
-                mod = fmod(mod, 2.0f*M_PI_F);
-                mod = -mod+2.0f*M_PI_F;
-                return mod;
-            }
-            return fmod(o, 2.0f*M_PI_F);
-        }
-
         void RemoveAllObjectsInRemoveList();
 
         bool CanPlayerEnter(uint32 mapid, Player* player);
@@ -168,10 +154,9 @@ class MapManager : public MaNGOS::Singleton<MapManager, MaNGOS::ClassLevelLockab
         void InitMaxInstanceId();
         void InitializeVisibilityDistanceInfo();
 
-        /* statistics */
+        // statistics
         uint32 GetNumInstances();
         uint32 GetNumPlayersInInstances();
-
 
         //get list of all maps
         const MapMapType& Maps() const { return i_maps; }
@@ -184,31 +169,18 @@ class MapManager : public MaNGOS::Singleton<MapManager, MaNGOS::ClassLevelLockab
 
         void ScheduleFarTeleport(Player* player, ScheduledTeleportData* data);
         void ExecuteDelayedPlayerTeleports();
-        void ExecuteSingleDelayedTeleport(Player* player);
-        void CancelDelayedPlayerTeleport(Player* player);
+        void ExecuteSingleDelayedTeleport(Player *player);
+        void CancelDelayedPlayerTeleport(Player *player);
+        void MarkContinentUpdateFinished();
+        bool IsContinentUpdateFinished() const;
 
-        void MarkContinentUpdateFinished(int idx)
-        {
-            ASSERT(idx < i_maxContinentThread);
-            i_continentUpdateFinished[idx] = true;
-        }
-        bool IsContinentUpdateFinished()
-        {
-            // Check pointer rather than deref. Deleted after
-            // continent and instance updates are finished
-            if (i_continentUpdateFinished == nullptr)
-                return true;
-
-            for (int i = 0; i < i_maxContinentThread; ++i)
-                if (!i_continentUpdateFinished[i])
-                    return false;
-            return true;
-        }
+        bool waitContinentUpdateFinishedFor(std::chrono::milliseconds time) const;
+        bool waitContinentUpdateFinishedUntil(std::chrono::high_resolution_clock::time_point time) const;
     private:
 
         // debugging code, should be deleted some day
         GridState* si_GridStates[MAX_GRID_STATE];
-        int i_GridStateErrorCount;
+        int i_GridStateErrorCount = 0;
 
     private:
 
@@ -230,16 +202,27 @@ class MapManager : public MaNGOS::Singleton<MapManager, MaNGOS::ClassLevelLockab
         IntervalTimer i_timer;
 
         uint32 i_MaxInstanceId;
-        int             i_maxContinentThread;
-        volatile bool*  i_continentUpdateFinished;
-        bool asyncMapUpdating;
+        int             i_maxContinentThread = 0;
+
+        mutable std::mutex      m_continentMutex;
+        mutable std::condition_variable      m_continentCV;
+        std::atomic<int> i_continentUpdateFinished{0};
+
+        std::unique_ptr<ThreadPool> m_threads;
+        std::unique_ptr<ThreadPool> m_continentThreads;
+        std::unique_ptr<ThreadPool> m_instanceCreationThreads;
+        bool asyncMapUpdating = false;
 
         // Instanced continent zones
         const static int LAST_CONTINENT_ID = 2;
-        ACE_Thread_Mutex    m_scheduledInstanceSwitches_lock[LAST_CONTINENT_ID];
+        std::mutex    m_scheduledInstanceSwitches_lock[LAST_CONTINENT_ID];
         std::map<Player*, uint16 /* new instance */> m_scheduledInstanceSwitches[LAST_CONTINENT_ID]; // 2 continents
 
-        ACE_Thread_Mutex m_scheduledFarTeleportsLock;
+        // Handle creation of new maps for teleport while continents are being updated.
+        void CreateNewInstancesForPlayers();
+        std::unordered_set<Player*> m_scheduledNewInstancesForPlayers;
+
+        std::mutex m_scheduledFarTeleportsLock;
         typedef std::map<Player*, ScheduledTeleportData*> ScheduledTeleportMap;
         ScheduledTeleportMap m_scheduledFarTeleports;
 

@@ -20,7 +20,7 @@
 #include "Policies/Singleton.h"
 #include "Database/DatabaseEnv.h"
 #include "Policies/SingletonImp.h"
-#include "Player.h"
+#include "Map.h"
 #include "Creature.h"
 #include "SpellEntry.h"
 #include "ProgressBar.h"
@@ -30,7 +30,7 @@ INSTANTIATE_SINGLETON_1(InstanceStatisticsMgr);
 void InstanceStatisticsMgr::LoadFromDB()
 {
     m_instanceWipes.clear();
-    sLog.outString("> Loading table `instance_wipes`");
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "> Loading table `instance_wipes`");
     uint32 count = 0;
     std::unique_ptr<QueryResult> result(LogsDatabase.Query("SELECT `mapId`, `creatureEntry`, `count` FROM `instance_wipes`"));
     if (!result)
@@ -38,12 +38,12 @@ void InstanceStatisticsMgr::LoadFromDB()
         BarGoLink bar(1);
         bar.step();
 
-        sLog.outString();
-        sLog.outString(">> Table instance_wipes is empty.");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Table instance_wipes is empty.");
     }
     else
     {
-        BarGoLink bar((int)result->GetRowCount());
+        BarGoLink bar(result->GetRowCount());
         do
         {
             bar.step();
@@ -57,26 +57,26 @@ void InstanceStatisticsMgr::LoadFromDB()
             ++count;
         } while (result->NextRow());
 
-        sLog.outString();
-        sLog.outString(">> Loaded %u entries from `instance_wipes`", count);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u entries from `instance_wipes`", count);
     }
 
 
     m_instanceCreatureKills.clear();
-    sLog.outString("> Loading table `instance_creature_kills`");
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "> Loading table `instance_creature_kills`");
     count = 0;
-    result.reset(LogsDatabase.Query("SELECT `mapId`, `creatureEntry`, `spellEntry`, `count` FROM `instance_creature_kills`"));
+    result = LogsDatabase.Query("SELECT `mapId`, `creatureEntry`, `spellEntry`, `count` FROM `instance_creature_kills`");
     if (!result)
     {
         BarGoLink bar(1);
         bar.step();
 
-        sLog.outString();
-        sLog.outString(">> Table instance_creature_kills is empty.");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Table instance_creature_kills is empty.");
     }
     else
     {
-        BarGoLink bar((int)result->GetRowCount());
+        BarGoLink bar(result->GetRowCount());
         do
         {
             bar.step();
@@ -102,27 +102,27 @@ void InstanceStatisticsMgr::LoadFromDB()
             ++count;
         } while (result->NextRow());
 
-        sLog.outString();
-        sLog.outString(">> Loaded %u entries from `instance_creature_kills`", count);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u entries from `instance_creature_kills`", count);
     }
 
 
 
     m_instanceCustomCounters.clear();
-    sLog.outString("> Loading table `instance_custom_counters`");
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "> Loading table `instance_custom_counters`");
     count = 0;
-    result.reset(LogsDatabase.Query("SELECT `index`, `count` FROM `instance_custom_counters`"));
+    result = LogsDatabase.Query("SELECT `index`, `count` FROM `instance_custom_counters`");
     if (!result)
     {
         BarGoLink bar(1);
         bar.step();
 
-        sLog.outString();
-        sLog.outString(">> Table `instance_custom_counters` is empty.");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Table `instance_custom_counters` is empty.");
     }
     else
     {
-        BarGoLink bar((int)result->GetRowCount());
+        BarGoLink bar(result->GetRowCount());
         do
         {
             bar.step();
@@ -130,20 +130,20 @@ void InstanceStatisticsMgr::LoadFromDB()
             Field* fields = result->Fetch();
 
             uint32 index = fields[0].GetUInt32();
-            uint32 count = fields[1].GetUInt32();
-            m_instanceCustomCounters[index] = count;
+            uint32 customcount = fields[1].GetUInt32();
+            m_instanceCustomCounters[index] = customcount;
             ++count;
         } while (result->NextRow());
 
-        sLog.outString();
-        sLog.outString(">> Loaded %u entries from `instance_custom_counters`", count);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u entries from `instance_custom_counters`", count);
     }
 }
 
 void InstanceStatisticsMgr::IncrementWipeCounter(uint32 mapId, uint32 creatureEntry)
 {
     uint32 count;
-    m_wipesMutex.acquire();
+    std::unique_lock<std::mutex> lock(m_wipesMutex);
     auto it = m_instanceWipes.find(std::make_pair(mapId, creatureEntry));
     if (it == m_instanceWipes.end())
     {
@@ -155,7 +155,7 @@ void InstanceStatisticsMgr::IncrementWipeCounter(uint32 mapId, uint32 creatureEn
         it->second.count++;
         count = it->second.count;
     }
-    m_wipesMutex.release();
+    lock.unlock();
 
     Save(mapId, creatureEntry, count);
 }
@@ -173,7 +173,7 @@ void InstanceStatisticsMgr::IncrementKillCounter(Creature* pKiller, Player* pVic
         spellId = spellProto->Id;
     uint32 count = 0;
 
-    m_creatureKillsMutex.acquire();
+    std::unique_lock<std::mutex> lock(m_creatureKillsMutex);
     auto it = m_instanceCreatureKills.find(std::make_pair(mapId, creatureEntry));
     if (it == m_instanceCreatureKills.end())
     {
@@ -196,14 +196,14 @@ void InstanceStatisticsMgr::IncrementKillCounter(Creature* pKiller, Player* pVic
             count = ++it2->second;
         }
     }
-    m_creatureKillsMutex.release();
+    lock.unlock();
 
     Save(mapId,creatureEntry,spellId,count);
 }
 
 void InstanceStatisticsMgr::IncrementCustomCounter(eInstanceCustomCounter index, bool save)
 {
-    m_customCountersMutex.acquire();
+    std::unique_lock<std::mutex> lock(m_customCountersMutex);
     uint32 count;
     auto it = m_instanceCustomCounters.find(index);
     if (it == m_instanceCustomCounters.end())
@@ -216,7 +216,7 @@ void InstanceStatisticsMgr::IncrementCustomCounter(eInstanceCustomCounter index,
         it->second++;
         count = it->second;
     }
-    m_customCountersMutex.release();
+    lock.unlock();
 
     if (save)
     {

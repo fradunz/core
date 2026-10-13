@@ -25,6 +25,7 @@
 #include "World.h"
 #include "GameObjectModel.h"
 #include "DBCStores.h"
+#include "ModelInstance.h"
 
 struct GameobjectModelData
 {
@@ -48,19 +49,19 @@ void LoadGameObjectModelList()
     char buff[500];
     while (!feof(model_list_file))
     {
-        fread(&displayId, sizeof(uint32), 1, model_list_file);
-        fread(&name_length, sizeof(uint32), 1, model_list_file);
+        IgnoreResult(fread(&displayId, sizeof(uint32), 1, model_list_file));
+        IgnoreResult(fread(&name_length, sizeof(uint32), 1, model_list_file));
 
         if (name_length >= sizeof(buff))
         {
-            DEBUG_LOG("File %s seems to be corrupted", VMAP::GAMEOBJECT_MODELS);
+            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "File %s seems to be corrupted", VMAP::GAMEOBJECT_MODELS);
             break;
         }
 
-        fread(&buff, sizeof(char), name_length, model_list_file);
+        IgnoreResult(fread(&buff, sizeof(char), name_length, model_list_file));
         Vector3 v1, v2;
-        fread(&v1, sizeof(Vector3), 1, model_list_file);
-        fread(&v2, sizeof(Vector3), 1, model_list_file);
+        IgnoreResult(fread(&v1, sizeof(Vector3), 1, model_list_file));
+        IgnoreResult(fread(&v2, sizeof(Vector3), 1, model_list_file));
 
         model_list.insert(ModelList::value_type(displayId, GameobjectModelData(std::string(buff, name_length), AABox(v1, v2))));
     }
@@ -69,8 +70,6 @@ void LoadGameObjectModelList()
 
 GameObjectModel::~GameObjectModel()
 {
-    if (iModel)
-        ((VMAP::VMapManager2*)VMAP::VMapFactory::createOrGetVMapManager())->releaseModelInstance(name);
 }
 
 bool GameObjectModel::initialize(GameObject const* const pGo, GameObjectDisplayInfoEntry const* pDisplayInfo)
@@ -83,7 +82,7 @@ bool GameObjectModel::initialize(GameObject const* const pGo, GameObjectDisplayI
     // ignore models with no bounds
     if (mdl_box == G3D::AABox::zero())
     {
-        DEBUG_LOG("Model %s has zero bounds, loading skipped", it->second.name.c_str());
+        sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Model %s has zero bounds, loading skipped", it->second.name.c_str());
         return false;
     }
 
@@ -91,6 +90,10 @@ bool GameObjectModel::initialize(GameObject const* const pGo, GameObjectDisplayI
 
     if (!iModel)
         return false;
+
+    if (!pGo->GetGOInfo()->CanAlwaysBreakLoS() &&
+        it->second.name.find(".m2") != std::string::npos)
+        iModel->setModelFlags(VMAP::MOD_M2);
 
     name = it->second.name;
     iPos = Vector3(pGo->GetPositionX(), pGo->GetPositionY(), pGo->GetPositionZ());
@@ -133,6 +136,8 @@ GameObjectModel* GameObjectModel::construct(GameObject const* const object)
             return nullptr;
         if (gobjInfo->type == GAMEOBJECT_TYPE_GOOBER && gobjInfo->goober.losOK)
             return nullptr;
+        if (gobjInfo->IsServerOnly())
+            return nullptr;
     }
     GameObjectDisplayInfoEntry const* info = sGameObjectDisplayInfoStore.LookupEntry(object->GetDisplayId());
     if (!info)
@@ -148,7 +153,7 @@ GameObjectModel* GameObjectModel::construct(GameObject const* const object)
     return mdl;
 }
 
-bool GameObjectModel::intersectRay(G3D::Ray const& ray, float& MaxDist, bool StopAtFirstHit) const
+bool GameObjectModel::intersectRay(G3D::Ray const& ray, float& MaxDist, bool StopAtFirstHit, bool ignoreM2Model) const
 {
     if (!collision_enabled)
         return false;
@@ -161,7 +166,7 @@ bool GameObjectModel::intersectRay(G3D::Ray const& ray, float& MaxDist, bool Sto
     Vector3 p = iInvRot * (ray.origin() - iPos) * iInvScale;
     Ray modRay(p, iInvRot * ray.direction());
     float distance = MaxDist * iInvScale;
-    bool hit = iModel->IntersectRay(modRay, distance, StopAtFirstHit);
+    bool hit = iModel->IntersectRay(modRay, distance, StopAtFirstHit, ignoreM2Model);
     if (hit)
     {
         distance *= iScale;
@@ -183,7 +188,7 @@ bool GameObjectModel::Relocate(GameObject const& go)
     // ignore models with no bounds
     if (mdl_box == G3D::AABox::zero())
     {
-        DEBUG_LOG("GameObject model %s has zero bounds, loading skipped", it->second.name.c_str());
+        sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "GameObject model %s has zero bounds, loading skipped", it->second.name.c_str());
         return false;
     }
 

@@ -22,6 +22,8 @@
 #include "TemporarySummon.h"
 #include "Log.h"
 #include "CreatureAI.h"
+#include "ObjectAccessor.h"
+#include "Map.h"
 
 TemporarySummon::TemporarySummon(ObjectGuid summoner) :
     Creature(CREATURE_SUBTYPE_TEMPORARY_SUMMON), m_type(TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN), m_timer(0), m_lifetime(0), m_summoner(summoner), m_unSummonInformed(false)
@@ -30,24 +32,14 @@ TemporarySummon::TemporarySummon(ObjectGuid summoner) :
 
 void TemporarySummon::Update(uint32 update_diff,  uint32 diff)
 {
-    switch (m_type)
+    // Don't despawn charmed mob until charm expires. Fixes Warlock's Infernal.
+    if (GetCharmerGuid().IsEmpty() || !HasAuraType(SPELL_AURA_MOD_CHARM))
     {
-        case TEMPSUMMON_MANUAL_DESPAWN:
-            break;
-        case TEMPSUMMON_TIMED_DESPAWN:
+        switch (m_type)
         {
-            if (m_timer <= update_diff)
-            {
-                UnSummon();
-                return;
-            }
-
-            m_timer -= update_diff;
-            break;
-        }
-        case TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT:
-        {
-            if (!IsInCombat())
+            case TEMPSUMMON_MANUAL_DESPAWN:
+                break;
+            case TEMPSUMMON_TIMED_DESPAWN:
             {
                 if (m_timer <= update_diff)
                 {
@@ -56,147 +48,181 @@ void TemporarySummon::Update(uint32 update_diff,  uint32 diff)
                 }
 
                 m_timer -= update_diff;
+                break;
             }
-            else if (m_timer != m_lifetime)
-                m_timer = m_lifetime;
-
-            break;
-        }
-        case TEMPSUMMON_CORPSE_TIMED_DESPAWN:
-        {
-            if (IsCorpse())
-            {
-                if (m_timer <= update_diff)
-                {
-                    UnSummon();
-                    return;
-                }
-
-                m_timer -= update_diff;
-            }
-            break;
-        }
-        case TEMPSUMMON_CORPSE_DESPAWN:
-        {
-            // if m_deathState is DEAD, CORPSE was skipped
-            if (IsDead())
-            {
-                UnSummon();
-                return;
-            }
-
-            break;
-        }
-        case TEMPSUMMON_DEAD_DESPAWN:
-        {
-            if (IsDespawned())
-            {
-                UnSummon();
-                return;
-            }
-            break;
-        }
-        case TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN:
-        {
-            // if m_deathState is DEAD, CORPSE was skipped
-            if (IsDead())
-            {
-                UnSummon();
-                return;
-            }
-
-            if (!IsInCombat())
-            {
-                if (m_timer <= update_diff)
-                {
-                    UnSummon();
-                    return;
-                }
-                else
-                    m_timer -= update_diff;
-            }
-            else if (m_timer != m_lifetime)
-                m_timer = m_lifetime;
-            break;
-        }
-        case TEMPSUMMON_TIMED_OR_DEAD_DESPAWN:
-        {
-            // if m_deathState is DEAD, CORPSE was skipped
-            if (IsDespawned())
-            {
-                UnSummon();
-                return;
-            }
-
-            if (!IsInCombat() && IsAlive())
-            {
-                if (m_timer <= update_diff)
-                {
-                    UnSummon();
-                    return;
-                }
-                else
-                    m_timer -= update_diff;
-            }
-            else if (m_timer != m_lifetime)
-                m_timer = m_lifetime;
-            break;
-        }
-        case TEMPSUMMON_TIMED_COMBAT_OR_CORPSE_DESPAWN:
-        {
-            if (IsDead())
-            {
-                UnSummon();
-                return;
-            }
-            if (m_timer <= update_diff)
+            case TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT:
             {
                 if (!IsInCombat())
                 {
-                    UnSummon();
-                    return;
+                    if (m_timer <= update_diff)
+                    {
+                        UnSummon();
+                        return;
+                    }
+
+                    m_timer -= update_diff;
                 }
-                else
-                    m_timer = 0;
-            }
-            else
-                m_timer -= update_diff;
-            break;
-        }
-        case TEMPSUMMON_TIMED_COMBAT_OR_DEAD_DESPAWN:
-        {
-            if (IsDespawned())
-            {
-                UnSummon();
-                return;
-            }
+                else if (m_timer != m_lifetime)
+                    m_timer = m_lifetime;
 
-            // Reset timer when the mob dies
-            if (!IsAlive() && !m_justDied)
-            {
-                m_justDied = true;
-                m_timer = m_lifetime;
+                break;
             }
-
-            if (m_timer <= update_diff)
+            case TEMPSUMMON_CORPSE_TIMED_DESPAWN:
             {
-                // Prevent despawn while the mob is still in combat
-                if (!IsInCombat())
+                if (IsCorpse())
+                {
+                    if (m_timer <= update_diff)
+                    {
+                        UnSummon();
+                        return;
+                    }
+
+                    m_timer -= update_diff;
+                }
+                break;
+            }
+            case TEMPSUMMON_CORPSE_DESPAWN:
+            {
+                // if m_deathState is DEAD, CORPSE was skipped
+                if (IsDead())
                 {
                     UnSummon();
                     return;
                 }
-                else
-                    m_timer = 0;
+
+                break;
             }
-            else
-                m_timer -= update_diff;
-            break;
+            case TEMPSUMMON_DEAD_DESPAWN:
+            {
+                if (IsDespawned())
+                {
+                    UnSummon();
+                    return;
+                }
+                break;
+            }
+            case TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN:
+            {
+                // if m_deathState is DEAD, CORPSE was skipped
+                if (IsDead())
+                {
+                    UnSummon();
+                    return;
+                }
+
+                if (!IsInCombat())
+                {
+                    if (m_timer <= update_diff)
+                    {
+                        UnSummon();
+                        return;
+                    }
+                    else
+                        m_timer -= update_diff;
+                }
+                else if (m_timer != m_lifetime)
+                    m_timer = m_lifetime;
+                break;
+            }
+            case TEMPSUMMON_TIMED_OR_DEAD_DESPAWN:
+            {
+                // if m_deathState is DEAD, CORPSE was skipped
+                if (IsDespawned())
+                {
+                    UnSummon();
+                    return;
+                }
+
+                if (!IsInCombat() && IsAlive())
+                {
+                    if (m_timer <= update_diff)
+                    {
+                        UnSummon();
+                        return;
+                    }
+                    else
+                        m_timer -= update_diff;
+                }
+                else if (m_timer != m_lifetime)
+                    m_timer = m_lifetime;
+                break;
+            }
+            case TEMPSUMMON_TIMED_COMBAT_OR_CORPSE_DESPAWN:
+            {
+                if (IsDead())
+                {
+                    UnSummon();
+                    return;
+                }
+                if (m_timer <= update_diff)
+                {
+                    if (!IsInCombat())
+                    {
+                        UnSummon();
+                        return;
+                    }
+                    else
+                        m_timer = 0;
+                }
+                else
+                    m_timer -= update_diff;
+                break;
+            }
+            case TEMPSUMMON_TIMED_COMBAT_OR_DEAD_DESPAWN:
+            {
+                if (IsDespawned())
+                {
+                    UnSummon();
+                    return;
+                }
+
+                // Reset timer when the mob dies
+                if (!IsAlive() && !m_justDied)
+                {
+                    m_justDied = true;
+                    m_timer = m_lifetime;
+                }
+
+                if (m_timer <= update_diff)
+                {
+                    // Prevent despawn while the mob is still in combat
+                    if (!IsInCombat())
+                    {
+                        UnSummon();
+                        return;
+                    }
+                    else
+                        m_timer = 0;
+                }
+                else
+                    m_timer -= update_diff;
+                break;
+            }
+            case TEMPSUMMON_TIMED_DEATH_AND_DEAD_DESPAWN:
+            {
+                // if m_deathState is DEAD, CORPSE was skipped
+                if (IsDespawned())
+                {
+                    UnSummon();
+                    return;
+                }
+
+                if (m_timer <= update_diff)
+                {
+                    // Prevent death while the mob is still in combat
+                    if (!IsInCombat() && IsAlive())
+                        DoKillUnit();
+                    m_timer = 0;
+                }
+                else
+                    m_timer -= update_diff;
+                break;
+            }
+            default:
+                UnSummon();
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Temporary summoned creature (entry: %u) have unknown type %u of ", GetEntry(), m_type);
+                break;
         }
-        default:
-            UnSummon();
-            sLog.outError("Temporary summoned creature (entry: %u) have unknown type %u of ", GetEntry(), m_type);
-            break;
     }
 
     Creature::Update(update_diff, diff);
@@ -207,6 +233,9 @@ void TemporarySummon::Summon(TempSummonType type, uint32 lifetime, CreatureAiSet
     m_type = type;
     m_timer = lifetime;
     m_lifetime = lifetime;
+
+    if (lifetime && IsRespawnableTempSummonType(type))
+        m_respawnDelay = lifetime / IN_MILLISECONDS;
 
     if (pFuncAiSetter)
         pFuncAiSetter(this);
@@ -231,6 +260,11 @@ void TemporarySummon::UnSummon(uint32 delayDespawnTime /*= 0*/)
 
         AddObjectToRemoveList();
     }
+}
+
+Unit* TemporarySummon::GetSummoner() const
+{
+    return ObjectAccessor::GetUnit(*this, m_summoner);
 }
 
 void TemporarySummon::InformSummonerOfDespawn()
@@ -262,7 +296,7 @@ TemporarySummon::~TemporarySummon()
     // By this stage it is too late to correctly unsummon the unit, since
     // we have already been removed from the map.
     if (!m_unSummonInformed)
-        sLog.outError("TemporarySummon %s deleted before being unsummed - summoner will retain incorrect count", GetGuidStr().c_str());
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "TemporarySummon %s deleted before being unsummed - summoner will retain incorrect count", GetGuidStr().c_str());
 }
 
 void TemporarySummon::SaveToDB()

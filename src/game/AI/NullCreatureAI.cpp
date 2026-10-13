@@ -22,6 +22,13 @@
 #include "NullCreatureAI.h"
 #include "Creature.h"
 
+NullCreatureAI::NullCreatureAI(Creature* c) : CreatureAI(c)
+{
+    c->AddUnitState(UNIT_STATE_NO_SEARCH_FOR_OTHERS);
+    m_bMeleeAttack = false;
+    m_bCombatMovement = false;
+}
+
 NullCreatureAI::~NullCreatureAI()
 {
 }

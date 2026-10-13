@@ -19,46 +19,57 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-/// \addtogroup realmd
-/// @{
-/// \file
+// \addtogroup realmd
+// @{
+// \file
 
 #ifndef _REALMLIST_H
 #define _REALMLIST_H
 
 #include "Common.h"
+#include "RealmZone.h"
+#include "IO/Networking/IpAddress.h"
+
 #include <array>
 
 struct RealmBuildInfo
 {
-    int build;
-    int major_version;
-    int minor_version;
-    int bugfix_version;
-    int hotfix_version;
-    std::array<uint8, 20> WindowsHash;
-    std::array<uint8, 20> MacHash;
+    uint8 majorVersion = 0;
+    uint8 minorVersion = 0;
+    uint8 bugfixVersion = 0;
+    char hotfixVersion = 0;
+    uint16 build = 0;
+    std::string os;
+    std::string platform;
+    std::array<uint8, 20> integrityHash = { };
 };
 
-RealmBuildInfo const* FindBuildInfo(uint16 _build);
+RealmBuildInfo const* FindBuildInfo(uint16 build);
+std::vector<RealmBuildInfo const*> FindBuildInfo(uint16 build, std::string const& os, std::string const& platform);
+uint8 GetRealmCategoryIdByBuildAndZone(uint16 build, RealmZone realmZone);
+extern std::vector<RealmBuildInfo> ExpectedRealmdClientBuilds;
 
 typedef std::set<uint32> RealmBuilds;
 
-/// Storage object for a realm
+// Storage object for a realm
 struct Realm
 {
-    std::string address;
-    uint8 icon;
-    RealmFlags realmflags;                                  // realmflags
-    uint8 timezone;
-    uint32 m_ID;
-    AccountTypes allowedSecurityLevel;                      // current allowed join security level (show as locked for not fit accounts)
-    float populationLevel;
-    RealmBuilds realmbuilds;                                // list of supported builds (updated in DB by mangosd)
-    RealmBuildInfo realmBuildInfo;                          // build info for show version in list
+    uint32 id = 0;
+    IO::Networking::IpEndpoint externalAddress;
+    IO::Networking::IpEndpoint localAddress;
+    uint8 localSubnetMaskCidr = 0;                          // only valid if localAddress is IPv4
+    uint8 icon = 0;
+    RealmFlags realmFlags = REALM_FLAG_NONE;
+    uint8 timeZone = 0;
+    AccountTypes allowedSecurityLevel = SEC_PLAYER;         // required security level to join (shows as locked for other accounts)
+    float populationLevel = 0.0f;
+    RealmBuilds realmBuilds;                                // list of supported builds (updated in DB by mangosd)
+    RealmBuildInfo realmBuildInfo;                          // build info for showing version in list
+
+    IO::Networking::IpEndpoint GetAddressForClient(IO::Networking::IpAddress const& clientAddr) const;
 };
 
-/// Storage object for the list of realms on the server
+// Storage object for the list of realms on the server
 class RealmList
 {
     public:
@@ -78,9 +89,22 @@ class RealmList
         uint32 size() const { return m_realms.size(); }
     private:
         void UpdateRealms(bool init);
-        void UpdateRealm( uint32 ID, const std::string& name, const std::string& address, uint32 port, uint8 icon, RealmFlags realmflags, uint8 timezone, AccountTypes allowedSecurityLevel, float popu, const std::string& builds);
+        void UpdateRealm(
+                uint32 realmId,
+                std::string const& name,
+                IO::Networking::IpAddress const& externalIpAddress,
+                IO::Networking::IpAddress const& localIpAddress,
+                uint8 localSubnetMaskCidr,
+                uint16 port,
+                uint8 icon,
+                RealmFlags realmFlags,
+                uint8 timeZone,
+                AccountTypes allowedSecurityLevel,
+                float population,
+                std::string const& builds);
+        void LoadAllowedClients();
     private:
-        RealmMap m_realms;                                  ///< Internal map of realms
+        RealmMap m_realms;                                  // Internal map of realms
         uint32   m_UpdateInterval;
         time_t   m_NextUpdateTime;
 };
@@ -88,4 +112,4 @@ class RealmList
 #define sRealmList RealmList::Instance()
 
 #endif
-/// @}
+// @}

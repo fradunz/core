@@ -16,42 +16,28 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 set(EXECUTABLE_NAME mangosd)
-set (EXECUTABLE_SRCS 
-	ChatSocket.h
-	CliRunnable.h
-	MaNGOSsoap.h
-	Master.h
-	RASocket.h
-	soapH.h
-	soapStub.h
-	WorldRunnable.h
-	ChatSocket.cpp
-	CliRunnable.cpp
-	Main.cpp
-	MaNGOSsoap.cpp
-	Master.cpp
-	RASocket.cpp
-	soapC.cpp
-	soapServer.cpp
-	WorldRunnable.cpp
-
+set(EXECUTABLE_SRCS
+  CliRunnable.h
+  Master.h
+  WorldRunnable.h
+  CliRunnable.cpp
+  Main.cpp
+  Master.cpp
+  WorldRunnable.cpp
+  remote/RemoteAccess/RASocket.h
+  remote/RemoteAccess/RASocket.cpp
+  remote/soap/MaNGOSsoap.h
+  remote/soap/MaNGOSsoap.cpp
 )
-
 
 if(WIN32)
   list(APPEND EXECUTABLE_SRCS
     mangosd.rc
   )
-  
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /D__ACE_INLINE__")
 endif()
 
 include_directories(
-  ${CMAKE_SOURCE_DIR}/src/shared
-  ${CMAKE_SOURCE_DIR}/dep/include/gsoap
-  ${CMAKE_SOURCE_DIR}/dep/include/g3dlite
   ${CMAKE_SOURCE_DIR}/src/framework
-  ${CMAKE_SOURCE_DIR}/src/framework/Network
   ${CMAKE_SOURCE_DIR}/src/game
   ${CMAKE_SOURCE_DIR}/src/game/AI
   ${CMAKE_SOURCE_DIR}/src/game/Anticheat
@@ -72,14 +58,12 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/src/game/Objects
   ${CMAKE_SOURCE_DIR}/src/game/OutdoorPvP
   ${CMAKE_SOURCE_DIR}/src/game/PlayerBots
-  ${CMAKE_SOURCE_DIR}/src/game/Protocol
+  ${CMAKE_SOURCE_DIR}/src/game/Server
+  ${CMAKE_SOURCE_DIR}/src/game/Server/Protocol
   ${CMAKE_SOURCE_DIR}/src/game/Spells
   ${CMAKE_SOURCE_DIR}/src/game/Threat
   ${CMAKE_SOURCE_DIR}/src/game/Transports
   ${CMAKE_SOURCE_DIR}/src/game/vmap
-  ${CMAKE_BINARY_DIR}/src/shared
-  ${CMAKE_BINARY_DIR}
-  ${ACE_INCLUDE_DIR}
   ${MYSQL_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
 )
@@ -91,17 +75,14 @@ if(WIN32)
 endif()
 
 # Display some debug informations at server startup
-set(DEFINITIONS
-  ${DEFINITIONS}
-  MANGOS_ALLOC_LIB="${ALLOC_LIB_INFO_STRING}"
-)
 set_directory_properties(PROPERTIES COMPILE_DEFINITIONS "${DEFINITIONS}")
 
 add_executable(${EXECUTABLE_NAME}
   ${EXECUTABLE_SRCS}
 )
+mangos_target_flags(${EXECUTABLE_NAME})
 
-if(SCRIPTS)
+if(USE_SCRIPTS)
   target_link_libraries(${EXECUTABLE_NAME}
     game
     scripts
@@ -109,7 +90,6 @@ if(SCRIPTS)
     framework
     g3dlite
     gsoap
-    ${ACE_LIBRARIES}
   )
 else()
   target_link_libraries(${EXECUTABLE_NAME}
@@ -119,13 +99,11 @@ else()
     framework
     g3dlite
     gsoap
-    ${ACE_LIBRARIES}
   )
 endif()
 
 if(WIN32)
   target_link_libraries(${EXECUTABLE_NAME}
-    zlib
     optimized ${MYSQL_LIBRARY}
     optimized ${OPENSSL_LIBRARIES}
     debug ${MYSQL_DEBUG_LIBRARY}
@@ -146,7 +124,6 @@ if(UNIX)
     ${MYSQL_LIBRARY}
     ${OPENSSL_LIBRARIES}
     ${OPENSSL_EXTRA_LIBRARIES}
-    ${ZLIB_LIBRARIES}
   )
 endif()
 
@@ -170,5 +147,5 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/mangosd.conf.dist.in ${CMAKE_CURRENT_
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/mangosd.conf.dist DESTINATION ${CONF_DIR})
 
 if(WIN32 AND MSVC)
-  install(FILES ${CMAKE_SOURCE_DIR}/bin/Debug/${EXECUTABLE_NAME}.pdb DESTINATION ${BIN_DIR} CONFIGURATIONS Debug)
+  install(FILES $<TARGET_PDB_FILE:${EXECUTABLE_NAME}> DESTINATION ${BIN_DIR} OPTIONAL)
 endif()

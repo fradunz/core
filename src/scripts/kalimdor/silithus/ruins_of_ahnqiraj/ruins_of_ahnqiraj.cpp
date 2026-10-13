@@ -27,6 +27,7 @@ mob_flesh_hunter
 EndContentData */
 
 #include "scriptPCH.h"
+#include "CreatureGroups.h"
 #include "ruins_of_ahnqiraj.h"
 
 // Anubisath guardian
@@ -42,7 +43,7 @@ enum
     SPELL_EXPLODE       =   25699,
     SPELL_INIT_EXPLODE  =   25698,
 
-    EMOTE_FRENZY        =   -1000002,
+    EMOTE_FRENZY        =   10677,
 
     NPC_ANU_WARRIOR     =   15537,
     NPC_ANU_SWARM       =   15538,
@@ -286,7 +287,7 @@ struct mob_flesh_hunterAI : public ScriptedAI
             m_creature->SetInCombatWith(who);
             who->SetInCombatWith(m_creature);
 
-            // Poursuite à 25m
+            // Chase at 25m
             m_creature->GetMotionMaster()->MoveCaster(who, 25.0f);
         }
     }
@@ -375,113 +376,6 @@ struct mob_flesh_hunterAI : public ScriptedAI
         }
         else
             m_uiTrash_Timer -= uiDiff;
-
-        DoMeleeAttackIfReady();
-    }
-};
-
-enum
-{
-    SPELL_PURGE             =  25756,
-    SPELL_DRAINMANA         =  25755,
-};
-
-
-struct ObsidianDestroyerAI : public ScriptedAI
-{
-    ObsidianDestroyerAI(Creature* pCreature) : ScriptedAI(pCreature)
-    {
-        Reset();
-    }
-
-    bool m_bIsInCombat;
-    uint32 m_uiDrainMana_Timer;
-    uint8 m_uiDrainCount;
-    std::vector<ObjectGuid> PlayerList;
-
-    void Reset() override
-    {
-        m_uiDrainMana_Timer = 7000;
-        m_uiDrainCount = 0;
-
-        m_bIsInCombat = false;
-    }
-
-    void Aggro(Unit* pWho) override
-    {
-        m_creature->SetInCombatWithZone();
-        if (!m_bIsInCombat)
-        {
-            m_creature->SetPower(POWER_MANA, 0);
-            m_bIsInCombat = true;
-        }
-    }
-
-    void JustDied(Unit* pKiller) override
-    {
-        if (GameObject *pObsidian = m_creature->SummonGameObject(OBJ_SMALL_OBSIDIAN_CHUNK, m_creature->GetPositionX(), m_creature->GetPositionY(), m_creature->GetPositionZ(), 0, 0, 0, 0, 0, -1, false))
-            pObsidian->SetRespawnTime(345600);
-    }
-
-    void FillPlayerList()
-    {
-        Map::PlayerList const &liste = m_creature->GetMap()->GetPlayers();
-        for (const auto& i : liste)
-        {
-            if (i.getSource()->IsAlive() && i.getSource()->GetPowerType() == POWER_MANA)
-                PlayerList.push_back(i.getSource()->GetObjectGuid());
-        }
-    }
-
-    void UpdateAI(uint32 const uiDiff) override
-    {
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-            return;
-
-        //m_uiDrainMana_Timer
-        if (m_uiDrainMana_Timer < uiDiff)
-        {
-            if (!m_uiDrainCount)
-                FillPlayerList();
-            if (!PlayerList.empty() && m_uiDrainCount < 6)
-            {
-                uint32 Rand = urand(0, PlayerList.size() - 1);
-                Player *Plr = m_creature->GetMap()->GetPlayer(PlayerList[Rand]);
-                if (Plr)
-                {
-                    if (Plr->IsAlive())
-                    {
-                        m_uiDrainCount++;
-                        uint32 Mana = Plr->GetPower(POWER_MANA);
-                        if (Mana > 500)
-                        {
-                            Plr->SetPower(POWER_MANA, Plr->GetPower(POWER_MANA) - 500);
-                            Mana = 500;
-                        }
-                        else
-                            Plr->SetPower(POWER_MANA, 0);
-                        Mana *= 2;
-                        if (m_creature->GetPower(POWER_MANA) + Mana < m_creature->GetMaxPower(POWER_MANA))
-                            m_creature->SetPower(POWER_MANA, m_creature->GetPower(POWER_MANA) + Mana);
-                        else if (m_creature->GetPower(POWER_MANA) < m_creature->GetMaxPower(POWER_MANA))
-                            m_creature->SetPower(POWER_MANA, m_creature->GetMaxPower(POWER_MANA));
-                    }
-                }
-                PlayerList.erase(PlayerList.begin() + Rand);
-
-                if (m_creature->GetPower(POWER_MANA) == m_creature->GetMaxPower(POWER_MANA) && m_bIsInCombat)
-                    DoCast(m_creature, SPELL_PURGE);
-
-            }
-            else
-            {
-                PlayerList.clear();
-                m_uiDrainCount = 0;
-                m_uiDrainMana_Timer = 7000;
-            }
-        }
-        else
-            m_uiDrainMana_Timer -= uiDiff;
 
         DoMeleeAttackIfReady();
     }
@@ -819,7 +713,7 @@ struct TuubidAI : public ScriptedAI
                     if (m_uiMarkedGUID)
                         m_uiMarkedGUID = 0;
 
-                    sLog.outError("boss_tuubid could not accuire a new target to mark.");
+                    sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "boss_tuubid could not accuire a new target to mark.");
                 }
                 m_uiAttackOrder_Timer = 9000;
             }
@@ -994,7 +888,7 @@ struct SwarmguardNeedlerAI : public ScriptedAI
     {
         m_uiUpdateTarget_Timer = 2000;
         m_uiTuubidGuid = 0;
-        m_uiCleave_Timer = urand(6000, 12000);;
+        m_uiCleave_Timer = urand(6000, 12000);
         m_bisTuubidAlive = true;
     }
 
@@ -1089,11 +983,6 @@ CreatureAI* GetAI_HiveZaraSoldier(Creature* pCreature)
     return new HiveZaraSoldierAI(pCreature);
 }
 
-CreatureAI* GetAI_ObsidianDestroyer(Creature* pCreature)
-{
-    return new ObsidianDestroyerAI(pCreature);
-}
-
 CreatureAI* GetAI_SilicateFeeder(Creature* pCreature)
 {
     return new SilicateFeederAI(pCreature);
@@ -1107,6 +996,56 @@ CreatureAI* GetAI_QirajiGladiator(Creature* pCreature)
 CreatureAI* GetAI_QirajiSwarmguard(Creature* pCreature)
 {
     return new QirajiSwarmguardAI(pCreature);
+}
+
+// 25676 - Drain Mana (Obsidian Destroyer)
+// 25754 - Drain Mana (Moam)
+struct AQ20DrainManaScript : SpellScript
+{
+    void OnSetTargetMap(Spell* spell, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const final
+    {
+        unMaxTargets = 6;
+    }
+
+    bool OnCheckTarget(Spell const* /*spell*/, Unit* target, SpellEffectIndex /*eff*/) const final
+    {
+        // Avoid targeting players with no mana
+        if (target->GetPowerType() != POWER_MANA || target->GetPowerPercent(POWER_MANA) < 1.0f)
+            return false;
+        return true;
+    }
+};
+
+SpellScript* GetScript_AQ20DrainMana(SpellEntry const*)
+{
+    return new AQ20DrainManaScript();
+}
+
+// 25599 - Thundercrash
+struct RajaxxThundercrashScript : public SpellScript
+{
+    bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0 && spell->GetUnitTarget())
+        {
+            // percent from health with min
+            int32 damage = spell->GetUnitTarget()->GetHealth() / 2;
+            if (damage < 200)
+                damage = 200;
+
+#if SUPPORTED_CLIENT_BUILD >= CLIENT_BUILD_1_11_2
+            spell->damage = damage;
+#else
+            spell->m_caster->CastCustomSpell(spell->GetUnitTarget(), 25598, damage, {}, {}, true);
+#endif
+        }
+        return true;
+    }
+};
+
+SpellScript* GetScript_RajaxxThundercrash(SpellEntry const*)
+{
+    return new RajaxxThundercrashScript();
 }
 
 void AddSC_ruins_of_ahnqiraj()
@@ -1148,11 +1087,6 @@ void AddSC_ruins_of_ahnqiraj()
     newscript->RegisterSelf();
 
     newscript = new Script;
-    newscript->Name = "mob_obsidian_destroyer";
-    newscript->GetAI = &GetAI_ObsidianDestroyer;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
     newscript->Name = "mob_hive_zara_stinger";
     newscript->GetAI = &GetAI_HiveZaraStinger;
     newscript->RegisterSelf();
@@ -1170,5 +1104,15 @@ void AddSC_ruins_of_ahnqiraj()
     newscript = new Script;
     newscript->Name = "boss_tuubid";
     newscript->GetAI = &GetAI_Tuubid;
+    newscript->RegisterSelf();
+
+    newscript = new Script;
+    newscript->Name = "spell_aq20_drain_mana";
+    newscript->GetSpellScript = &GetScript_AQ20DrainMana;
+    newscript->RegisterSelf();
+
+    newscript = new Script;
+    newscript->Name = "spell_rajaxx_thundercrash";
+    newscript->GetSpellScript = &GetScript_RajaxxThundercrash;
     newscript->RegisterSelf();
 }

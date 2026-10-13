@@ -22,6 +22,7 @@ SDCategory: Scholomance
 EndScriptData */
 
 #include "scriptPCH.h"
+#include "CreatureGroups.h"
 #include "scholomance.h"
 
 enum
@@ -75,6 +76,8 @@ struct boss_vectusAI : public ScriptedAI
         m_uiBlastWave_Timer     = 14000;
         m_uiFrenzy_Timer        = 0;
         _fullAggroDone          = false;
+
+        m_creature->EnableMoveInLosEvent();
     }
 
     void MoveInLineOfSight(Unit* pWho) override
@@ -227,7 +230,7 @@ struct npc_scholomance_studentAI : public ScriptedAI
 
     void Reset() override {}
 
-    void SpellHit(Unit *pCaster, SpellEntry const* pSpell) override
+    void SpellHit(SpellCaster*, SpellEntry const* pSpell) override
     {
         if (pSpell->Id == SPELL_VIEWING_ROOM_STUDENT_TRANSFORM_EFFECT)
         {

@@ -5,6 +5,9 @@
 #ifndef DEF_NAXXRAMAS_H
 #define DEF_NAXXRAMAS_H
 
+#include "scriptPCH.h"
+#include "Utilities/EventMap.h"
+
 enum NAXX_ENCOUNTERS_TYPES
 {
     TYPE_ANUB_REKHAN            = 0,
@@ -134,8 +137,7 @@ enum NaxxNPCs : uint32
     NPC_LightningTotem          = 16385,
     NPC_PlaguedDeathhound       = 16448,
 
-    NPC_EyeStalk                = 16236,
-    NPC_ArchmageTarsis          = 16381
+    NPC_EyeStalk                = 16236
 };
 
 enum NaxxAreaTriggers : uint32
@@ -155,8 +157,8 @@ enum NaxxAreaTriggers : uint32
     AREATRIGGER_START_DK_WING       = 4117
 };
 
-static const WorldLocation toFrostwyrmTPPos(533, 3498.13f, -5349.6f, 144.967f, 1.48353f);
-static const WorldLocation entranceHubTPPos(533, 3023.52f, -3434.31f, 296.1f, 0.0f);
+static const WorldLocation toFrostwyrmTPPos(MAP_NAXXRAMAS, 3498.13f, -5349.6f, 144.967f, 1.48353f);
+static const WorldLocation entranceHubTPPos(MAP_NAXXRAMAS, 3023.52f, -3434.31f, 296.1f, 0.0f);
 
 enum NaxxGOs : uint32
 {
@@ -164,7 +166,7 @@ enum NaxxGOs : uint32
     GO_ARAC_ANUB_DOOR           = 181126,   //encounter door - open on click after click auto open/close on encounter pull/kill/reset
     GO_ARAC_ANUB_GATE           = 181195,   //open after boss is dead
     GO_ARAC_FAER_WEB            = 181235,   //encounter door
-    GO_ARAC_FAER_DOOR           = 194022,   //after faerlina, to outer ring
+    GO_ARAC_FAER_DOOR           = 181167,   //after faerlina, to outer ring
     GO_ARAC_MAEX_INNER_DOOR     = 181197,   //encounter door
     GO_ARAC_MAEX_OUTER_DOOR     = 181209,   //right before maex
 
@@ -299,6 +301,9 @@ static constexpr float eyeStalkPossitions[max_stalks][4] =
     { 2830.09f, -3776.49f, 275.08f, 0.94f },
     { 2813.34f, -3780.97f, 275.08f, 1.84f },
 };
+
+static const float aSapphPositions[4] = {3522.56f, -5236.76f, 137.626f, 4.4855f}; // Taken from DB
+static const uint32 SPAWN_ANIM_TIMER = 22000;
 
 class instance_naxxramas : public ScriptedInstance
 {

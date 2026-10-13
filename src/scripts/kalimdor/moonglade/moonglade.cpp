@@ -21,64 +21,7 @@
  SDCategory: Moonglade
  EndScriptData */
 
-/* ContentData
- npc_great_bear_spirit
- EndContentData */
-
 #include "scriptPCH.h"
-
-/*######
- ## npc_great_bear_spirit
- ######*/
-
-enum
-{
-    GOSSIP_BEAR1 = 7439,
-    GOSSIP_BEAR2 = 7442,
-    GOSSIP_BEAR3 = 7444,
-    GOSSIP_BEAR4 = 7446,
-};
-
-bool GossipHello_npc_great_bear_spirit(Player* pPlayer, Creature* pCreature)
-{
-    //ally or horde quest
-    if (pPlayer->GetQuestStatus(5929) == QUEST_STATUS_INCOMPLETE || pPlayer->GetQuestStatus(5930) == QUEST_STATUS_INCOMPLETE)
-    {
-        pPlayer->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, GOSSIP_BEAR1, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
-        pPlayer->SEND_GOSSIP_MENU(4719, pCreature->GetGUID());
-    }
-    else
-        pPlayer->SEND_GOSSIP_MENU(4718, pCreature->GetGUID());
-
-    return true;
-}
-
-bool GossipSelect_npc_great_bear_spirit(Player* pPlayer, Creature* pCreature, uint32 uiSender, uint32 uiAction)
-{
-    switch (uiAction)
-    {
-        case GOSSIP_ACTION_INFO_DEF:
-            pPlayer->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, GOSSIP_BEAR2, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
-            pPlayer->SEND_GOSSIP_MENU(4721, pCreature->GetGUID());
-            break;
-        case GOSSIP_ACTION_INFO_DEF + 1:
-            pPlayer->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, GOSSIP_BEAR3, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 2);
-            pPlayer->SEND_GOSSIP_MENU(4733, pCreature->GetGUID());
-            break;
-        case GOSSIP_ACTION_INFO_DEF + 2:
-            pPlayer->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, GOSSIP_BEAR4, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 3);
-            pPlayer->SEND_GOSSIP_MENU(4734, pCreature->GetGUID());
-            break;
-        case GOSSIP_ACTION_INFO_DEF + 3:
-            pPlayer->SEND_GOSSIP_MENU(4735, pCreature->GetGUID());
-            if (pPlayer->GetQuestStatus(5929) == QUEST_STATUS_INCOMPLETE)
-                pPlayer->AreaExploredOrEventHappens(5929);
-            if (pPlayer->GetQuestStatus(5930) == QUEST_STATUS_INCOMPLETE)
-                pPlayer->AreaExploredOrEventHappens(5930);
-            break;
-    }
-    return true;
-}
 
 /*######
  ## npc_keeper_remulos
@@ -196,11 +139,11 @@ static EventLocations aTyrandeLocations[] = //TODO : add waypoints, or spawn fur
 {
     // Tyrande should appear along the pathway, but because of the missing pathfinding we'll summon here closer to Eranikus
     //{7948.89f, -2575.58f, 490.05f, 3.03f}, // tyrande spawn loc
-    {7955.826172f, -2369.380856f, 486.537537f, 4.812577f}, //tyrande spawn au loin
-    {7972.298828f, -2519.744873f, 487.863190f, 0.0f },//point sur le 2e pont avant le soucis de pathfinding.
-    {7972.312500f, -2521.717773f, 488.041565f, 0.0f },//point sur le 2e pont après le soucis de pathfinding.
-    {7976.151367f, -2549.361084f, 490.079834f, 0.0f },//point pour éviter de courrir sur la rembarde du pont.
-    {7939.48352f, -2577.439941f, 488.615326f, 0.0f },//point avant dernier pont pour approprier.
+    {7955.826172f, -2369.380856f, 486.537537f, 4.812577f}, //tyrande spawn far away
+    {7972.298828f, -2519.744873f, 487.863190f, 0.0f },//point on the 2nd bridge before the pathfinding issue.
+    {7972.312500f, -2521.717773f, 488.041565f, 0.0f },//point on the 2nd bridge after the pathfinding issue.
+    {7976.151367f, -2549.361084f, 490.079834f, 0.0f },//point to avoid running on the bridge railing.
+    {7939.48352f, -2577.439941f, 488.615326f, 0.0f },//point before the last bridge to position correctly.
     {7888.32f, -2566.25f, 487.02f, 0.0f }, // tyrande heal loc
     {7901.83f, -2565.24f, 488.04f, 0.0f }, // tyrande eranikus loc
 };
@@ -312,7 +255,7 @@ struct npc_keeper_remulosAI : public npc_escortAI
                 pSummoned->AddAura(17131); // hover
                 pSummoned->SetFly(true);
                 pSummoned->MonsterMove(aEranikusLocations[0].m_fX, aEranikusLocations[0].m_fY, aEranikusLocations[0].m_fZ);
-                pSummoned->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                pSummoned->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
                 pSummoned->SetRespawnDelay(DAY);
                 break;
             case NPC_NIGHTMARE_PHANTASM:
@@ -371,6 +314,9 @@ struct npc_keeper_remulosAI : public npc_escortAI
                 pPlayer->FailQuest(QUEST_WAKING_LEGENDS);
             m_idQuestActive = 0;
         }
+
+        // Remulos is only targetable for friendly player spells during Eranikus event so reset on death
+        m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PVP);
     }
 
     void WaypointReached(uint32 uiPointId) override
@@ -382,6 +328,8 @@ struct npc_keeper_remulosAI : public npc_escortAI
                 case 0:
                     if (Player* pPlayer = GetPlayerForEscort())
                         DoScriptText(SAY_REMULOS_INTRO_1, m_creature, pPlayer);
+                    // Remulos is only targetable for friendly player spells during Eranikus event
+                    m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PVP);
                     m_creature->SetSpeedRate(MOVE_WALK, 2.2f); //du cout faudrait ptetre aussi revoir la vitesse de course.
                     m_creature->SetWalk(true);
                     break;
@@ -471,6 +419,9 @@ struct npc_keeper_remulosAI : public npc_escortAI
         if (Player* pPlayer = GetPlayerForEscort())
             pPlayer->GroupEventHappens(QUEST_NIGHTMARE_MANIFESTS, pTarget);
 
+        // Remulos is only targetable for friendly player spells during Eranikus event: remove flag on quest completion
+        m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PVP);
+
         m_uiOutroTimer = 3000;
     }
 
@@ -492,8 +443,8 @@ struct npc_keeper_remulosAI : public npc_escortAI
                             // Despawn Remulos after the outro is finished - he will respawn automatically at his home position after a few min
                             DoScriptText(SAY_REMULOS_OUTRO_2, m_creature);
                             //m_creature->ForcedDespawn(3000);
-                            // Alita : piqué ce morceau de code à ScriptedFollowerAI.h, car NON il ne se replaçait pas forcément correctement (p-etre lié à mon code dans evade mode)
-                            //Ustaag <Nostalrius> : vilain fix des mobs qui voulaient pas respawn à leur point de spawn
+                            // Alita: borrowed this piece of code from ScriptedFollowerAI.h, because NO it didn't necessarily reposition itself correctly (maybe related to my code in evade mode)
+                            //Ustaag <Nostalrius>: ugly fix for mobs that wouldn't respawn at their spawn point
                             //m_creature->DealDamage(m_creature, m_creature->GetMaxHealth(),nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
                             m_creature->NearTeleportTo(m_creature->GetHomePosition());
                             m_creature->ForcedDespawn();
@@ -593,7 +544,7 @@ struct npc_keeper_remulosAI : public npc_escortAI
                         m_uiTransitionTimer = 0;
 
                         pEranikus->SetWalk(true);
-                        pEranikus->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                        pEranikus->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
                         pEranikus->AI()->AttackStart(m_creature);
                     }
                 }
@@ -1078,7 +1029,7 @@ struct boss_eranikusAI : public ScriptedAI
             // redeem eranikus
             m_uiEventTimer = 5000;
             m_creature->SetFactionTemplateId(FACTION_FRIENDLY);
-            m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_PACIFIED);
+            m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING | UNIT_FLAG_PACIFIED);
         }
         else
         {
@@ -1222,7 +1173,7 @@ struct boss_eranikusAI : public ScriptedAI
                         }
                         // Note: this emote was a world wide yellow emote before WotLK
                         //DoScriptText(EMOTE_ERANIKUS_REDEEM, m_creature);
-                        sWorld.SendWorldText(EMOTE_ERANIKUS_REDEEM, m_creature->GetName());
+                        sWorld.SendBroadcastTextToWorld(EMOTE_ERANIKUS_REDEEM);
                         //DoCastSpellIfCan(m_creature, SPELL_MOONGLADE_TRANQUILITY); // spell id unk for the moment
                         m_creature->SetStandState(UNIT_STAND_STATE_DEAD);
                         m_uiEventTimer = 5000;
@@ -1285,7 +1236,7 @@ struct boss_eranikusAI : public ScriptedAI
             ThreatList const& tList = m_creature->GetThreatManager().getThreatList();
             for (const auto itr : tList)
             {
-                if (Unit* pAttacker = m_creature->GetMap()->GetUnit(itr->getUnitGuid()))
+                if (Unit* pAttacker = itr->getTarget())
                     if (m_creature->CanReachWithMeleeAutoAttack(pAttacker))
                         m_creature->GetThreatManager().modifyThreatPercent(pAttacker, 5);
             }
@@ -1389,12 +1340,6 @@ CreatureAI* GetAI_boss_eranikus(Creature* pCreature)
 void AddSC_moonglade()
 {
     Script* pNewScript;
-
-    pNewScript = new Script;
-    pNewScript->Name = "npc_great_bear_spirit";
-    pNewScript->pGossipHello =  &GossipHello_npc_great_bear_spirit;
-    pNewScript->pGossipSelect = &GossipSelect_npc_great_bear_spirit;
-    pNewScript->RegisterSelf();
 
     pNewScript = new Script;
     pNewScript->Name = "npc_keeper_remulos";

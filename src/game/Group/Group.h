@@ -23,25 +23,28 @@
 #define MANGOSSERVER_GROUP_H
 
 #include "Common.h"
+#include "SharedDefines.h"
 #include "ObjectGuid.h"
 #include "GroupReference.h"
 #include "GroupRefManager.h"
-#include "BattleGround.h"
+#include "BattleGroundDefines.h"
 #include "LootMgr.h"
-#include "DBCEnums.h"
-#include "SharedDefines.h"
-#include "LFGHandler.h"
 #include "LFGMgr.h"
+#include "DBCEnums.h"
 
 #include <map>
 #include <vector>
+#include <memory>
 
 class WorldSession;
 class Map;
 class BattleGround;
 class DungeonPersistentState;
 class Field;
+class Creature;
 class Unit;
+class ServerPacket;
+struct LFGGroupQueueInfo;
 
 #define MAX_GROUP_SIZE 5
 #define MAX_RAID_SIZE 40
@@ -156,8 +159,8 @@ class Roll : public LootValidatorRef
             : lootedTargetGUID(_lootedTragetGuid), itemid(li.itemid), itemRandomPropId(li.randomPropertyId),
             totalPlayersRolling(0), totalNeed(0), totalGreed(0), totalPass(0), itemSlot(0) {}
         ~Roll() override { }
-        void setLoot(Loot *pLoot) { link(pLoot, this); }
-        Loot *getLoot() { return getTarget(); }
+        void setLoot(Loot* pLoot) { link(pLoot, this); }
+        Loot* getLoot() { return getTarget(); }
         void targetObjectBuildLink() override;
 
         ObjectGuid lootedTargetGUID;
@@ -222,7 +225,7 @@ class Group
         void   SetLooterGuid(ObjectGuid guid) { m_looterGuid = guid; }
         void   UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed = false);
         void   SetLootThreshold(ItemQualities threshold) { m_lootThreshold = threshold; }
-        void   Disband(bool hideDestroy=false);
+        void   Disband(bool hideDestroy = false, ObjectGuid initiator = ObjectGuid());
 
         // properties accessories
         uint32 GetId() const { return m_Id; }
@@ -269,7 +272,7 @@ class Group
         GroupReference* GetFirstMember() { return m_memberMgr.getFirst(); }
         uint32 GetMembersCount() const { return m_memberSlots.size(); }
         uint32 GetMembersMinCount() const { return (isBGGroup() ? 1 : 2); }
-        void GetDataForXPAtKill(Unit const* victim, uint32& count,uint32& sum_level, Player* & member_with_max_level, Player* & not_gray_member_with_max_level, Player* additional = nullptr);
+        void GetDataForXPAtKill(Unit const* victim, uint32& count,uint32& sum_level, Player* & member_with_max_level, Unit* & not_gray_member_with_max_level, Player* additional = nullptr);
         uint8 GetMemberGroup(ObjectGuid guid) const
         {
             member_citerator mslot = _getMemberCSlot(guid);
@@ -287,7 +290,7 @@ class Group
 
         void ChangeMembersGroup(ObjectGuid guid, uint8 group);
         void ChangeMembersGroup(Player* player, uint8 group);
-        
+
         void SwapMembersGroup(ObjectGuid guid, ObjectGuid swapGuid);
         void SwapMembersGroup(Player* player, Player* swapPlayer);
 
@@ -321,7 +324,6 @@ class Group
         ObjectGuid GetTargetWithIcon(RaidTargetIcon id) const { return m_targetIcons[id]; }
         void SetTargetIcon(uint8 id, ObjectGuid targetGuid);
         void ClearTargetIcon(ObjectGuid targetGuid);
-        uint16 InInstance();
         bool InCombatToInstance(uint32 instanceId);
         void ResetInstances(InstanceResetMethod method, Player* SendMsgTo);
 
@@ -331,8 +333,9 @@ class Group
         void UpdatePlayerOnlineStatus(Player* player, bool online = true);
         void UpdateOfflineLeader(time_t time, uint32 delay);
         void BroadcastGroupUpdate();
-                                                            // ignore: GUID of player that will be ignored
-        void BroadcastPacket(WorldPacket* packet, bool ignorePlayersInBGRaid, int group=-1, ObjectGuid ignore = ObjectGuid());
+        /// ignore: GUID of the player that will not receive the packet
+        void BroadcastPacket(std::unique_ptr<ServerPacket> packet, bool ignorePlayersInBGRaid, int raidSubGroup=-1, ObjectGuid ignore = ObjectGuid());
+        void BroadcastPacket(WorldPacket* packet, bool ignorePlayersInBGRaid, int raidSubGroup=-1, ObjectGuid ignore = ObjectGuid());
         void BroadcastReadyCheck(WorldPacket* packet);
         void OfflineReadyCheck();
 
@@ -344,10 +347,10 @@ class Group
 
         void SetLFGAreaId(uint32 areaId) { m_LFGAreaId = areaId; }
         uint32 GetLFGAreaId()            { return m_LFGAreaId;   }
-        bool isInLFG()                   { return (m_LFGAreaId > 0) ? true : false; }
+        bool IsInLFG()                   { return (m_LFGAreaId > 0) ? true : false; }
 
         void CalculateLFGRoles(LFGGroupQueueInfo& data);
-        bool FillPremadeLFG(ObjectGuid const& plrGuid, Classes playerClass, ClassRoles requiredRole, uint32& InitRoles, uint32& DpsCount, std::list<ObjectGuid>& processed);
+        bool FillPremadeLFG(ObjectGuid const& plrGuid, Classes playerClass, LfgRoles requiredRole, uint32& InitRoles, uint32& DpsCount, std::vector<ObjectGuid>& processed);
 
         /*********************************************************/
         /***                   LOOT SYSTEM                     ***/
@@ -359,9 +362,9 @@ class Group
         static void SendLootRoll(ObjectGuid const& targetGuid, uint8 rollNumber, uint8 rollType, Roll const& r);
         static void SendLootRollWon(ObjectGuid const& targetGuid, uint8 rollNumber, RollVote rollType, Roll const& r);
         static void SendLootAllPassed(Roll const& r);
-        void GroupLoot(Creature* creature, Loot *loot);
-        void NeedBeforeGreed(Creature* creature, Loot *loot);
-        void MasterLoot(Creature* creature, Loot *loot);
+        void GroupLoot(Creature* creature, Loot* loot);
+        void NeedBeforeGreed(Creature* creature, Loot* loot);
+        void MasterLoot(Creature* creature, Loot* loot, Player* player);
         bool CountRollVote(Player* player, ObjectGuid const& lootedTarget, uint32 itemSlot, RollVote vote);
         void StartLootRoll(Creature* lootTarget, LootMethod method, Loot* loot, uint8 itemSlot);
         void EndRoll(Loot* loot);

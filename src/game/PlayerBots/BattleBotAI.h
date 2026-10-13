@@ -1,3 +1,19 @@
+/*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation; either version 2 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program; if not, write to the Free Software
+* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+*/
+
 #ifndef MANGOS_BattleBotAI_H
 #define MANGOS_BattleBotAI_H
 
@@ -20,9 +36,8 @@ enum FlagSpellsWS
 class BattleBotAI : public CombatBotBaseAI
 {
 public:
-
-    BattleBotAI(uint8 race, uint8 class_, uint8 level, uint32 mapId, uint32 instanceId, float x, float y, float z, float o, uint8 bgId)
-        : CombatBotBaseAI(),  m_race(race), m_class(class_), m_level(level), m_mapId(mapId), m_instanceId(instanceId), m_x(x), m_y(y), m_z(z), m_o(o), m_battlegroundId(bgId)
+    BattleBotAI(uint8 race, uint8 class_, uint8 level, uint32 mapId, uint32 instanceId, float x, float y, float z, float o, uint8 bgId, bool temporary)
+        : CombatBotBaseAI(),  m_race(race), m_class(class_), m_level(level), m_mapId(mapId), m_instanceId(instanceId), m_x(x), m_y(y), m_z(z), m_o(o), m_battlegroundId(bgId), m_temporary(temporary)
     {
         m_updateTimer.Reset(2000);
     }
@@ -30,17 +45,16 @@ public:
     {
         return SpawnNewPlayer(sess, m_class, m_race, m_mapId, m_instanceId, m_x, m_y, m_z, m_o);
     }
-
+  
     void OnPlayerLogin() final;
     void UpdateAI(uint32 const diff) final;
     void OnPacketReceived(WorldPacket const* packet) final;
-    void SendFakePacket(uint16 opcode) final;
     void MovementInform(uint32 MovementType, uint32 Data = 0) final;
 
+    bool ShouldIgnoreCombat() const;
     bool DrinkAndEat();
     bool UseMount();
     uint32 GetMountSpellId() const;
-    void AddPremadeGearAndSpells();
     bool CheckForUnreachableTarget();
     float GetMaxAggroDistanceForMap() const;
     bool AttackStart(Unit* pVictim);
@@ -52,7 +66,9 @@ public:
     void OnEnterBattleGround();
     void OnLeaveBattleGround();
 
+    void UpdateFlagCarrierAI();
     void UpdateBattleGroundAI();
+    void AddPremadeGearAndSpells();
     void UpdateInCombatAI() final;
     void UpdateOutOfCombatAI() final;
     void UpdateInCombatAI_Paladin() final;
@@ -85,6 +101,7 @@ public:
     float m_y = 0.0f;
     float m_z = 0.0f;
     float m_o = 0.0f;
+    bool m_temporary = false;
     bool m_wasDead = false;
     bool m_wasInBG = false;
 

@@ -167,7 +167,7 @@ struct boss_baroness_anastariAI : public ScriptedAI
         //Possess
         if (Possess_Timer < diff)
         {
-            if (m_creature->SelectAttackingTarget(ATTACKING_TARGET_TOPAGGRO, 1)) // au moins 2 joueurs présents
+            if (m_creature->SelectAttackingTarget(ATTACKING_TARGET_TOPAGGRO, 1)) // at least 2 players present
             {
                 if (Unit* target = m_creature->SelectAttackingTarget(ATTACKING_TARGET_RANDOM, 0))
                 {
@@ -182,17 +182,16 @@ struct boss_baroness_anastariAI : public ScriptedAI
                             PlayerAggro[i] = 0;
                         }
                         ThreatList const& tList = m_creature->GetThreatManager().getThreatList();
-                        for (const auto i : tList)
+                        for (const auto itr : tList)
                         {
-                            Unit* pUnit = m_creature->GetMap()->GetUnit(i->getUnitGuid());
-                            if (pUnit && pUnit->IsPlayer())
+                            if (itr->getUnitGuid().IsPlayer())
                             {
                                 for (int i = 0; i < 5; i++)
                                 {
                                     if (PlayerGuids[i] == 0)
                                     {
-                                        PlayerGuids[i] = pUnit->GetGUID();
-                                        PlayerAggro[i] = m_creature->GetThreatManager().getThreat(pUnit);
+                                        PlayerGuids[i] = itr->getUnitGuid();
+                                        PlayerAggro[i] = itr->getThreat();
                                     }
                                 }
                             }

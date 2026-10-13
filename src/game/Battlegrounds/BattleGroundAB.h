@@ -26,6 +26,8 @@
 #include "BattleGround.h"
 #include "World.h"
 
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
+
 enum BG_AB_WorldStates
 {
     BG_AB_OP_OCCUPIED_BASES_HORDE       = 1778,
@@ -184,10 +186,10 @@ float const BG_AB_BuffPositions[BG_AB_NODES_MAX][4] = {
 class BattleGroundABScore : public BattleGroundScore
 {
     public:
-        BattleGroundABScore(): BasesAssaulted(0), BasesDefended(0) {};
+        BattleGroundABScore(): basesAssaulted(0), basesDefended(0) {};
         virtual ~BattleGroundABScore() {};
-        uint32 BasesAssaulted;
-        uint32 BasesDefended;
+        uint32 basesAssaulted;
+        uint32 basesDefended;
 };
 
 class BattleGroundAB : public BattleGround
@@ -196,26 +198,26 @@ class BattleGroundAB : public BattleGround
 
     public:
         BattleGroundAB();
-        ~BattleGroundAB();
+        ~BattleGroundAB() override;
 
-        void Update(uint32 diff);
-        void AddPlayer(Player* plr);
-        virtual void StartingEventCloseDoors();
-        virtual void StartingEventOpenDoors();
-        void RemovePlayer(Player* plr, ObjectGuid guid);
-        void HandleAreaTrigger(Player* Source, uint32 Trigger);
-        virtual bool SetupBattleGround();
-        virtual void Reset();
-        void EndBattleGround(Team winner);
-        virtual WorldSafeLocsEntry const* GetClosestGraveYard(Player* player);
+        void Update(uint32 diff) override;
+        void AddPlayer(Player* player) override;
+        void StartingEventCloseDoors() override;
+        void StartingEventOpenDoors() override;
+        void RemovePlayer(Player* player, ObjectGuid guid) override;
+        bool HandleAreaTrigger(Player* source, uint32 trigger) override;
+        bool SetupBattleGround() override;
+        void Reset() override;
+        void EndBattleGround(Team winner) override;
+        WorldSafeLocsEntry const* GetClosestGraveYard(Player* player) override;
 
         /* Scorekeeping */
-        virtual void UpdatePlayerScore(Player* Source, uint32 type, uint32 value);
+        void UpdatePlayerScore(Player* source, uint32 type, uint32 value) override;
 
-        virtual void FillInitialWorldStates(WorldPacket& data, uint32& count);
+        void FillInitialWorldStates(std::vector<std::pair<uint32, int32>>& states) override;
 
         /* Nodes occupying */
-        virtual void EventPlayerClickedOnFlag(Player* source, GameObject* target_obj);
+        void EventPlayerClickedOnFlag(Player* source, GameObject* targetGo) override;
 
     private:
         /* Gameobject spawning/despawning */
@@ -235,14 +237,15 @@ class BattleGroundAB : public BattleGround
             2: horde contested
             3: ally occupied
             4: horde occupied     */
-        uint8               m_Nodes[BG_AB_NODES_MAX];
+        uint8               m_nodes[BG_AB_NODES_MAX];
         uint8               m_prevNodes[BG_AB_NODES_MAX];   // used for performant wordlstate-updating
-        uint32              m_NodeTimers[BG_AB_NODES_MAX];
+        uint32              m_nodeTimers[BG_AB_NODES_MAX];
         uint32              m_lastTick[BG_TEAMS_COUNT];
-        uint32              m_HonorScoreTics[BG_TEAMS_COUNT];
-        uint32              m_ReputationScoreTics[BG_TEAMS_COUNT];
-        bool                m_IsInformedNearVictory;
-        uint32              m_HonorTics;
-        uint32              m_ReputationTics;
+        uint32              m_honorScoreTics[BG_TEAMS_COUNT];
+        uint32              m_reputationScoreTics[BG_TEAMS_COUNT];
+        bool                m_isInformedNearVictory;
+        uint32              m_honorTics;
+        uint32              m_reputationTics;
 };
+#endif
 #endif

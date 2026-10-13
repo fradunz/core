@@ -14,26 +14,17 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-/* ScriptData
-SDName: Boss_Flamegor
-SD%Complete: 90
-SDComment: Thrash is missing
-SDCategory: Blackwing Lair
-EndScriptData */
-
 #include "scriptPCH.h"
 #include "blackwing_lair.h"
 
-enum
+enum Flamegor : uint32
 {
-    EMOTE_GENERIC_WING_BUFFET   = -1469032,
-    EMOTE_GENERIC_SHADOW_FLAME  = -1469033,
-    EMOTE_GENERIC_FRENZY        = -1000002,
+    EMOTE_GENERIC_FRENZY  = 1191,
 
-    SPELL_SHADOW_FLAME          = 22539,
-    SPELL_WING_BUFFET           = 23339,
-    SPELL_FRENZY                = 23342,                    // This spell periodically triggers fire nova
-    SPELL_THRASH                = 3391,                     // TODO missing
+    SPELL_SHADOW_FLAME    = 22539,
+    SPELL_WING_BUFFET     = 23339,
+    SPELL_FRENZY          = 23342, // This spell periodically triggers fire nova
+    SPELL_THRASH          = 3391,
 };
 
 struct boss_flamegorAI : public ScriptedAI
@@ -52,9 +43,9 @@ struct boss_flamegorAI : public ScriptedAI
 
     void Reset() override
     {
-        m_uiShadowFlameTimer = 16000;                        // These times are probably wrong
-        m_uiWingBuffetTimer = 30000;
-        m_uiFrenzyTimer = 10000;
+        m_uiShadowFlameTimer = 16000; // These times are probably wrong
+        m_uiWingBuffetTimer  = 30000;
+        m_uiFrenzyTimer      = 10000;
     }
 
     void Aggro(Unit* /*pWho*/) override
@@ -97,10 +88,7 @@ struct boss_flamegorAI : public ScriptedAI
         if (m_uiShadowFlameTimer < uiDiff)
         {
             if (DoCastSpellIfCan(m_creature, SPELL_SHADOW_FLAME) == CAST_OK)
-            {
-                DoScriptText(EMOTE_GENERIC_SHADOW_FLAME, m_creature);
                 m_uiShadowFlameTimer = 16000;
-            }
         }
         else
             m_uiShadowFlameTimer -= uiDiff;
@@ -109,10 +97,7 @@ struct boss_flamegorAI : public ScriptedAI
         if (m_uiWingBuffetTimer < uiDiff)
         {
             if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_WING_BUFFET) == CAST_OK)
-            {
-                DoScriptText(EMOTE_GENERIC_WING_BUFFET, m_creature);
                 m_uiWingBuffetTimer = 30000;
-            }
         }
         else
             m_uiWingBuffetTimer -= uiDiff;
@@ -135,6 +120,7 @@ struct boss_flamegorAI : public ScriptedAI
         DoMeleeAttackIfReady();
     }
 };
+
 CreatureAI* GetAI_boss_flamegor(Creature* pCreature)
 {
     return new boss_flamegorAI(pCreature);

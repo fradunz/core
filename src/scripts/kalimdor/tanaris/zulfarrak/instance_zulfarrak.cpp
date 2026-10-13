@@ -98,6 +98,8 @@ public:
 
     uint32 GahzRillaEncounter;
     uint32 EndDoorEncounter;
+    uint32 ZumrahEncounter;
+    uint32 AntusulEncounter;
     std::string strInstData;
 
     uint64 UkorzGUID;
@@ -118,6 +120,8 @@ public:
     {
         EndDoorEncounter = NOT_STARTED;
         GahzRillaEncounter = NOT_STARTED;
+        ZumrahEncounter = NOT_STARTED;
+        AntusulEncounter = NOT_STARTED;
 
         PyramidPhase = 0;
         major_wave_Timer = 0;
@@ -192,6 +196,10 @@ public:
         {
             case EVENT_PYRAMID:
                 return PyramidPhase;
+            case EVENT_ZUMRAH:
+                return ZumrahEncounter;
+            case EVENT_ANTUSUL:
+                return AntusulEncounter;
         }
         return 0;
     }
@@ -229,6 +237,12 @@ public:
                 break;
             case EVENT_END_DOOR:
                 EndDoorEncounter = data;
+                break;
+            case EVENT_ZUMRAH:
+                ZumrahEncounter = data;
+                break;
+            case EVENT_ANTUSUL:
+                AntusulEncounter = data;
                 break;
         };
 

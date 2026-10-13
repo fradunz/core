@@ -14,30 +14,26 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-/* ScriptData
-SDName: Boss_Moam
-SD%Complete: 100
-SDComment: fix summon mana fiend in core, find out if there is a mana drain
-SDCategory: Ruins of Ahn'Qiraj
-EndScriptData */
-
 #include "scriptPCH.h"
 #include "ruins_of_ahnqiraj.h"
 
 enum
 {
-    EMOTE_AGGRO             =  -1509000,
-    EMOTE_MANA_FULL         =  -1509001,
-    EMOTE_DRAIN             =  -1509028,
+    EMOTE_AGGRO             =  11441,
+    EMOTE_MANA_FULL         =  11473,
+    EMOTE_DRAIN             =  11474,
 
-    SPELL_TRAMPLE           =  15550,
-    SPELL_ARCANEERUPTION    =  25672,
-    SPELL_SUMMON_MANA_FIEND =  25681,                      //25682,25683
-    SPELL_ENERGIZE          =  25685,
-    SPELL_DRAINMANA         =  26639,
+    SPELL_TRAMPLE           = 15550,
+    SPELL_DOUBLE_ATTACK     = 18941,
+    SPELL_RESET_MANA        = 23777,
+    SPELL_ARCANEERUPTION    = 25672,
+    SPELL_DRAINMANA         = 25754,
+    SPELL_SUMMON_MANA_FIEND = 25684,
+    SPELL_ENERGIZE          = 25685,
+    SPELL_DROP_OBSIDIAN     = 27631,
+    SPELL_RANDOM_AGGRO      = 25680,
 
-    // mana fiend
-    NPC_MANA_FIEND          =  15527,
+    NPC_MANA_FIEND          = 15527,
 };
 
 struct boss_moamAI : public ScriptedAI
@@ -51,210 +47,174 @@ struct boss_moamAI : public ScriptedAI
     ScriptedInstance* m_pInstance;
 
     uint32 m_uiTrample_Timer;
-    uint32 m_uiSummonManaFiend_Timer;
+    uint32 m_uiDoubleAttack_Timer;
+    uint32 m_uiStoneFormTimer;
     uint32 m_uiTurnBackFromStone_Timer;
-    uint32 m_uiWait_Timer;
-    uint32 m_uiArmorValue;
     uint32 m_uiDrainMana_Timer;
-    uint8 m_uiDrainCount;
-    uint8 m_uiFiendCount;
-    std::vector<Player*> PlayerList;
-    ObjectGuid m_OGvictim;          // Memorize last target before turning into stone, then take it back.
-    bool m_bIsInCombat;
+    ObjectGuid m_OGvictim;
+    std::list<ObjectGuid> m_manaFiendGuids;
 
     void Reset() override
     {
-        m_uiTrample_Timer = 6000;
-        m_uiSummonManaFiend_Timer = 90000;
+        m_uiTrample_Timer = urand(11000, 13000);
+        m_uiDoubleAttack_Timer = urand(8000, 13000);
+        m_uiStoneFormTimer = 90000;
         m_uiTurnBackFromStone_Timer = 90000;
-        m_uiWait_Timer = 20000;
-        m_uiDrainMana_Timer = 5000;
-
-        m_uiDrainCount = 0;
-        m_uiFiendCount = 0;
-        m_bIsInCombat = false;
-        m_uiArmorValue = m_creature->GetArmor();
+        m_uiDrainMana_Timer = 6000;
 
         m_OGvictim.Clear();
+        DoCast(m_creature, SPELL_RESET_MANA, true);
+        DespawnManaFiends();
 
         if (m_pInstance)
             m_pInstance->SetData(TYPE_MOAM, NOT_STARTED);
     }
 
+    void JustReachedHome() override
+    {
+        DoCast(m_creature, SPELL_RESET_MANA, true);
+        DespawnManaFiends();
+
+        if (m_pInstance)
+            m_pInstance->SetData(TYPE_MOAM, FAIL);
+    }
+
+    void DespawnManaFiends()
+    {
+        // Mana Fiends are guardian Pets owned by Moam (SUMMON_GUARDIAN effect).
+        m_creature->RemoveGuardiansWithEntry(NPC_MANA_FIEND);
+    }
+
+    void SummonedCreatureDespawn(Creature* pSummoned) override
+    {
+        ScriptedAI::SummonedCreatureDespawn(pSummoned);
+
+        if (pSummoned->GetEntry() == NPC_MANA_FIEND)
+            m_manaFiendGuids.remove(pSummoned->GetObjectGuid());
+    }
+
     void Aggro(Unit* pWho) override
     {
         m_creature->SetInCombatWithZone();
-        DoScriptText(EMOTE_AGGRO, m_creature);
-        if (!m_bIsInCombat)
-        {
-            m_creature->SetPower(POWER_MANA, 0);
-            m_bIsInCombat = true;
-        }
+        DoCast(m_creature, SPELL_RESET_MANA, true);
+        DoScriptText(EMOTE_AGGRO, m_creature, pWho, CHAT_TYPE_ZONE_EMOTE);
 
         if (m_pInstance)
             m_pInstance->SetData(TYPE_MOAM, IN_PROGRESS);
     }
 
-    void JustDied(Unit* pKiller) override
+    void JustSummoned(Creature* pSummoned) override
     {
-        if (GameObject *pObsidian = m_creature->SummonGameObject(181069, m_creature->GetPositionX(), m_creature->GetPositionY(), m_creature->GetPositionZ(), 0, 0, 0, 0, 0, -1, false))
-            pObsidian->SetRespawnTime(345600);
+        if (pSummoned->GetEntry() != NPC_MANA_FIEND)
+            return;
+
+        m_manaFiendGuids.push_back(pSummoned->GetObjectGuid());
+
+        pSummoned->CastSpell(pSummoned, SPELL_RANDOM_AGGRO, true);
+    }
+
+    void SummonedCreatureJustDied(Creature* pSummoned) override
+    {
+        if (pSummoned->GetEntry() != NPC_MANA_FIEND)
+            return;
+
+        m_manaFiendGuids.remove(pSummoned->GetObjectGuid());
+
+        if (m_manaFiendGuids.empty() && m_creature->HasAura(SPELL_ENERGIZE))
+            ExitStoneForm();
+    }
+
+    void JustDied(Unit* /*pKiller*/) override
+    {
+        DoCast(m_creature, SPELL_DROP_OBSIDIAN, true);
 
         if (m_pInstance)
             m_pInstance->SetData(TYPE_MOAM, DONE);
     }
 
-    /** This function seems to be unused, kept as it is in case of...*/
-    void JustSummoned(Creature* pSummoned) override
+    void ExitStoneForm()
     {
-        if (Unit* pTarget = m_creature->SelectAttackingTarget(ATTACKING_TARGET_TOPAGGRO, 0))
-        {
-            if (pTarget->IsAlive())
-            {
-                pSummoned->AI()->AttackStart(pTarget);
-                if (pSummoned->GetEntry() == NPC_MANA_FIEND)
-                {
-                    ++m_uiFiendCount;
-                    return;
-                }
-            }
-        }
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-        {
-            pSummoned->AddObjectToRemoveList();
-            return;
-        }
+        Unit* victim = m_creature->GetMap()->GetUnit(m_OGvictim);
+        if (victim)
+            m_creature->AI()->AttackStart(victim);
+        else
+            m_creature->SelectAttackingTarget(ATTACKING_TARGET_RANDOM, 0);
 
-        pSummoned->AddObjectToRemoveList();
-    }
+        m_creature->RemoveAurasDueToSpell(SPELL_ENERGIZE);
 
-    void FillPlayerList()
-    {
-        Map::PlayerList const &liste = m_creature->GetMap()->GetPlayers();
-        for (const auto& i : liste)
-        {
-            if (i.getSource()->IsAlive() && i.getSource()->GetPowerType() == POWER_MANA)
-                PlayerList.push_back(i.getSource());
-        }
+        m_uiStoneFormTimer = 90000;
     }
 
     void UpdateAI(uint32 const uiDiff) override
     {
-        if ((!m_creature->SelectHostileTarget() || !m_creature->GetVictim()) && !m_creature->HasAura(SPELL_ENERGIZE))
-            return;
+        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
+            if (!m_creature->HasAura(SPELL_ENERGIZE))
+                return;
 
-        // Once Moam got 100% mana, take back last target and launch arcane eruption
+        // Stone Form
         if (m_creature->HasAura(SPELL_ENERGIZE))
         {
-            m_uiTurnBackFromStone_Timer -= uiDiff;
-            //m_creature->SetPower(POWER_MANA,0); /** Help to check stone form by setting mana to 0 */
-            if (m_creature->GetPower(POWER_MANA) == m_creature->GetMaxPower(POWER_MANA) ||
-                    m_uiTurnBackFromStone_Timer == 0)
-            {
-                //Check if a victim was memorize, in case of error, take a random one.
-                Unit * victim = m_creature->GetMap()->GetUnit(m_OGvictim);
-                if (victim != nullptr)
-                    m_creature->AI()->AttackStart(victim);
-                else
-                    m_creature->SelectAttackingTarget(ATTACKING_TARGET_RANDOM, 0);
+            bool const timerExpired = m_uiTurnBackFromStone_Timer <= uiDiff;
+            if (!timerExpired)
+                m_uiTurnBackFromStone_Timer -= uiDiff;
+            else
+                m_uiTurnBackFromStone_Timer = 0;
 
-                m_creature->RemoveAurasDueToSpell(SPELL_ENERGIZE);
-                DoCast(m_creature->GetVictim(), SPELL_ARCANEERUPTION);
-                DoScriptText(EMOTE_MANA_FULL, m_creature);
-                m_creature->SetArmor(m_uiArmorValue);
-            }
-        }
+            bool const manaFull = m_creature->GetPower(POWER_MANA) >= m_creature->GetMaxPower(POWER_MANA);
 
-        if (m_creature->HasAura(SPELL_ENERGIZE))
+            if (manaFull || timerExpired)
+                ExitStoneForm();
+
             return;
-
-        // Cast arcane eruption spell if not in energize mode and if mana is at 100%
-        if (m_creature->GetPower(POWER_MANA) == m_creature->GetMaxPower(POWER_MANA))
-        {
-            DoCast(m_creature->GetVictim(), SPELL_ARCANEERUPTION);
-            DoScriptText(EMOTE_MANA_FULL, m_creature);
         }
 
-        // m_uiSummonManaFiend_Timer
-        if (m_uiSummonManaFiend_Timer < uiDiff)
+        // Arcane Eruption. Sniff shows it fired at 25884 mana (not only at 100%),
+        // i.e. as soon as Moam can afford the spell's 25000 mana cost.
+        if (m_creature->GetPower(POWER_MANA) >= 25000)
         {
-            if (DoCastSpellIfCan(m_creature, SPELL_ENERGIZE) == CAST_OK)
+            if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_ARCANEERUPTION) == CAST_OK)
+                DoScriptText(EMOTE_MANA_FULL, m_creature, nullptr, CHAT_TYPE_ZONE_EMOTE);
+        }
+
+        // Stone Form timer
+        if (m_uiStoneFormTimer <= uiDiff)
+        {
+            bool const summoned = DoCastSpellIfCan(m_creature, SPELL_SUMMON_MANA_FIEND, CF_TRIGGERED) == CAST_OK;
+            bool const energized = DoCastSpellIfCan(m_creature, SPELL_ENERGIZE) == CAST_OK;
+
+            if (summoned && energized && m_creature->GetVictim())
             {
-                m_creature->SetArmor(18000);
-                //DoCast(m_creature,SUMMON_MANA_FIEND); //summons only one
-                for (uint8 i = 0; i < 3; ++i)
-                {
-                    // Summon a Mana fiend which will disapear if Moam is reset
-                    m_creature->SummonCreature(NPC_MANA_FIEND,
-                                               m_creature->GetPositionX() + 2,
-                                               m_creature->GetPositionY(),
-                                               m_creature->GetPositionZ(),
-                                               m_creature->GetOrientation(),
-                                               TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 10000);
-
-                    // Create visual animation of the teleportation spell
-                    m_creature->SendSpellGo(m_creature, 25681);
-                }
-
-                m_uiSummonManaFiend_Timer = 90000;
                 m_uiTurnBackFromStone_Timer = 90000;
-                m_OGvictim = m_creature->GetVictim()->GetObjectGuid(); /** Memorize actual target to take it back,
-                                      once the end of SPELL_ENERGIZE */
+                m_OGvictim = m_creature->GetVictim()->GetObjectGuid();
                 m_creature->AttackStop();
-                DoScriptText(EMOTE_DRAIN, m_creature);
-                m_uiWait_Timer = 10000;
+                DoScriptText(EMOTE_DRAIN, m_creature, nullptr, CHAT_TYPE_ZONE_EMOTE);
+
+                m_uiStoneFormTimer = 90000;
             }
         }
         else
-            m_uiSummonManaFiend_Timer -= uiDiff;
+            m_uiStoneFormTimer -= uiDiff;
 
-        //m_uiTrample_Timer
         if (m_uiTrample_Timer < uiDiff)
         {
             if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_TRAMPLE) == CAST_OK)
-                m_uiTrample_Timer = 10000;
+                m_uiTrample_Timer = urand(11000, 13000);
         }
         else
             m_uiTrample_Timer -= uiDiff;
 
-        //m_uiDrainMana_Timer
+        if (m_uiDoubleAttack_Timer < uiDiff)
+        {
+            if (DoCastSpellIfCan(m_creature, SPELL_DOUBLE_ATTACK) == CAST_OK)
+                m_uiDoubleAttack_Timer = urand(8000, 13000);
+        }
+        else
+            m_uiDoubleAttack_Timer -= uiDiff;
+
         if (m_uiDrainMana_Timer < uiDiff)
         {
-            if (!m_uiDrainCount)
-                FillPlayerList();
-            if (!PlayerList.empty() && m_uiDrainCount < 6)
-            {
-                uint32 Rand = urand(0, PlayerList.size() - 1);
-                Player *Plr = 0;
-                if ((Plr = PlayerList[Rand]))
-                {
-                    if (Plr->IsAlive())
-                    {
-                        m_uiDrainCount++;
-                        uint32 Mana = Plr->GetPower(POWER_MANA);
-                        if (Mana > 500)
-                        {
-                            Plr->SetPower(POWER_MANA, Plr->GetPower(POWER_MANA) - 500);
-                            Mana = 500;
-                        }
-                        else
-                            Plr->SetPower(POWER_MANA, 0);
-                        Mana *= 2;
-                        if (m_creature->GetPower(POWER_MANA) + Mana < m_creature->GetMaxPower(POWER_MANA))
-                            m_creature->SetPower(POWER_MANA, m_creature->GetPower(POWER_MANA) + Mana);
-                        else if (m_creature->GetPower(POWER_MANA) < m_creature->GetMaxPower(POWER_MANA))
-                            m_creature->SetPower(POWER_MANA, m_creature->GetMaxPower(POWER_MANA));
-                        Plr->CastSpell(m_creature, SPELL_DRAINMANA, true);
-                    }
-                }
-                PlayerList.erase(PlayerList.begin() + Rand);
-            }
-            else
-            {
-                PlayerList.clear();
-                m_uiDrainCount = 0;
-                m_uiDrainMana_Timer = 7000;
-            }
+            DoCast(m_creature, SPELL_DRAINMANA);
+            m_uiDrainMana_Timer = 6000;
         }
         else
             m_uiDrainMana_Timer -= uiDiff;
@@ -262,6 +222,42 @@ struct boss_moamAI : public ScriptedAI
         DoMeleeAttackIfReady();
     }
 };
+
+// Spell script for 25684 - casts the three individual summon spells
+struct MoamSummonManaFiends : public SpellScript
+{
+    bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx != EFFECT_INDEX_0)
+            return true;
+
+        Unit* caster = spell->m_casterUnit;
+        if (!caster)
+            return true;
+
+        float const baseAngle = caster->GetOrientation();
+        struct { uint32 spellId; float offset; } fiends[] =
+        {
+            { 25681, 0.0f },
+            { 25682,  M_PI_F / 2 },
+            { 25683, -M_PI_F / 2 }
+        };
+
+        for (auto const& f : fiends)
+        {
+            Position pos;
+            caster->GetFirstCollisionPosition(pos, 10.0f, baseAngle + f.offset);
+            caster->CastSpell(pos.x, pos.y, pos.z, f.spellId, true);
+        }
+        return true;
+    }
+};
+
+SpellScript* GetScript_MoamSummonManaFiends(SpellEntry const*)
+{
+    return new MoamSummonManaFiends();
+}
+
 CreatureAI* GetAI_boss_moam(Creature* pCreature)
 {
     return new boss_moamAI(pCreature);
@@ -269,9 +265,13 @@ CreatureAI* GetAI_boss_moam(Creature* pCreature)
 
 void AddSC_boss_moam()
 {
-    Script* newscript;
-    newscript = new Script;
-    newscript->Name = "boss_moam";
-    newscript->GetAI = &GetAI_boss_moam;
-    newscript->RegisterSelf();
+    Script* pNewScript = new Script;
+    pNewScript->Name = "boss_moam";
+    pNewScript->GetAI = &GetAI_boss_moam;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "spell_moam_summon_mana_fiends";
+    pNewScript->GetSpellScript = &GetScript_MoamSummonManaFiends;
+    pNewScript->RegisterSelf();
 }

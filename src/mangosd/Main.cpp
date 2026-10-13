@@ -19,9 +19,9 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-/// \addtogroup mangosd Mangos Daemon
-/// @{
-/// \file
+// \addtogroup mangosd Mangos Daemon
+// @{
+// \file
 
 #include "Common.h"
 #include "Database/DatabaseEnv.h"
@@ -31,10 +31,9 @@
 #include "Master.h"
 #include "SystemConfig.h"
 #include "revision.h"
-#include <openssl/opensslv.h>
-#include <openssl/crypto.h>
-#include <ace/Version.h>
-#include <ace/Get_Opt.h>
+#include "ArgparserForServer.h"
+
+#include "Crypto/InitializeCrypto.h"
 
 #ifdef WIN32
 #include "ServiceWin32.h"
@@ -47,172 +46,99 @@ char serviceDescription[] = "Massive Network Game Object Server";
  *  1 - running
  *  2 - paused
  */
-int m_ServiceStatus = -1;
+volatile int m_ServiceStatus = -1;
 #else
 #include "PosixDaemon.h"
 #endif
 
-DatabaseType WorldDatabase;                                 ///< Accessor to the world database
-DatabaseType CharacterDatabase;                             ///< Accessor to the character database
-DatabaseType LoginDatabase;                                 ///< Accessor to the realm/login database
-DatabaseType LogsDatabase;                                  ///< Accessor to the logs database
+DatabaseType WorldDatabase;                                 // Accessor to the world database
+DatabaseType CharacterDatabase;                             // Accessor to the character database
+DatabaseType LoginDatabase;                                 // Accessor to the realm/login database
+DatabaseType LogsDatabase;                                  // Accessor to the logs database
 
-uint32 realmID;                                             ///< Id of the realm
+uint32 realmID;                                             // Id of the realm
+std::string realmName;                                      // Name of the realm
 
-/// Print out the usage string for this program on the console.
-void usage(const char *prog)
-{
-    sLog.outString("Usage: \n %s [<options>]\n"
-        "    -v, --version            print version and exist\n\r"
-        "    -c config_file           use config_file as configuration file\n\r"
-        #ifdef WIN32
-        "    Running as service functions:\n\r"
-        "    -s run                   run as service\n\r"
-        "    -s install               install service\n\r"
-        "    -s uninstall             uninstall service\n\r"
-        #else
-        "    Running as daemon functions:\n\r"
-        "    -s run                   run as daemon\n\r"
-        "    -s stop                  stop daemon\n\r"
-        #endif
-        ,prog);
-}
+char const* g_mainLogFileName = "Server.log";
 
-/// Launch the mangos server
+// Launch the mangos server
 extern int main(int argc, char **argv)
 {
-    ///- Command line parsing
-    char const* cfg_file = _MANGOSD_CONFIG;
-
-
-    char const *options = ":c:s:";
-
-    ACE_Get_Opt cmd_opts(argc, argv, options);
-    cmd_opts.long_option("version", 'v');
-
-    char serviceDaemonMode = '\0';
-
-    int option;
-    while ((option = cmd_opts()) != EOF)
+    ServerStartupArguments args;
     {
-        switch (option)
-        {
-            case 'c':
-                cfg_file = cmd_opts.opt_arg();
-                break;
-            case 'v':
-                printf("Core revision: %s\n", _FULLVERSION);
-                return 0;
-            case 's':
-            {
-                const char *mode = cmd_opts.opt_arg();
+        // parseResult is std::expected, where the error is the return code, that might be present when invalid args or "--help" is given
+        auto parseResult = ParseServerStartupArguments(argc, argv);
+        if (!parseResult)
+            return parseResult.error();
 
-                if (!strcmp(mode, "run"))
-                    serviceDaemonMode = 'r';
-#ifdef WIN32
-                else if (!strcmp(mode, "install"))
-                    serviceDaemonMode = 'i';
-                else if (!strcmp(mode, "uninstall"))
-                    serviceDaemonMode = 'u';
-#else
-                else if (!strcmp(mode, "stop"))
-                    serviceDaemonMode = 's';
-#endif
-                else
-                {
-                    sLog.outError("Runtime-Error: -%c unsupported argument %s", cmd_opts.opt_opt(), mode);
-                    usage(argv[0]);
-                    Log::WaitBeforeContinueIfNeed();
-                    return 1;
-                }
-                break;
-            }
-            case ':':
-                sLog.outError("Runtime-Error: -%c option requires an input argument", cmd_opts.opt_opt());
-                usage(argv[0]);
-                Log::WaitBeforeContinueIfNeed();
-                return 1;
-            default:
-                sLog.outError("Runtime-Error: bad format of commandline arguments");
-                usage(argv[0]);
-                Log::WaitBeforeContinueIfNeed();
-                return 1;
-        }
+        args = parseResult.value();
     }
 
-#ifdef WIN32                                                // windows service command need execute before config read
-    switch (serviceDaemonMode)
-    {
-        case 'i':
-            if (WinServiceInstall())
-                sLog.outString("Installing service");
-            return 1;
-        case 'u':
-            if (WinServiceUninstall())
-                sLog.outString("Uninstalling service");
-            return 1;
-        case 'r':
-            WinServiceRun();
-            break;
-    }
-#endif
+    if (args.configFilePath.empty())
+        args.configFilePath = _MANGOSD_CONFIG;
 
-    if (!sConfig.SetSource(cfg_file))
+    if (!sConfig.LoadFromFile(args.configFilePath)) // must be done before (linux) service init
     {
-        sLog.outError("Could not find configuration file %s.", cfg_file);
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Could not find or parse configuration file %s", args.configFilePath.c_str());
         Log::WaitBeforeContinueIfNeed();
-        return 1;
+        return EXIT_FAILURE;
     }
 
-#ifndef WIN32                                               // posix daemon commands need apply after config read
-    switch (serviceDaemonMode)
+    sLog.OpenWorldLogFiles();
+
+    switch (args.inputServiceMode)
     {
-    case 'r':
+        case ServiceDaemonAction::NotSet:
+            break;
+#ifdef WIN32
+            // windows service command need execute before config read
+        case ServiceDaemonAction::Install:
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Installing service...");
+            return WinServiceInstall() ? EXIT_SUCCESS : EXIT_FAILURE;
+        case ServiceDaemonAction::Uninstall:
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Uninstalling service...");
+            return WinServiceUninstall() ? EXIT_SUCCESS : EXIT_FAILURE;
+        case ServiceDaemonAction::Start:
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Starting service...");
+            return WinServiceRun() ? EXIT_SUCCESS : EXIT_FAILURE;
+#else
+            // posix daemon commands need apply after config read
+    case ServiceDaemonAction::Start:
         startDaemon();
         break;
-    case 's':
+    case ServiceDaemonAction::Stop:
         stopDaemon();
         break;
-    }
 #endif
-
-    sLog.outString("Core revision: %s [world-daemon]", _FULLVERSION);
-    sLog.outString( "<Ctrl-C> to stop." );
-    sLog.outString("\n\n"
-        "MM   MM         MM   MM  MMMMM   MMMM   MMMMM\n"
-        "MM   MM         MM   MM MMM MMM MM  MM MMM MMM\n"
-        "MMM MMM         MMM  MM MMM MMM MM  MM MMM\n"
-        "MM M MM         MMMM MM MMM     MM  MM  MMM\n"
-        "MM M MM  MMMMM  MM MMMM MMM     MM  MM   MMM\n"
-        "MM M MM M   MMM MM  MMM MMMMMMM MM  MM    MMM\n"
-        "MM   MM     MMM MM   MM MM  MMM MM  MM     MMM\n"
-        "MM   MM MMMMMMM MM   MM MMM MMM MM  MM MMM MMM\n"
-        "MM   MM MM  MMM MM   MM  MMMMMM  MMMM   MMMMM\n"
-        "        MM  MMM http://getmangos.com\n"
-        "        MMMMMM\n\n");
-    sLog.outString("vMaNGOS : https://github.com/vmangos");
-    sLog.outString("Using configuration file %s.", cfg_file);
-
-#define STR(s) #s
-#define XSTR(s) STR(s)
-
-    sLog.outInfo("Alloc library: " MANGOS_ALLOC_LIB "");
-    sLog.outInfo("Core Revision: " _FULLVERSION);
-
-    DETAIL_LOG("%s (Library: %s)", OPENSSL_VERSION_TEXT, SSLeay_version(SSLEAY_VERSION));
-    if (SSLeay() < 0x009080bfL )
-    {
-        DETAIL_LOG("WARNING: Outdated version of OpenSSL lib. Logins to server may not work!");
-        DETAIL_LOG("WARNING: Minimal required version [OpenSSL 0.9.8k]");
     }
 
-    DETAIL_LOG("Using ACE: %s", ACE_VERSION);
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "\n\n"
+        "MM     MM MM   MM         MM   MM  MMMMM   MMMMM   MMMMM\n"
+        "MM     MM MM   MM         MM   MM MMM MMM MM   MM MMM MMM\n"
+        " MM   MM  MMM MMM         MMM  MM MMM MMM MM   MM MMM\n"
+        " MM   MM  MM M MM  MMMMM  MMMM MM MMM     MM   MM  MMM\n"
+        "  MM MM   MM M MM M   MMM MM MMMM MMM     MM   MM   MMM\n"
+        "  MM MM   MM M MM     MMM MM  MMM MMMMMMM MM   MM    MMM\n"
+        "   MMM    MM   MM MMMMMMM MM   MM MM  MMM MM   MM     MMM\n"
+        "   MMM    MM   MM MM  MMM MM   MM MMM MMM MM   MM MMM MMM\n"
+        "    M     MM   MM MM  MMM MM   MM  MMMMMM  MMMMM   MMMMM\n"
+        "                  MMMMMM\n"
+        "                          https://github.com/vmangos\n\n");
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Core revision: %s [world-daemon]", _FULLVERSION);
+    if (!Crypto::InitializeCryptoAndPrintVersion())
+    {
+        sLog.WaitBeforeContinueIfNeed();
+        return EXIT_FAILURE;
+    }
 
-    ///- Set progress bars show mode
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "<Ctrl-C> to stop.");
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Using configuration file %s", sConfig.GetFilename().c_str());
+
+    // Set progress bars show mode
     BarGoLink::SetOutputState(sConfig.GetBoolDefault("ShowProgressBars", true));
 
-    ///- and run the 'Master'
-    /// \todo Why do we need this 'Master'? Can't all of this be in the Main as for Realmd?
+    // and run the 'Master'
+    // TODO: Why do we need this 'Master'? Can't all of this be in the Main as for Realmd?
     return sMaster.Run();
 
     // at sMaster return function exist with codes
@@ -221,4 +147,4 @@ extern int main(int argc, char **argv)
     // 2 - restart command used, this code can be used by restarter for restart mangosd
 }
 
-/// @}
+// @}

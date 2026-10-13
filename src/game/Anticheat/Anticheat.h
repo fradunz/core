@@ -73,79 +73,38 @@ public:
     virtual void showMuted(WorldSession* session) {}
 };
 
-#ifdef USE_ANTICHEAT
-#include "WardenAnticheat/Warden.h"
+#include "WardenAnticheat/Warden.hpp"
 #include "MovementAnticheat/MovementAnticheat.h"
-#else
-class Warden
-{
-public:
-    Warden() = default;
-    ~Warden() = default;
-    void HandleWardenDataOpcode(WorldPacket& recv_data) {}
-    void Update() {}
-    WorldSession* GetSession() { return nullptr; }
-};
-
-class MovementAnticheat
-{
-public:
-    MovementAnticheat() = default;
-    ~MovementAnticheat() = default;
-
-    void Init() {}
-    void InitNewPlayer(Player* pPlayer) {}
-    void ResetJumpCounters() {}
-
-    bool IsInKnockBack() const { return false; }
-
-    uint32 Update(uint32 diff, std::stringstream& reason) { return CHEAT_ACTION_NONE; }
-    uint32 Finalize(std::stringstream& reason) { return CHEAT_ACTION_NONE; }
-    void AddCheats(uint32 cheats, uint32 count = 1) {}
-    void HandleCommand(ChatHandler* handler) const {}
-    void OnKnockBack(Player* pPlayer, float speedxy, float speedz, float cos, float sin) {}
-
-    void OnUnreachable(Unit* attacker) {}
-    void OnExplore(AreaEntry const* pArea) {}
-    void OnTransport(Player* plMover, ObjectGuid transportGuid) {}
-    void OnWrongAckData() {};
-    void OnFailedToAckChange() {};
-
-    /*
-    pPlayer - player who is being moved (not necessarily same as this session's player)
-    movementInfo - new movement info that was just received
-    opcode - the packet we are checking
-    */
-    bool HandlePositionTests(Player* pPlayer, MovementInfo& movementInfo, uint16 opcode) { return true; }
-    bool HandleSpeedChangeAck(Player* pPlayer, MovementInfo& movementInfo, float speedReceived, UnitMoveType moveType, uint16 opcode) { return true; }
-    bool HandleFlagTests(Player* pPlayer, MovementInfo& movementInfo, uint16 opcode) { return true; }
-
-    void InitSpeeds(Unit* unit) {}
-    bool ExtrapolateMovement(MovementInfo const& mi, uint32 diffMs, float &x, float &y, float &z, float &o) const { return true; }
-};
-#endif
+#include <mutex>
+#include <thread>
 
 class AnticheatManager
 {
 public:
-#ifdef USE_ANTICHEAT
+    ~AnticheatManager();
     void LoadAnticheatData();
 
     Warden * CreateWardenFor(WorldSession* client, BigNumber* K);
     MovementAnticheat* CreateAnticheatFor(Player* player);
-#else
-    void LoadAnticheatData() {}
 
-    Warden* CreateWardenFor(WorldSession* client, BigNumber* K)
-    {
-        return new Warden();
-    }
-    MovementAnticheat* CreateAnticheatFor(Player* player)
-    {
-        return new MovementAnticheat();
-    }
-#endif
+    void StartWardenUpdateThread();
+    void StopWardenUpdateThread();
+    void UpdateWardenSessions();
+    void AddWardenSession(Warden* warden);
+    void RemoveWardenSession(Warden* warden);
 
+private:
+    Warden * CreateWardenForInternal(WorldSession* client, BigNumber* K);
+    void AddWardenSessionInternal(Warden* warden);
+    void RemoveWardenSessionInternal(Warden* warden);
+    void AddOrRemovePendingSessions();
+    std::vector<Warden*> m_wardenSessions;
+    std::vector<Warden*> m_wardenSessionsToAdd;
+    std::vector<Warden*> m_wardenSessionsToRemove;
+    std::mutex m_wardenSessionsMutex;
+    std::thread m_wardenUpdateThread;
+
+public:
     // Antispam wrappers
     AntispamInterface* GetAntispam() const { return nullptr; }
     bool CanWhisper(AccountPersistentData const& data, MasterPlayer* player) { return true; }

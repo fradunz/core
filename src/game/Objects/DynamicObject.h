@@ -23,7 +23,7 @@
 #define MANGOSSERVER_DYNAMICOBJECT_H
 
 #include "Object.h"
-#include "DBCEnums.h"
+#include "SpellDefines.h"
 
 enum DynamicObjectType
 {
@@ -50,8 +50,10 @@ class DynamicObject : public WorldObject
         SpellEffectIndex GetEffIndex() const { return m_effIndex; }
         uint32 GetDuration() const { return m_aliveDuration; }
         ObjectGuid const& GetCasterGuid() const { return GetGuidValue(DYNAMICOBJECT_CASTER); }
-        WorldObject* GetCaster() const;
+        SpellCaster* GetCaster() const;
         Unit* GetUnitCaster() const;
+        Player* GetAffectingPlayer() const final;
+        bool IsCharmerOrOwnerPlayerOrPlayerItself() const final { return GetCasterGuid().IsPlayer(); }
         float GetRadius() const { return m_radius; }
         DynamicObjectType GetType() const { return (DynamicObjectType)GetByteValue(DYNAMICOBJECT_BYTES,0); }
         bool NeedsRefresh(Unit* unit) const;
@@ -59,11 +61,11 @@ class DynamicObject : public WorldObject
         void AddAffected(Unit* unit);
         void RemoveAffected(Unit* unit);
         void Delay(int32 delaytime);
+        char const* GetName() const final { return "DynamicObject"; }
 
         bool IsHostileTo(WorldObject const* target) const override;
         bool IsFriendlyTo(WorldObject const* target) const override;
         uint32 GetFactionTemplateId() const final ;
-        uint32 GetLevel() const final ;
 
         float GetObjectBoundingRadius() const override      // overwrite WorldObject version
         {

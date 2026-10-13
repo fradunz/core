@@ -16,6 +16,7 @@
 
 #include "scriptPCH.h"
 #include "naxxramas.h"
+#include "AI/PlayerAI.h"
 
 enum KelthuzadData
 {
@@ -37,7 +38,7 @@ enum KelthuzadData
     SAY_REQUEST_AID                     = 12998,         // Master! I require aid! 
     SAY_ANSWER_REQUEST                  = 12994,         // Very well... warriors of the frozen wastes, rise up! I command you to fight, kill, and die for your master. Let none survive...
 
-    SAY_SPECIAL1_MANA_DET               = -1533106,         // (need find correct bct id!) Your petty magics are no challenge to the might of the Scourge! 
+    SAY_SPECIAL1_MANA_DET               = 13492,         
     SAY_SPECIAL3_MANA_DET               = -1533107,         // (need find correct bct id!) Enough! I grow tired of these distractions! 
     SAY_SPECIAL2_DISPELL                = -1533108,         // (need find correct bct id!) Fools, you have spread your powers too thin. Be free, my minions!
 
@@ -64,15 +65,8 @@ enum KelthuzadData
 
 enum AddSpells
 {
-    // guardian of icecrown
+    // Guardian of Icecrown
     SPELL_BLOOD_TAP = 28470, 
-
-    // Soul Weaver
-    SPELL_WAIL_SOULS_AUR = 28460,
-
-    // Warrior
-    SPELL_DARK_BLAST_AUR  = 28458,
-    SPELL_DARK_BLAST_TRIG = 28457,
 
     // Abomination
     SPELL_MORTAL_WOUND = 28467
@@ -269,10 +263,13 @@ struct kt_p1AddAI : public ScriptedAI
         }
     }
 
-    void SpellHit(Unit* unit, SpellEntry const*) override 
+    void SpellHit(SpellCaster* pCaster, SpellEntry const*) override 
     {
         if(!hasAggroed)
-            ActualAttack(unit);
+        {
+            if (Unit* pUnit = pCaster->ToUnit())
+                ActualAttack(pUnit);
+        }
     }
 };
 
@@ -324,7 +321,7 @@ struct boss_kelthuzadAI : public ScriptedAI
         hasPutInCombat = false;
 
         m_creature->RemoveAurasDueToSpell(SPELL_VISUAL_CHANNEL);
-        m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE|UNIT_FLAG_NOT_SELECTABLE);
+        m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER|UNIT_FLAG_NOT_SELECTABLE);
 
         EvadeAllGuardians();
 
@@ -366,17 +363,37 @@ struct boss_kelthuzadAI : public ScriptedAI
 
     void AttackStart(Unit* who) override
     {
-        if (m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+        if (m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
             return;
+
         ScriptedAI::AttackStart(who);
     }
 
     void Aggro(Unit* pWho) override
     {
-        if (m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+        if (m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
             return;
 
         m_creature->SetInCombatWithZone();
+    }
+
+    bool CheckForEnemyPlayers()
+    {
+        std::list<Player*> players;
+        me->GetAlivePlayerListInRange(me, players, 75.0f);
+        auto iterator = std::remove_if(players.begin(), players.end(),
+                                       [](Player* player)
+                                      { return player->IsGameMaster(); });
+        players.erase(iterator, players.end());
+
+        for (auto const& itr : players)
+        {
+            m_creature->AddThreat(itr);
+            m_creature->SetInCombatWith(itr);
+            itr->SetInCombatWith(m_creature);
+        }
+
+        return !players.empty();
     }
 
     void JustReachedHome() override
@@ -519,7 +536,7 @@ struct boss_kelthuzadAI : public ScriptedAI
                     }
                     break;
                 case EVENT_PUT_IN_COMBAT:
-                    m_creature->SetInCombatState(false);
+                    m_creature->SetInCombatState();
                     m_creature->SetInCombatWithZone();
                     hasPutInCombat = true;
                     break;
@@ -532,7 +549,7 @@ struct boss_kelthuzadAI : public ScriptedAI
                             uint32 repeat_next = std::max(uint32(3750 - 25 * numSkeletons), uint32(2000));
                             events.Repeat(repeat_next);
                             ++numSkeletons;
-                            //sLog.outBasic("[%d] Spawn SKEL #%d, next in %dms", p1Timer, numSkeletons, repeat_next);
+                            //sLog.Out(LOG_SCRIPTS, LOG_LVL_BASIC, "[%d] Spawn SKEL #%d, next in %dms", p1Timer, numSkeletons, repeat_next);
                         }
                         else
                             events.Repeat(100);
@@ -543,14 +560,14 @@ struct boss_kelthuzadAI : public ScriptedAI
                 {
                     SpawnAndSendP1Creature(NPC_UNSTOPPABLE_ABOM);
                     ++numAboms;
-                    //sLog.outBasic("[%d] Spawn ABOM #%d", p1Timer, numAboms);
+                    //sLog.Out(LOG_SCRIPTS, LOG_LVL_BASIC, "[%d] Spawn ABOM #%d", p1Timer, numAboms);
                     break;
                 }
                 case EVENT_SOUL_WEAVER:
                 {
                     SpawnAndSendP1Creature(NPC_SOUL_WEAVER);
                     ++numBanshees;
-                    //sLog.outBasic("[%d] Spawn SOUL #%d", p1Timer, numBanshees);
+                    //sLog.Out(LOG_SCRIPTS, LOG_LVL_BASIC, "[%d] Spawn SOUL #%d", p1Timer, numBanshees);
                     break;
                 }
                 case EVENT_PHASE_TWO_INTRO:
@@ -564,17 +581,17 @@ struct boss_kelthuzadAI : public ScriptedAI
                     if (numBanshees < 14)
                     {
                         SpawnAndSendP1Creature(NPC_SOUL_WEAVER);
-                        sLog.outBasic("(post)[%d] Spawn bansh #%d, next in %dms", p1Timer, ++numBanshees, nextBanshee);
+                        sLog.Out(LOG_SCRIPTS, LOG_LVL_BASIC, "(post)[%d] Spawn bansh #%d, next in %dms", p1Timer, ++numBanshees, nextBanshee);
                     }
                     if (numAboms < 14)
                     {
                         SpawnAndSendP1Creature(NPC_UNSTOPPABLE_ABOM);
-                        sLog.outBasic("(post)[%d] Spawn abom #%d, next in %dms", p1Timer, ++numAboms, nextBanshee);
+                        sLog.Out(LOG_SCRIPTS, LOG_LVL_BASIC, "(post)[%d] Spawn abom #%d, next in %dms", p1Timer, ++numAboms, nextBanshee);
                     }
                     if (numSkeletons < 120)
                     {
                         SpawnAndSendP1Creature(NPC_SOLDIER_FROZEN);
-                        sLog.outBasic("(post)[%d] Spawn skele #%d, next in %dms", p1Timer, ++numSkeletons, nextBanshee);
+                        sLog.Out(LOG_SCRIPTS, LOG_LVL_BASIC, "(post)[%d] Spawn skele #%d, next in %dms", p1Timer, ++numSkeletons, nextBanshee);
                     }
 
                     DoScriptText(urand(SAY_AGGRO1, SAY_AGGRO3), m_creature);
@@ -592,8 +609,7 @@ struct boss_kelthuzadAI : public ScriptedAI
                     events.ScheduleEvent(EVENT_FROST_BLAST,      Seconds(50));
                     events.ScheduleEvent(EVENT_CHAINS,           Seconds(60));
                     m_creature->RemoveAurasDueToSpell(SPELL_VISUAL_CHANNEL);
-                    m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
-                    //m_creature->CastStop();
+                    m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_NOT_SELECTABLE);
                     m_creature->InterruptNonMeleeSpells(true);
 
                     DoResetThreat();
@@ -681,6 +697,11 @@ struct boss_kelthuzadAI : public ScriptedAI
                         events.Repeat(5000 - timeSinceLastFrostBlast);
                         break;
                     }
+                    else if (timeSinceLastShadowFissure < 5000)
+                    {
+                        events.Repeat(5000 - timeSinceLastShadowFissure);
+                        break;
+                    }
                     if (DoCastSpellIfCan(m_creature, SPELL_FROST_BOLT_NOVA) == CAST_OK)
                     {
                         events.Repeat(Seconds(urand(15, 17)));
@@ -692,14 +713,14 @@ struct boss_kelthuzadAI : public ScriptedAI
                 }
                 case EVENT_FROST_BLAST:
                 {
-                    if (timeSinceLastShadowFissure < 4000)
+                    if (timeSinceLastShadowFissure < 5000)
                     {
-                        events.Repeat(4000 - timeSinceLastShadowFissure);
+                        events.Repeat(5000 - timeSinceLastShadowFissure);
                         break;
                     }
-                    else if (timeSinceLastAEFrostBolt < 5000)
+                    else if (timeSinceLastAEFrostBolt < 8000)
                     {
-                        events.Repeat(5000 - timeSinceLastAEFrostBolt);
+                        events.Repeat(8000 - timeSinceLastAEFrostBolt);
                         break;
                     }
                     if (m_creature->IsNonMeleeSpellCasted())
@@ -732,9 +753,14 @@ struct boss_kelthuzadAI : public ScriptedAI
                 }
                 case EVENT_SHADOW_FISSURE:
                 {
-                    if (timeSinceLastFrostBlast < 4000)
+                    if (timeSinceLastFrostBlast < 5000)
                     {
-                        events.Repeat(4000 - timeSinceLastFrostBlast);
+                        events.Repeat(5000 - timeSinceLastFrostBlast);
+                        break;
+                    }
+                    else if (timeSinceLastAEFrostBolt < 8000)
+                    {
+                        events.Repeat(8000 - timeSinceLastAEFrostBolt);
                         break;
                     }
                     if (m_creature->IsNonMeleeSpellCasted())
@@ -794,8 +820,11 @@ struct boss_kelthuzadAI : public ScriptedAI
         if (hasPutInCombat)
         {
             // won't have a victim if we are in p1, even if selectHostileTarget returns true, so check that before return
-            if (!m_creature->SelectHostileTarget() || (!m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE) && !m_creature->GetVictim()))
-                return;
+            if (!m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER) || !CheckForEnemyPlayers())
+            {
+                if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
+                    return;
+            }
         }
 
         if (m_pInstance->GetData(TYPE_KELTHUZAD) != IN_PROGRESS)
@@ -813,7 +842,7 @@ struct boss_kelthuzadAI : public ScriptedAI
 
         events.Update(diff);
 
-        if (m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+        if (m_creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
             UpdateP1(diff);
         else
         {
@@ -836,6 +865,8 @@ struct mob_abomAI : public kt_p1AddAI
     void Reset() override
     {
         mortalWoundTimer = 7500;
+        m_creature->SetMaxHealth(90000);
+        m_creature->SetHealth(90000);
     }
 
     void UpdateAI(uint32 const diff) override
@@ -863,29 +894,24 @@ struct mob_soldierAI : public kt_p1AddAI
         Reset();
     }
 
-    void Reset() override { }
+    void Reset() override
+    { 
+        m_creature->SetMaxHealth(2000);
+        m_creature->SetHealth(2000);
+    }
 
     void UpdateAI(uint32 const diff) override
     {
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        if (!m_creature->HasAura(SPELL_DARK_BLAST_AUR))
-            m_creature->CastSpell(m_creature, SPELL_DARK_BLAST_AUR, true);
-
-        //if (m_creature->GetVictim() && m_creature->GetVictim()->IsPlayer()) 
-        //{
-        //    bool inVisibleList = m_creature->GetVictim()->ToPlayer()->IsInVisibleList(m_creature);
-        //    sLog.outBasic("%s visible: %d", m_creature->GetVictim()->GetName(), inVisibleList);
-        //}
-        //m_creature->ForceValuesUpdateAtIndex(UNIT_FIELD_TARGET);
-
         // to avoid melees being able to dps while casters hold aggro, this is most likely a logic that's supposed to exist
-        if (Unit* pNearest = m_creature->SelectAttackingTarget(ATTACKING_TARGET_NEAREST, 0))
+        if (!m_creature->CanReachWithMeleeAutoAttack(m_creature->GetVictim()))
         {
-            if (m_creature->GetVictim() != pNearest && m_creature->CanReachWithMeleeAutoAttack(pNearest))
+            if (Unit* pNearest = m_creature->SelectAttackingTarget(ATTACKING_TARGET_NEAREST, 0))
             {
-                ScriptedAI::AttackStart(pNearest);
+                if (m_creature->GetVictim() != pNearest && m_creature->CanReachWithMeleeAutoAttack(pNearest))
+                    ScriptedAI::AttackStart(pNearest);
             }
         }
 
@@ -895,13 +921,18 @@ struct mob_soldierAI : public kt_p1AddAI
 
 struct mob_soulweaverAI : public kt_p1AddAI
 {
-    mob_soulweaverAI(Creature* pCreature) : kt_p1AddAI(pCreature) { }
+    mob_soulweaverAI(Creature* pCreature) : kt_p1AddAI(pCreature)
+    { 
+        Reset();
+    }
 
     bool hasHitSomeone;
 
     void Reset() override
     {
         hasHitSomeone = false;
+        m_creature->SetMaxHealth(70000);
+        m_creature->SetHealth(70000);
     }
 
     void UpdateAI(uint32 const diff) override
@@ -909,15 +940,13 @@ struct mob_soulweaverAI : public kt_p1AddAI
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        if (!m_creature->HasAura(SPELL_WAIL_SOULS_AUR))
-            m_creature->CastSpell(m_creature, SPELL_WAIL_SOULS_AUR, true);
-
         // to avoid melees being able to dps while casters hold aggro, this is most likely a logic that's supposed to exist
-        if (Unit* pNearest = m_creature->SelectAttackingTarget(ATTACKING_TARGET_NEAREST, 0))
+        if (!m_creature->CanReachWithMeleeAutoAttack(m_creature->GetVictim()))
         {
-            if (m_creature->GetVictim() != pNearest && m_creature->CanReachWithMeleeAutoAttack(pNearest))
+            if (Unit* pNearest = m_creature->SelectAttackingTarget(ATTACKING_TARGET_NEAREST, 0))
             {
-                ScriptedAI::AttackStart(pNearest);
+                if (m_creature->GetVictim() != pNearest && m_creature->CanReachWithMeleeAutoAttack(pNearest))
+                    ScriptedAI::AttackStart(pNearest);
             }
         }
 
@@ -946,7 +975,7 @@ struct mob_guardian_icecrownAI : public ScriptedAI
     void JustReachedHome() override
     {
         m_creature->DeleteLater();
-        ///m_creature->ForcedDespawn(1);
+    //  m_creature->ForcedDespawn(1);
     }
 
     void DispellShackle(Creature* pC)
@@ -959,7 +988,7 @@ struct mob_guardian_icecrownAI : public ScriptedAI
             pC->RemoveAurasDueToSpell(10955);
     }
 
-    void SpellHit(Unit*, SpellEntry const* spell) override 
+    void SpellHit(SpellCaster*, SpellEntry const* spell) override 
     {
         // if hit by any shackle spell we check how many other guardians are shackled.
         // If more than 3, we release everyone.
@@ -1091,6 +1120,55 @@ void instance_naxxramas::OnKTAreaTrigger(AreaTriggerEntry const* pAT)
     }
 }
 
+// 27812 - Void Blast (Kel'Thuzad)
+struct KelThuzadVoidBlastScript : public SpellScript
+{
+    bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0 && spell->GetUnitTarget())
+        {
+            // If target has the chains of kel'thuzad aura the spell should not do any damage.
+            // This check should not be necessary as you should be friendly to the caster of
+            // the spell, but some bug caused players to take damage anyway, and even if that is fixed,
+            // this is a safetycheck.
+            if (spell->GetUnitTarget()->HasAura(28410))
+                spell->damage = 0;
+        }
+        return true;
+    }
+};
+
+SpellScript* GetScript_KelThuzadVoidBlast(SpellEntry const*)
+{
+    return new KelThuzadVoidBlastScript();
+}
+
+// 28410 - Chains of Kel'Thuzad
+struct ChainsOfKelThuzadAuraScript : public AuraScript
+{
+    void OnAfterApply(Aura* aura, bool apply) final
+    {
+        if (aura->GetEffIndex() != EFFECT_INDEX_0)
+            return;
+
+        Unit* target = aura->GetTarget();
+        Player* player = target->ToPlayer();
+        if (!player)
+            return;
+
+        if (apply && player->m_AI)
+        {
+            // Enable positive spells for charmed players (allows healing/buffing while charmed)
+            player->m_AI->enablePositiveSpells = true;
+        }
+    }
+};
+
+AuraScript* GetScript_ChainsOfKelThuzad(SpellEntry const*)
+{
+    return new ChainsOfKelThuzadAuraScript();
+}
+
 void AddSC_boss_kelthuzad()
 {
     Script* NewScript;
@@ -1123,5 +1201,15 @@ void AddSC_boss_kelthuzad()
     NewScript = new Script;
     NewScript->Name = "mob_shadow_fissure";
     NewScript->GetAI = &GetAI_mob_shadow_fissure;
+    NewScript->RegisterSelf();
+
+    NewScript = new Script;
+    NewScript->Name = "spell_kelthuzad_void_blast";
+    NewScript->GetSpellScript = &GetScript_KelThuzadVoidBlast;
+    NewScript->RegisterSelf();
+
+    NewScript = new Script;
+    NewScript->Name = "spell_chains_of_kelthuzad";
+    NewScript->GetAuraScript = &GetScript_ChainsOfKelThuzad;
     NewScript->RegisterSelf();
 }

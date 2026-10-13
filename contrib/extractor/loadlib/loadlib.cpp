@@ -1,7 +1,7 @@
 #define _CRT_SECURE_NO_DEPRECATE
 
 #include "loadlib.h"
-#include "../mpq_libmpq.h"
+#include "libmpq/mpq_libmpq.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -49,7 +49,7 @@ bool FileLoader::prepareLoadedData()
 {
     // Check version
     version = (file_MVER*) data;
-    if (!strncmp(version->fcc_txt, "MVER", 4))
+    if (!isChunk(version->fcc_txt, "MVER"))
         return false;
     if (version->ver != FILE_FORMAT_VERSION)
         return false;

@@ -14,25 +14,15 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-/* ScriptData
-SDName: Boss_Firemaw
-SD%Complete: 80
-SDComment: Thrash missing
-SDCategory: Blackwing Lair
-EndScriptData */
-
 #include "scriptPCH.h"
 #include "blackwing_lair.h"
 
-enum
+enum Firemaw : uint32
 {
-    EMOTE_GENERIC_WING_BUFFET   = -1469032,
-    EMOTE_GENERIC_SHADOW_FLAME  = -1469033,
-
-    SPELL_SHADOW_FLAME          = 22539,
-    SPELL_WING_BUFFET           = 23339,
-    SPELL_FLAME_BUFFET          = 23341,
-    SPELL_THRASH                = 3391,
+    SPELL_SHADOW_FLAME  = 22539,
+    SPELL_WING_BUFFET   = 23339,
+    SPELL_FLAME_BUFFET  = 23341,
+    SPELL_THRASH        = 3391,
 };
 
 struct boss_firemawAI : public ScriptedAI
@@ -52,7 +42,7 @@ struct boss_firemawAI : public ScriptedAI
     void Reset() override
     {
         m_uiShadowFlameTimer = 16000;
-        m_uiWingBuffetTimer = 30000;
+        m_uiWingBuffetTimer  = 30000;
         m_uiFlameBuffetTimer = 2000;
     }
 
@@ -96,10 +86,7 @@ struct boss_firemawAI : public ScriptedAI
         if (m_uiShadowFlameTimer < uiDiff)
         {
             if (DoCastSpellIfCan(m_creature, SPELL_SHADOW_FLAME) == CAST_OK)
-            {
-                DoScriptText(EMOTE_GENERIC_SHADOW_FLAME, m_creature);
                 m_uiShadowFlameTimer = 16000;
-            }
         }
         else
             m_uiShadowFlameTimer -= uiDiff;
@@ -108,10 +95,7 @@ struct boss_firemawAI : public ScriptedAI
         if (m_uiWingBuffetTimer < uiDiff)
         {
             if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_WING_BUFFET) == CAST_OK)
-            {
-                DoScriptText(EMOTE_GENERIC_WING_BUFFET, m_creature);
                 m_uiWingBuffetTimer = 30000;
-            }
         }
         else
             m_uiWingBuffetTimer -= uiDiff;
@@ -125,12 +109,18 @@ struct boss_firemawAI : public ScriptedAI
         else
             m_uiFlameBuffetTimer -= uiDiff;
 
-        if (m_creature->IsAttackReady() && !urand(0, 2))
-            DoCastSpellIfCan(m_creature, SPELL_THRASH);
+        if (m_creature->IsAttackReady() && m_creature->IsNonMeleeSpellCasted(true))
+        {
+            if (!urand(0, 2))
+            {
+                DoCastSpellIfCan(m_creature, SPELL_THRASH);
+            }
+        }
 
         DoMeleeAttackIfReady();
     }
 };
+
 CreatureAI* GetAI_boss_firemaw(Creature* pCreature)
 {
     return new boss_firemawAI(pCreature);

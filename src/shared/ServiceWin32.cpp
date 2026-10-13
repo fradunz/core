@@ -24,34 +24,21 @@
 #include "Common.h"
 #include "Log.h"
 #include <cstring>
-#include <windows.h>
+#include <Windows.h>
 #include <winsvc.h>
-
-#if !defined(WINADVAPI)
-#if !defined(_ADVAPI32_)
-#define WINADVAPI DECLSPEC_IMPORT
-#else
-#define WINADVAPI
-#endif
-#endif
-
-
-#ifdef main
-#undef main
-#endif
 
 extern int main(int argc, char** argv);
 extern char serviceLongName[];
 extern char serviceName[];
 extern char serviceDescription[];
 
-extern int m_ServiceStatus;
+extern volatile int m_ServiceStatus;
 
 SERVICE_STATUS serviceStatus;
 
 SERVICE_STATUS_HANDLE serviceStatusHandle = 0;
 
-typedef WINADVAPI BOOL (WINAPI *CSD_T)(SC_HANDLE, DWORD, LPCVOID);
+typedef BOOL (WINAPI *CSD_T)(SC_HANDLE, DWORD, LPCVOID);
 
 bool WinServiceInstall()
 {
@@ -61,7 +48,7 @@ bool WinServiceInstall()
 
     if (!serviceControlManager)
     {
-        sLog.outError("SERVICE: No access to service control manager.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SERVICE: No access to service control manager.");
         return false;
     }
 
@@ -69,11 +56,12 @@ bool WinServiceInstall()
     if (!GetModuleFileName(0, path, sizeof(path)/sizeof(path[0])))
     {
         CloseServiceHandle(serviceControlManager);
-        sLog.outError("SERVICE: Can't get service binary filename.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SERVICE: Can't get service binary filename.");
         return false;
     }
 
-    std::strcat(path, " -s run");
+    size_t pathLen = strlen(path);
+    snprintf(path + pathLen, sizeof(path) - pathLen, " -s run");
 
     SC_HANDLE service = CreateService(serviceControlManager,
         serviceName,                                // name of service
@@ -93,14 +81,14 @@ bool WinServiceInstall()
     if (!service)
     {
         CloseServiceHandle(serviceControlManager);
-        sLog.outError("SERVICE: Can't register service for: %s", path);
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SERVICE: Can't register service for: %s", path);
         return false;
     }
 
     advapi32 = GetModuleHandle("ADVAPI32.DLL");
     if(!advapi32)
     {
-        sLog.outError("SERVICE: Can't access ADVAPI32.DLL");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SERVICE: Can't access ADVAPI32.DLL");
         CloseServiceHandle(service);
         CloseServiceHandle(serviceControlManager);
         return false;
@@ -109,7 +97,7 @@ bool WinServiceInstall()
     ChangeService_Config2 = (CSD_T) GetProcAddress(advapi32, "ChangeServiceConfig2A");
     if (!ChangeService_Config2)
     {
-        sLog.outError("SERVICE: Can't access ChangeServiceConfig2A from ADVAPI32.DLL");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SERVICE: Can't access ChangeServiceConfig2A from ADVAPI32.DLL");
         CloseServiceHandle(service);
         CloseServiceHandle(serviceControlManager);
         return false;
@@ -146,7 +134,7 @@ bool WinServiceUninstall()
 
     if (!serviceControlManager)
     {
-        sLog.outError("SERVICE: No access to service control manager.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SERVICE: No access to service control manager.");
         return false;
     }
 
@@ -156,7 +144,7 @@ bool WinServiceUninstall()
     if (!service)
     {
         CloseServiceHandle(serviceControlManager);
-        sLog.outError("SERVICE: Service not found: %s", serviceName);
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SERVICE: Service not found: %s", serviceName);
         return false;
     }
 
@@ -276,12 +264,12 @@ bool WinServiceRun()
     SERVICE_TABLE_ENTRY serviceTable[] =
     {
         { serviceName, ServiceMain },
-        { 0, 0 }
+        { nullptr, nullptr }
     };
 
     if (!StartServiceCtrlDispatcher(serviceTable))
     {
-        sLog.outError("StartService Failed. Error [%u]", ::GetLastError());
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "StartService Failed. Error [%u]", ::GetLastError());
         return false;
     }
     return true;

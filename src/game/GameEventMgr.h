@@ -94,13 +94,13 @@ struct WorldEvent
 };
 
 typedef std::pair<uint32, GameEventCreatureData> GameEventCreatureDataPair;
-typedef std::list<WorldEvent*> HardcodedEventList;
+typedef std::vector<WorldEvent*> HardcodedEventList;
 
 class GameEventMgr
 {
     public:
         GameEventMgr();
-        ~GameEventMgr() {}
+        ~GameEventMgr();
         typedef std::set<uint16> ActiveEvents;
         typedef std::vector<GameEventData> GameEventDataMap;
         ActiveEvents const& GetActiveEventList() const { return m_ActiveEvents; } // not thread-safe to use outside of world update
@@ -126,7 +126,7 @@ class GameEventMgr
         template<typename T>
         int16 GetGameEventId(uint32 guid_or_poolid);
 
-        GameEventCreatureData const* GetCreatureUpdateDataForActiveEvent(uint32 lowguid) const;       
+        GameEventCreatureData const* GetCreatureUpdateDataForActiveEvent(uint32 lowguid) const;
         HardcodedEventList mGameEventHardcodedList;
         void LoadHardcodedEvents(HardcodedEventList& eventList);
     private:
@@ -139,26 +139,26 @@ class GameEventMgr
         void UpdateEventQuests(uint16 event_id, bool activate);
         void SendEventMails(int16 event_id);
     protected:
-        typedef std::list<uint32> GuidList;
-        typedef std::list<uint16> IdList;
+        typedef std::vector<uint32> GuidList;
+        typedef std::vector<uint16> IdList;
         typedef std::vector<GuidList> GameEventGuidMap;
         typedef std::vector<IdList> GameEventIdMap;
-        typedef std::list<GameEventCreatureDataPair> GameEventCreatureDataList;
+        typedef std::vector<GameEventCreatureDataPair> GameEventCreatureDataList;
         typedef std::vector<GameEventCreatureDataList> GameEventCreatureDataMap;
         typedef std::multimap<uint32, uint32> GameEventCreatureDataPerGuidMap;
-        typedef std::pair<GameEventCreatureDataPerGuidMap::const_iterator,GameEventCreatureDataPerGuidMap::const_iterator> GameEventCreatureDataPerGuidBounds;        
+        typedef std::pair<GameEventCreatureDataPerGuidMap::const_iterator,GameEventCreatureDataPerGuidMap::const_iterator> GameEventCreatureDataPerGuidBounds;
 
-        typedef std::list<uint32> QuestList;
+        typedef std::vector<uint32> QuestList;
         typedef std::vector<QuestList> GameEventQuestMap;
         GameEventQuestMap mGameEventQuests;                 // events size, only positive event case
 
         GameEventCreatureDataMap mGameEventCreatureData;    // events size, only positive event case
         GameEventCreatureDataPerGuidMap mGameEventCreatureDataPerGuid;
 
-        typedef std::list<GameEventMail> MailList;
+        typedef std::vector<GameEventMail> MailList;
         typedef std::vector<MailList> GameEventMailMap;
         GameEventMailMap  mGameEventMails;                  // events*2-1
-        
+
         GameEventGuidMap  mGameEventCreatureGuids;          // events*2-1
         GameEventGuidMap  mGameEventGameobjectGuids;        // events*2-1
         GameEventIdMap    mGameEventSpawnPoolIds;           // events size, only positive event case

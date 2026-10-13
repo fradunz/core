@@ -16,8 +16,17 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <cstdlib>
 #include "MMapCommon.h"
 #include "MapBuilder.h"
+#ifdef _WIN32
+#include <Windows.h>
+#include <sys/stat.h>
+#include <direct.h>
+#define mkdir _mkdir
+#else
+#include <sys/stat.h>
+#endif
 
 using namespace MMAP;
 
@@ -41,8 +50,17 @@ bool checkDirectories(bool debugOutput)
     dirFiles.clear();
     if (getDirContents(dirFiles, "mmaps") == LISTFILE_DIRECTORY_NOT_FOUND)
     {
-        printf("'mmaps' directory does not exist, please create it\n");
-        return false;
+        /* create mmaps directory */
+        if (mkdir("mmaps"
+#ifndef _WIN32
+            , 0777
+#endif
+            ) != 0)
+        {
+            /* return error if operation fails */
+            printf("'mmaps' directory does not exist, please create it\n");
+            return false;
+        }
     }
 
     dirFiles.clear();
@@ -63,17 +81,18 @@ void printUsage()
     printf("Generator command line args\n\n");
     printf("-? or /? or -h : This help\n");
     printf("[#] : Build only the map specified by #.\n");
-    printf("--maxAngle [#] : Max walkable inclination angle\n");
     printf("--tile [#,#] : Build the specified tile\n");
-    printf("--skipLiquid [true|false] : liquid data for maps\n");
-    printf("--skipContinents [true|false] : skip continents\n");
-    printf("--skipJunkMaps [true|false] : junk maps include some unused\n");
-    printf("--skipBattlegrounds [true|false] : does not include PVP arenas\n");
-    printf("--debugOutput [true|false] : create debugging files for use with RecastDemo\n");
-    printf("--bigBaseUnit [true|false] : Generate tile/map using bigger basic unit.\n");
+    printf("--threads : amount of threads to use for extraction.\n");
+    printf("--skipLiquid : liquid data for maps\n");
+    printf("--skipContinents : skip continents\n");
+    printf("--skipJunkMaps : junk maps include some unused\n");
+    printf("--skipBattlegrounds : does not include PVP arenas\n");
+    printf("--debug : create debugging files for use with RecastDemo\n");
     printf("--quick : Does not remove undermap positions ... But generates way more quickly.\n");
     printf("--silent : Make script friendly. No wait for user input, error, completion.\n");
     printf("--offMeshInput [file.*] : Path to file containing off mesh connections data.\n\n");
+    printf("--configInputPath [file.*] : Path to json configuration file.\n\n");
+    printf("--onlyGO : builds only gameobject models for transports\n\n");
     printf("Example:\nmovemapgen (generate all mmap with default arg\n"
            "movemapgen 0 (generate map 0)\n"
            "movemapgen 0 --tile 34,46 (builds only tile 34,46 of map 0)\n\n");
@@ -81,36 +100,25 @@ void printUsage()
 }
 
 bool handleArgs(int argc, char** argv,
-                int& mapnum,
+                int& mapId,
                 int& tileX,
                 int& tileY,
-                float& maxAngle,
                 bool& skipLiquid,
                 bool& skipContinents,
                 bool& skipJunkMaps,
                 bool& skipBattlegrounds,
                 bool& debugOutput,
                 bool& silent,
-                bool& bigBaseUnit,
-                bool &quick,
-                char*& offMeshInputPath)
+                bool& quick,
+                bool& buildOnlyGameobjectModels,
+                char const*& offMeshInputPath,
+                char const*& configInputPath,
+                int& threads)
 {
     char* param = nullptr;
     for (int i = 1; i < argc; ++i)
     {
-        if (strcmp(argv[i], "--maxAngle") == 0)
-        {
-            param = argv[++i];
-            if (!param)
-                return false;
-
-            float maxangle = atof(param);
-            if (maxangle <= 90.f && maxangle >= 45.f)
-                maxAngle = maxangle;
-            else
-                printf("invalid option for '--maxAngle', using default\n");
-        }
-        else if (strcmp(argv[i], "--tile") == 0)
+        if (strcmp(argv[i], "--tile") == 0)
         {
             param = argv[++i];
             if (!param)
@@ -118,6 +126,12 @@ bool handleArgs(int argc, char** argv,
 
             char* stileX = strtok(param, ",");
             char* stileY = strtok(nullptr, ",");
+            if (!stileX || !stileY)
+            {
+                printf("invalid tile coords.\n");
+                return false;
+            }
+
             int tilex = atoi(stileX);
             int tiley = atoi(stileY);
 
@@ -132,70 +146,33 @@ bool handleArgs(int argc, char** argv,
                 return false;
             }
         }
-        else if (strcmp(argv[i], "--skipLiquid") == 0)
+        else if (strcmp(argv[i], "--threads") == 0)
         {
             param = argv[++i];
             if (!param)
                 return false;
 
-            if (strcmp(param, "true") == 0)
-                skipLiquid = true;
-            else if (strcmp(param, "false") == 0)
-                skipLiquid = false;
-            else
-                printf("invalid option for '--skipLiquid', using default\n");
+            threads = std::max(1, atoi(param));
+        }
+        else if (strcmp(argv[i], "--skipLiquid") == 0)
+        {
+            skipLiquid = true;
         }
         else if (strcmp(argv[i], "--skipContinents") == 0)
         {
-            param = argv[++i];
-            if (!param)
-                return false;
-
-            if (strcmp(param, "true") == 0)
-                skipContinents = true;
-            else if (strcmp(param, "false") == 0)
-                skipContinents = false;
-            else
-                printf("invalid option for '--skipContinents', using default\n");
+            skipContinents = true;
         }
         else if (strcmp(argv[i], "--skipJunkMaps") == 0)
         {
-            param = argv[++i];
-            if (!param)
-                return false;
-
-            if (strcmp(param, "true") == 0)
-                skipJunkMaps = true;
-            else if (strcmp(param, "false") == 0)
-                skipJunkMaps = false;
-            else
-                printf("invalid option for '--skipJunkMaps', using default\n");
+            skipJunkMaps = true;
         }
         else if (strcmp(argv[i], "--skipBattlegrounds") == 0)
         {
-            param = argv[++i];
-            if (!param)
-                return false;
-
-            if (strcmp(param, "true") == 0)
-                skipBattlegrounds = true;
-            else if (strcmp(param, "false") == 0)
-                skipBattlegrounds = false;
-            else
-                printf("invalid option for '--skipBattlegrounds', using default\n");
+            skipBattlegrounds = true;
         }
-        else if (strcmp(argv[i], "--debugOutput") == 0)
+        else if (strcmp(argv[i], "--debug") == 0)
         {
-            param = argv[++i];
-            if (!param)
-                return false;
-
-            if (strcmp(param, "true") == 0)
-                debugOutput = true;
-            else if (strcmp(param, "false") == 0)
-                debugOutput = false;
-            else
-                printf("invalid option for '--debugOutput', using default true\n");
+            debugOutput = true;
         }
         else if (strcmp(argv[i], "--silent") == 0)
         {
@@ -205,18 +182,9 @@ bool handleArgs(int argc, char** argv,
         {
             quick = true;
         }
-        else if (strcmp(argv[i], "--bigBaseUnit") == 0)
+        else if (strcmp(argv[i], "--onlyGO") == 0)
         {
-            param = argv[++i];
-            if (!param)
-                return false;
-
-            if (strcmp(param, "true") == 0)
-                bigBaseUnit = true;
-            else if (strcmp(param, "false") == 0)
-                bigBaseUnit = false;
-            else
-                printf("invalid option for '--bigBaseUnit', using default false\n");
+            buildOnlyGameobjectModels = true;
         }
         else if (strcmp(argv[i], "--offMeshInput") == 0)
         {
@@ -225,6 +193,14 @@ bool handleArgs(int argc, char** argv,
                 return false;
 
             offMeshInputPath = param;
+        }
+        else if (strcmp(argv[i], "--configInputPath") == 0)
+        {
+            param = argv[++i];
+            if (!param)
+                return false;
+
+            configInputPath = param;
         }
         else if ((strcmp(argv[i], "-?") == 0) || (strcmp(argv[i], "/?") == 0) || (strcmp(argv[i], "-h") == 0))
         {
@@ -235,8 +211,8 @@ bool handleArgs(int argc, char** argv,
         {
             int map = atoi(argv[i]);
             if (map > 0 || (map == 0 && (strcmp(argv[i], "0") == 0)))
-                mapnum = map;
-            else
+                mapId = map;
+            else if (!buildOnlyGameobjectModels)
             {
                 printf("invalid map id\n");
                 return false;
@@ -247,62 +223,110 @@ bool handleArgs(int argc, char** argv,
     return true;
 }
 
-int finish(const char* message, int returnValue)
+int finish(char const* message, int returnValue)
 {
     printf("%s", message);
     getchar();
     return returnValue;
 }
 
+char const* g_mainLogFileName = "MoveMapGen.log";
+
 int main(int argc, char** argv)
 {
-    int mapnum = -1;
-    float maxAngle = 60.0f;
+    int mapId = -1;
     int tileX = -1, tileY = -1;
-    bool skipLiquid = false,
-         skipContinents = false,
-         skipJunkMaps = true,
-         skipBattlegrounds = false,
-         debugOutput = false,
-         silent = false,
-         bigBaseUnit = false,
-         quick = false;
-    char* offMeshInputPath = nullptr;
+    bool skipLiquid = false;
+    bool skipContinents = false;
+    bool skipJunkMaps = true;
+    bool skipBattlegrounds = false;
+    bool debug = false;
+    bool silent = false;
+    bool buildOnlyGameobjectModels = false;
+    bool quick = false;
+    int threads = 0;
 
-    bool validParam = handleArgs(argc, argv, mapnum,
-                                 tileX, tileY, maxAngle,
-                                 skipLiquid, skipContinents, skipJunkMaps, skipBattlegrounds,
-                                 debugOutput, silent, bigBaseUnit, quick, offMeshInputPath);
+    char const* offMeshInputPath = "offmesh.txt";
+    char const* configInputPath = "config.json";
+
+    bool validParam = handleArgs(argc, argv, mapId, tileX, tileY, skipLiquid, skipContinents, skipJunkMaps, skipBattlegrounds, debug, silent, quick, buildOnlyGameobjectModels, offMeshInputPath, configInputPath, threads);
 
     if (!validParam)
-        return silent ? -1 : finish("You have specified invalid parameters (use -? for more help)", -1);
+        return silent ? EXIT_FAILURE : finish("You have specified invalid parameters (use -? for more help)", EXIT_FAILURE);
 
-    if (mapnum == -1 && debugOutput)
+    if (!silent)
+    {
+        std::cout << "MMap Generator" << endl;
+        std::cout << "====================================" << endl;
+    }
+
+    if (mapId == -1 && debug && !buildOnlyGameobjectModels)
     {
         if (silent)
-            return -2;
+            return EXIT_FAILURE;
 
         printf("You have specified debug output, but didn't specify a map to generate.\n");
         printf("This will generate debug output for ALL maps.\n");
         printf("Are you sure you want to continue? (y/n) ");
         if (getchar() != 'y')
-            return 0;
+            return EXIT_SUCCESS;
     }
 
-    if (!checkDirectories(debugOutput))
-        return silent ? -3 : finish("Press any key to close...", -3);
+    if (!checkDirectories(debug))
+        return silent ? EXIT_FAILURE : finish("Press any key to close...", EXIT_FAILURE);
 
-    MapBuilder builder(skipLiquid, skipContinents, skipJunkMaps,
-                       skipBattlegrounds, debugOutput, bigBaseUnit, quick, offMeshInputPath);
+    if (!silent)
+    {
+        std::cout << "offMeshInputPath = " << offMeshInputPath << endl;
+        std::cout << "configInputPath = " << configInputPath << endl;
+    }
 
-    if (tileX > -1 && tileY > -1 && mapnum >= 0)
-        builder.buildSingleTile(mapnum, tileX, tileY);
-    else if (mapnum >= 0)
-        builder.buildMap(uint32(mapnum));
+    if (!threads)
+    {
+        int systemThreads = std::thread::hardware_concurrency();
+        std::cout << "How many cores should be used? (" << systemThreads << " are available)" << std::endl;
+        std::cin >> threads;
+        std::cin.get();
+        threads = std::min(systemThreads, threads);
+        threads = std::max(1, threads);
+        std::cout << "Using " << threads << " cores." << std::endl;
+
+        std::cout << "Press enter to start building mmaps." << endl;
+        std::cout << "====================================" << endl;
+        std::cin.get();
+    }
+
+    MapBuilder builder(configInputPath, skipLiquid, skipContinents, skipJunkMaps, skipBattlegrounds, debug, quick, offMeshInputPath, uint8(threads));
+
+    if (buildOnlyGameobjectModels)
+        builder.buildTransports();
+    else if (tileX > -1 && tileY > -1 && mapId >= 0)
+        builder.buildSingleTile(mapId, tileX, tileY);
+    else if (mapId >= 0)
+        builder.buildSingleMap(uint32(mapId));
     else
     {
         builder.buildAllMaps();
         builder.buildTransports();
     }
-    return silent ? 1 : finish("Movemap build is complete!", 1);
+
+    while (builder.IsBusy())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+
+    if (builder.HasErrors())
+    {
+        printf("MoveMapGenerator finished with errors! Some tiles were not built.\n");
+        return silent ? EXIT_FAILURE : finish("Press any key to close...", EXIT_FAILURE);
+    }
+
+    if (silent)
+    {
+        return EXIT_SUCCESS;
+    }
+    else
+    {
+        return finish("MoveMapGenerator finished with success!", EXIT_SUCCESS);
+    }
 }

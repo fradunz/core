@@ -33,9 +33,6 @@ enum
     DATA_ANCIENT_DOOR    = 11,
     DATA_ARCHAEDAS_ALTAR = 12,
     
-    FACTION_AWAKE      = 14,   // aggressive
-    FACTION_STONED     = 35,   // friendly
-    
     // Game Objects
     GO_ALTAR_ARCHAEDAS                 = 133234,
     GO_ALTAR_KEEPERS                   = 130511,
@@ -44,6 +41,7 @@ enum
     GO_ALTAR_OF_THE_KEEPER_TEMPLE_DOOR = 124367,
     GO_ANCIENT_VAULT_DOOR              = 124369,
     GO_KEYSTONE                        = 124371,
+    GO_ANCIENT_TREASURE                = 141979,
     
     // Npcs
     NPC_ARCHAEDAS          = 2748,
@@ -64,9 +62,9 @@ enum
     SPELL_ARCHAEDAS_AWAKEN        = 10347,
     SPELL_AWAKEN_EARTHEN_GUARDIAN = 10252,
     SPELL_AWAKEN_VAULT_WARDER     = 10258,
-    /* spells cast from summoning ritual altars, send scripted_event_id events
-    SPELL_ULDMAN_SUB_BOSS_AGGRO  = 11568, event 2228 event_awaken_stone_keeper
-    SPELL_ULDMAN_BOSS_AGGRO      = 10340, event 2268 event_awaken_archaedas*/
+    /* spells cast from summoning ritual altars, start event scripts
+    SPELL_ULDMAN_SUB_BOSS_AGGRO  = 11568, event 2228
+    SPELL_ULDMAN_BOSS_AGGRO      = 10340, event 2268*/
     // Earthen Custodians
     SPELL_RECONSTRUCT             = 10260,
     // Ironaya

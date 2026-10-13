@@ -2,6 +2,8 @@
 #define MANGOS_COMBAT_BOT_BASE_H
 
 #include "PlayerBotAI.h"
+#include "SpellEntry.h"
+#include "Player.h"
 
 enum CombatBotSpells
 {
@@ -21,6 +23,10 @@ enum CombatBotSpells
     SPELL_SUMMON_SUCCUBUS = 712,
     SPELL_TAME_BEAST = 13481,
     SPELL_PET_REVIVE = 982,
+    SPELL_REVIVE_PET = SPELL_PET_REVIVE,
+    SPELL_CALL_PET = 883,
+    SPELL_MAIL_PROFICIENCY = 8737,
+    SPELL_PLATE_PROFICIENCY = 750,
 
     SPELL_DEADLY_POISON = 2823,
     SPELL_INSTANT_POISON = 8679,
@@ -130,13 +136,22 @@ public:
     }
 
     virtual void OnPacketReceived(WorldPacket const* packet) override;
-    virtual void SendFakePacket(uint16 opcode) override;
+    void SendBattlefieldPortPacket();
+    void SendBattlemasterJoinPacket(uint8 battlegroundId);
+    void SendAreaTriggerPacket(uint32 areaTriggerId);
+    void ActivateNearbyAreaTrigger();
 
     void AutoAssignRole();
     void PopulateSpellData();
     void ResetSpellData();
     void AddAllSpellReagents();
     void SummonPetIfNeeded();
+    void LearnArmorProficiencies();
+    void LearnPremadeSpecForClass();
+    void EquipPremadeGearTemplate();
+    void EquipRandomGearInEmptySlots();
+    void AutoEquipGear(uint32 option);
+    void LearnRandomTalents();
     
     uint8 GetAttackersInRangeCount(float range) const;
     uint8 GetAlliesNeedingHealCount(float range, float healthPercent) const;
@@ -144,30 +159,46 @@ public:
     Unit* SelectHealTarget(float healthPercent = 100.0f, bool periodic = false) const;
     Player* SelectBuffTarget(SpellEntry const* pSpellEntry) const;
     Player* SelectBuffTarget(SpellEntry const* pSpellEntryMeele, SpellEntry const* pSpellEntryRanged) const;
+    Player* SelectBuffTarget(SpellEntry const* pSingleSpellEntry, SpellEntry const* pGroupSpellEntry, SpellEntry const*& pSelectedSpellEntry) const;
     Player* SelectDispelTarget(SpellEntry const* pSpellEntry) const;
     bool IsValidBuffTarget(Unit const* pTarget, SpellEntry const* pSpellEntry) const;
     bool IsValidHealTarget(Unit const* pTarget, float healthPercent = 100.0f) const;
     bool IsValidHostileTarget(Unit const* pTarget) const;
     bool IsValidDispelTarget(Unit const* pTarget, SpellEntry const* pSpellEntry) const;
+    bool FindAndPreHealTarget();
+    Unit* SelectPeriodicHealTarget(float selfHealPercent = 100.0f, float groupHealPercent = 100.0f) const;
     bool FindAndHealInjuredAlly(float minimumHealthPercent = 100.0f, float criticalHealthPercent = 50.0f);
+    bool HealInjuredTarget(Unit* pTarget);
     bool HealInjuredTargetDirect(Unit* pTarget);
     bool HealInjuredTargetPeriodic(Unit* pTarget);
     template <class T>
     SpellEntry const* SelectMostEfficientHealingSpell(Unit const* pTarget, std::set<SpellEntry const*, T>& spellList) const;
+    template <class T>
+    SpellEntry const* SelectMostEfficientHealingSpell(Unit const* pTarget, int32 missingHealth, std::set<SpellEntry const*, T>& spellList) const;
+    int32 GetIncomingdamage(Unit const* pTarget) const;
     bool AreOthersOnSameTarget(ObjectGuid guid, bool checkMelee = true, bool checkSpells = true) const;
 
     SpellCastResult DoCastSpell(Unit* pTarget, SpellEntry const* pSpellEntry);
-    bool CanTryToCastSpell(Unit const* pTarget, SpellEntry const* pSpellEntry, uint32 maxStack = 1) const;
+    virtual bool CanTryToCastSpell(Unit const* pTarget, SpellEntry const* pSpellEntry, uint32 maxStack = 1) const;
     bool IsSpellReady(SpellEntry const* pSpellEntry) const;
     bool IsWearingShield() const;
+    bool IsWearingShield(Player* pPlayer) const;
     bool IsDualWielding() const;
     bool IsTank(Player* pPlayer) const;
+    bool IsInDuel() const;
+    CombatBotRoles GetRole() const;
 
     void EquipOrUseNewItem();
-    void AddItemToInventory(uint32 itemId);
-
+    void AddItemToInventory(uint32 itemId, uint32 count = 1);
+    void AddHunterAmmo();
+    uint8 GetHighestHonorRankFromEquippedItems() const;
+    void UpdateVisualHonorRankBasedOnItems();
+    void BeginChasing(Unit* pVictim) const;
     bool SummonShamanTotems();
     SpellCastResult CastWeaponBuff(SpellEntry const* pSpellEntry, EquipmentSlots slot);
+    bool UseTrinketEffects(bool onlyToBreakCC = false);
+    bool UseItemEffect(Item* pItem, bool onlyToBreakCC = false);
+    void BreakCrowdControlEffects();
 
     virtual void UpdateInCombatAI() = 0;
     virtual void UpdateOutOfCombatAI() = 0;
@@ -222,12 +253,12 @@ public:
     {
         switch (playerClass)
         {
-        case CLASS_WARRIOR:
-        case CLASS_PALADIN:
-        case CLASS_ROGUE:
-        case CLASS_SHAMAN:
-        case CLASS_DRUID:
-            return true;
+            case CLASS_WARRIOR:
+            case CLASS_PALADIN:
+            case CLASS_ROGUE:
+            case CLASS_SHAMAN:
+            case CLASS_DRUID:
+                return true;
         }
         return false;
     }
@@ -238,6 +269,17 @@ public:
             case CLASS_WARRIOR:
             case CLASS_PALADIN:
             case CLASS_ROGUE:
+            case CLASS_SHAMAN:
+                return true;
+        }
+        return false;
+    }
+    static bool IsShieldClass(uint8 playerClass)
+    {
+        switch (playerClass)
+        {
+            case CLASS_WARRIOR:
+            case CLASS_PALADIN:
             case CLASS_SHAMAN:
                 return true;
         }
@@ -298,14 +340,14 @@ public:
     }
 
     SpellEntry const* m_resurrectionSpell = nullptr;
-    std::vector<SpellEntry const*> spellListTaunt;
-    std::set<SpellEntry const*, HealAuraCompare> spellListPeriodicHeal;
-    std::set<SpellEntry const*, HealSpellCompare> spellListDirectHeal;
+    std::vector<SpellEntry const*> m_spellListTaunt;
+    std::set<SpellEntry const*, HealAuraCompare> m_spellListPeriodicHeal;
+    std::set<SpellEntry const*, HealSpellCompare> m_spellListDirectHeal;
     union
     {
         struct
         {
-            SpellEntry const* spells[50];
+            SpellEntry const* spells[49];
         } raw;
         struct
         {
@@ -429,6 +471,7 @@ public:
             SpellEntry const* pPrayerofSpirit;
             SpellEntry const* pPrayerofFortitude;
             SpellEntry const* pPrayerofHealing;
+            SpellEntry const* pPrayerofShadowProtection;
             SpellEntry const* pInnerFire;
             SpellEntry const* pShadowProtection;
             SpellEntry const* pPowerWordShield;
@@ -569,6 +612,7 @@ public:
             SpellEntry const* pMarkoftheWild;
             SpellEntry const* pGiftoftheWild;
             SpellEntry const* pThorns;
+            SpellEntry const* pRemoveCurse;
             SpellEntry const* pCurePoison;
             SpellEntry const* pAbolishPoison;
             SpellEntry const* pRebirth;
@@ -580,7 +624,6 @@ public:
             SpellEntry const* pSwiftmend;
             SpellEntry const* pOmenOfClarity;
             SpellEntry const* pTranquility;
-            SpellEntry const* pRemoveCurse;
             SpellEntry const* pFuror;
             // Cat
             SpellEntry const* pProwl;
@@ -610,8 +653,10 @@ public:
 
     bool m_initialized = false;
     bool m_isBuffing = false;
+    bool m_preventCasting = false;
     bool m_receivedBgInvite = false;
     uint32 m_petId = 0;
+    uint8 m_visualHonorRank = 0;
     CombatBotRoles m_role = ROLE_INVALID;
 };
 

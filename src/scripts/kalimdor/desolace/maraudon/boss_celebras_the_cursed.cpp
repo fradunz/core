@@ -185,7 +185,7 @@ struct celebrasSpiritAI : public npc_escortAI
 
                 GetGameObjectListWithEntryInGrid(scepterList, m_creature, GO_CREATOR, 40.0f);
                 for (const auto& it : scepterList)
-                    it->UseDoorOrButton(0, false);
+                    it->SetGoState(GO_STATE_ACTIVE);
                 scepterList.clear();
 
                 break;
@@ -239,7 +239,7 @@ struct celebrasSpiritAI : public npc_escortAI
                         Event_Timer = 1000;
                         break;
                     case 3:
-                        m_creature->SummonGameObject(GO_TOME, 652.175f, 74.069f, -85.334327f, 5.6635f, 0, 0, 0, 0, -1, false);
+                        m_creature->SummonGameObject(GO_TOME, 652.431f, 74.7087f, -85.3355f, 6.16101f, 0, 0, -0.0610485f, 0.998135f, -1, false);
                         Event_Timer = 1000;
                         break;
                     case 4:

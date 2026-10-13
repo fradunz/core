@@ -22,8 +22,9 @@
 #ifndef _BYTEBUFFER_H
 #define _BYTEBUFFER_H
 
+#include <array>
+
 #include "Common.h"
-#include "Log.h"
 #include "Utilities/ByteConverter.h"
 
 class ByteBufferException
@@ -35,22 +36,12 @@ class ByteBufferException
             PrintPosError();
         }
 
-        void PrintPosError() const
-        {
-            sLog.outError("Attempted to %s in ByteBuffer (pos: " SIZEFMTD " size: " SIZEFMTD ") value with size: " SIZEFMTD,
-                (add ? "put" : "get"), pos, size, esize);
-        }
+        void PrintPosError() const;
     private:
         bool add;
         size_t pos;
         size_t esize;
         size_t size;
-};
-
-template<class T>
-struct Unused
-{
-    Unused() {}
 };
 
 class ByteBuffer
@@ -65,7 +56,7 @@ class ByteBuffer
         }
 
         // constructor
-        ByteBuffer(size_t res): _rpos(0), _wpos(0)
+        explicit ByteBuffer(size_t res): _rpos(0), _wpos(0)
         {
             _storage.reserve(res);
         }
@@ -83,6 +74,25 @@ class ByteBuffer
             _wpos = rhs._wpos;
             _storage = std::move(rhs._storage);
             return *this;
+        }
+
+        static ByteBuffer from(std::vector<uint8> const& v)
+        {
+            ByteBuffer buf;
+            buf._storage = v;
+            buf._rpos = 0;
+            buf._wpos = buf._storage.size();
+            return buf;
+        }
+
+        // `std::move` v into the buffer
+        static ByteBuffer from(std::vector<uint8>&& v)
+        {
+            ByteBuffer buf;
+            buf._storage = std::move(v);
+            buf._rpos = 0;
+            buf._wpos = buf._storage.size();
+            return buf;
         }
 
         void clear()
@@ -121,7 +131,7 @@ class ByteBuffer
             return *this;
         }
 
-#ifdef __MINGW32__
+#if defined(__MINGW32__) && !defined(__MINGW64__)
         ByteBuffer& operator<<(time_t value)
         {
             append<time_t>(value);
@@ -189,7 +199,7 @@ class ByteBuffer
 
         ByteBuffer& operator>>(bool& value)
         {
-            value = read<char>() > 0 ? true : false;
+            value = read<char>() != 0;
             return *this;
         }
 
@@ -217,7 +227,7 @@ class ByteBuffer
             return *this;
         }
 
-#ifdef __MINGW32__
+#if defined(__MINGW32__) && !defined(__MINGW64__)
         ByteBuffer& operator >> (time_t& value)
         {
             value = read<time_t>();
@@ -264,24 +274,24 @@ class ByteBuffer
 
         ByteBuffer& operator>>(std::string& value)
         {
-            value.clear();
-            while (rpos() < size())                         // prevent crash at wrong string format in packet
+            // prevent crash at wrong string format in packet
+            if (_rpos < size())
             {
-                char c = read<char>();
-                if (c == 0)
-                    break;
-                value += c;
+                size_t startPos = _rpos;
+
+                while (_storage[_rpos] != '\0')
+                {
+                    _rpos++;
+
+                    if (_rpos + sizeof(char) > size())
+                        throw ByteBufferException(false, _rpos, sizeof(char), size());
+                }
+                value.assign((char*)(&_storage[startPos]), _rpos - startPos);
+                _rpos++;
             }
+
             return *this;
         }
-
-        template<class T>
-        ByteBuffer& operator>>(Unused<T> const&)
-        {
-            read_skip<T>();
-            return *this;
-        }
-
 
         uint8 operator[](size_t pos) const
         {
@@ -330,7 +340,15 @@ class ByteBuffer
         {
             if(pos + sizeof(T) > size())
                 throw ByteBufferException(false, pos, sizeof(T), size());
+
+#if defined(__arm__) || defined(_M_ARM)
+            // memcpy to avoid alignment issues
+            T val;
+            memcpy((void*)&val, (void*)&_storage[pos], sizeof(T));
+#else
             T val = *((T const*)&_storage[pos]);
+#endif
+
             EndianConvert(val);
             return val;
         }
@@ -341,6 +359,33 @@ class ByteBuffer
                 throw ByteBufferException(false, _rpos, len, size());
             memcpy(dest, &_storage[_rpos], len);
             _rpos += len;
+        }
+
+        // returns pointer to string inside the packet without copy while checking for null terminator
+        char* ReadCString()
+        {
+            if (_rpos + sizeof(char) > size())
+                throw ByteBufferException(false, _rpos, sizeof(char), size());
+
+            char* txt = (char*)(&_storage[_rpos]);
+
+            while (_storage[_rpos] != '\0')
+            {
+                _rpos++;
+
+                if (_rpos + sizeof(char) > size())
+                    throw ByteBufferException(false, _rpos, sizeof(char), size());
+            }
+
+            _rpos++;
+            return txt;
+        }
+
+        void ReadCString(char*& txt, size_t& txtLen)
+        {
+            size_t oldPos = _rpos;
+            txt = ReadCString();
+            txtLen = (_rpos - oldPos) - 1; // dont count null terminator
         }
 
         uint64 readPackGUID()
@@ -385,7 +430,13 @@ class ByteBuffer
             append((uint8 const*)str.c_str(), str.size() + 1);
         }
 
-        void append(std::vector<uint8> const& src) 
+        void append(std::vector<uint8> const& src)
+        {
+            return append(src.data(), src.size());
+        }
+
+        template<size_t Size>
+        void append(std::array<uint8, Size> const& src)
         {
             return append(src.data(), src.size());
         }
@@ -400,18 +451,7 @@ class ByteBuffer
             return append((uint8 const*)src, cnt * sizeof(T));
         }
 
-        void append(uint8 const* src, size_t cnt)
-        {
-            if (!cnt)
-                return;
-
-            MANGOS_ASSERT(size() < 10000000);
-
-            if (_storage.size() < _wpos + cnt)
-                _storage.resize(_wpos + cnt);
-            memcpy(&_storage[_wpos], src, cnt);
-            _wpos += cnt;
-        }
+        void append(uint8 const* src, size_t cnt);
 
         void append(ByteBuffer const& buffer)
         {
@@ -442,9 +482,9 @@ class ByteBuffer
         void appendPackXYZ(float x, float y, float z)
         {
             uint32 packed = 0;
-            packed |= ((int)(x / 0.25f) & 0x7FF);
-            packed |= ((int)(y / 0.25f) & 0x7FF) << 11;
-            packed |= ((int)(z / 0.25f) & 0x3FF) << 22;
+            packed |= ((int)lroundf(x * 4.0f) & 0x7FF);
+            packed |= ((int)lroundf(y * 4.0f) & 0x7FF) << 11;
+            packed |= ((int)lroundf(z * 4.0f) & 0x3FF) << 22;
             *this << packed;
         }
 
@@ -455,78 +495,7 @@ class ByteBuffer
             memcpy(&_storage[pos], src, cnt);
         }
 
-        void print_storage() const
-        {
-            if (!sLog.HasLogLevelOrHigher(LOG_LVL_DEBUG))   // optimize disabled debug output
-                return;
-
-            std::ostringstream ss;
-            ss <<  "STORAGE_SIZE: " << size() << "\n";
-
-            if (sLog.IsIncludeTime())
-                ss << "         ";
-
-            for (size_t i = 0; i < size(); ++i)
-                ss << uint32(read<uint8>(i)) << " - ";
-
-            DEBUG_LOG(ss.str().c_str());
-        }
-
-        void textlike() const
-        {
-            if (!sLog.HasLogLevelOrHigher(LOG_LVL_DEBUG))   // optimize disabled debug output
-                return;
-
-            std::ostringstream ss;
-            ss <<  "STORAGE_SIZE: " << size() << "\n";
-
-            if (sLog.IsIncludeTime())
-                ss << "         ";
-
-            for (size_t i = 0; i < size(); ++i)
-                ss << read<uint8>(i);
-
-            DEBUG_LOG(ss.str().c_str());
-        }
-
-        void hexlike() const
-        {
-            if (!sLog.HasLogLevelOrHigher(LOG_LVL_DEBUG))   // optimize disabled debug output
-                return;
-
-            std::ostringstream ss;
-            ss <<  "STORAGE_SIZE: " << size() << "\n";
-
-            if (sLog.IsIncludeTime())
-                ss << "         ";
-
-            size_t j = 1, k = 1;
-
-            for (size_t i = 0; i < size(); ++i)
-            {
-                if ((i == (j * 8)) && ((i != (k * 16))))
-                {
-                    ss << "| ";
-                    ++j;
-                }
-                else if (i == (k * 16))
-                {
-                    ss << "\n";
-
-                    if (sLog.IsIncludeTime())
-                        ss << "         ";
-
-                    ++k;
-                    ++j;
-                }
-
-                char buf[4];
-                snprintf(buf, 4, "%02X", read<uint8>(i));
-                ss << buf << " ";
-
-            }
-            DEBUG_LOG(ss.str().c_str());
-        }
+        void PrintAsHex() const;
 
     private:
         // limited for internal use because can "append" any unexpected type (like pointer and etc) with hard detection problem
