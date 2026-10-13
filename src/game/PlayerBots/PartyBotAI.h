@@ -106,6 +106,7 @@ public:
     uint32 GetMountSpellId() const;
     void CloneFromPlayer(Player const* pPlayer);
     void LearnPremadeSpecForClass();
+    bool CanTryToCastSpell(Unit const* pTarget, SpellEntry const* pSpellEntry, uint32 maxStack = 1) const final;
     void AddToPlayerGroup();
 
     Player* GetPartyLeader() const;
@@ -119,8 +120,6 @@ public:
     bool CanUseCrowdControl(SpellEntry const* pSpellEntry, Unit* pTarget) const;
     bool DrinkAndEat();
     bool ShouldAutoRevive() const;
-    bool IsValidDistancingTarget(Unit* pTarget, Unit* pEnemy);
-    Unit* GetDistancingTarget(Unit* pEnemy);
     bool CrowdControlMarkedTargets();
     void RunAwayFromTarget(Unit* pTarget, bool pFollowLeader = true, float pDistance = 12.0f);
     void RunAwayFromObject(GameObject* pObject, float pDistance = 10.0f);
@@ -132,8 +131,6 @@ public:
     void PopulateConsumableSpellData();
     bool CheckThreat(Unit const* pTarget);
     bool CheckCombatInstanceMechanics(bool &pCombatEngagementReady);
-    bool ShouldEnterStealth() const;
-    bool EnterStealthIfNeeded(SpellEntry const* pStealthSpell);
 
     bool CheckForDispelTargets();
     void UpdateInCombatAI() final;

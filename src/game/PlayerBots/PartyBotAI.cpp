@@ -433,8 +433,58 @@ bool PartyBotAI::ShouldAutoRevive() const
 }
 
 
+bool PartyBotAI::CanTryToCastSpell(Unit const* pTarget, SpellEntry const* pSpellEntry, uint32 maxStack) const
+{
+    if (!CombatBotBaseAI::CanTryToCastSpell(pTarget, pSpellEntry, maxStack))
+        return false;
+
+    // Ported from upstream: no harmful AoE while there are CC marks or if it would pull aggro
+    if (pSpellEntry->IsAreaOfEffectSpell() && !pSpellEntry->IsPositiveSpell() && !IsInDuel())
+    {
+        if (!m_marksToCC.empty())
+            return false;
+
+        if (m_role != ROLE_TANK)
+        {
+            float radius;
+            if (pSpellEntry->EffectRadiusIndex[0])
+                radius = Spells::GetSpellRadius(sSpellRadiusStore.LookupEntry(pSpellEntry->EffectRadiusIndex[0]));
+            else if (pSpellEntry->EffectRadiusIndex[1])
+                radius = Spells::GetSpellRadius(sSpellRadiusStore.LookupEntry(pSpellEntry->EffectRadiusIndex[1]));
+            else if (pSpellEntry->EffectRadiusIndex[2])
+                radius = Spells::GetSpellRadius(sSpellRadiusStore.LookupEntry(pSpellEntry->EffectRadiusIndex[2]));
+            else
+                radius = 10.0f;
+
+            std::list<Unit*> targets;
+            me->GetEnemyListInRadiusAround(pTarget, radius, targets);
+
+            for (auto const& pEnemy : targets)
+            {
+                if (((pEnemy->GetLevel() + 5) > me->GetLevel()) &&
+                    ((pEnemy->GetHealth() * 4) > me->GetHealth()) &&
+                    pEnemy->GetVictim() && pEnemy->GetVictim() != me &&
+                    pEnemy->IsValidAttackTarget(me) &&
+                    pEnemy->CanHaveThreatList())
+                {
+                    float const myThreat = pEnemy->GetThreatManager().getThreat(me);
+                    float const victimThreat = pEnemy->GetThreatManager().getThreat(pEnemy->GetVictim());
+
+                    if (victimThreat < (myThreat + me->GetMaxHealth()))
+                        return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
 bool PartyBotAI::CanUseCrowdControl(SpellEntry const* pSpellEntry, Unit* pTarget) const
 {
+    if (IsInDuel())
+        return true;
+
     if ((pSpellEntry->AuraInterruptFlags & AURA_INTERRUPT_DAMAGE_CANCELS) &&
         AreOthersOnSameTarget(pTarget->GetObjectGuid()))
         return false;
@@ -477,6 +527,13 @@ Unit* PartyBotAI::GetMarkedTarget(RaidTargetIcon mark) const
 
 Unit* PartyBotAI::SelectAttackTarget() const
 {
+    // Ported from upstream: fight only the duel opponent while dueling
+    if (IsInDuel())
+    {
+        if (me->m_duel->opponent && IsValidHostileTarget(me->m_duel->opponent))
+            return me->m_duel->opponent;
+        return nullptr;
+    }
 
     // Who is attacking me.
     for (const auto pAttacker : me->GetAttackers())
@@ -619,6 +676,9 @@ Unit* PartyBotAI::SelectSpellTargetDifferentFrom(SpellEntry const* pSpellEntry, 
 
 Player* PartyBotAI::SelectResurrectionTarget() const
 {
+    if (IsInDuel())
+        return nullptr;
+
     std::vector<Player*> vRessTargets;
     Player* pTarget = nullptr;
 
@@ -643,6 +703,9 @@ Player* PartyBotAI::SelectResurrectionTarget() const
 
 Player* PartyBotAI::SelectShieldTarget() const
 {
+    if (IsInDuel())
+        return nullptr;
+
     Group* pGroup = me->GetGroup();
     for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
     {
@@ -664,6 +727,9 @@ Player* PartyBotAI::SelectShieldTarget() const
 
 bool PartyBotAI::CrowdControlMarkedTargets()
 {
+    if (IsInDuel())
+        return false;
+
     SpellEntry const* pSpellEntry = GetCrowdControlSpell();
     if (!pSpellEntry)
         return false;
@@ -773,9 +839,45 @@ uint32 PartyBotAI::GetMountSpellId() const
 
 void PartyBotAI::OnPacketReceived(WorldPacket const* packet)
 {
-    //printf("Bot received %s\n", LookupOpcodeName(packet->GetOpcode()));
     switch (packet->GetOpcode())
     {
+        // Ported from upstream: partybots accept duel requests
+        case SMSG_DUEL_REQUESTED:
+        {
+            auto data = std::make_unique<WorldPackets::Duel::DuelAccepted>();
+            data->playerGuid = me->GetObjectGuid();
+            me->GetSession()->QueuePacket(std::move(data));
+            return;
+        }
+        // Ported from upstream: hand round-robin loot from bots back to real players
+        case SMSG_PARTYKILLLOG:
+        {
+            if (!me)
+                return;
+
+            if (Group const* pGroup = me->GetGroup())
+            {
+                if (pGroup->GetLootMethod() == ROUND_ROBIN ||
+                    pGroup->GetLootMethod() == GROUP_LOOT ||
+                    pGroup->GetLootMethod() == NEED_BEFORE_GREED)
+                {
+                    ObjectGuid victimGuid = *(((uint64*)(*packet).contents()) + 1);
+                    if (Creature* pCreature = me->GetMap()->GetCreature(victimGuid))
+                    {
+                        pCreature->m_Events.AddLambdaEventAtOffset([pCreature, guid = me->GetGUID()]()
+                        {
+                            if (pCreature->loot.roundRobinPlayer == guid)
+                            {
+                                // unassign loot from bot so real players can loot
+                                pCreature->loot.roundRobinPlayer = 0;
+                                pCreature->ForceValuesUpdateAtIndex(UNIT_DYNAMIC_FLAGS);
+                            }
+                        }, 1);
+                    }
+                }
+            }
+            return;
+        }
     }
 
     CombatBotBaseAI::OnPacketReceived(packet);
@@ -890,7 +992,11 @@ void PartyBotAI::UpdateAI(uint32 const diff)
     }
 
     if (me->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL))
+    {
+        // Ported from upstream: use trinkets / class abilities to break CC on self
+        BreakCrowdControlEffects();
         return;
+    }
 
     if (me->IsDead())
     {
@@ -925,6 +1031,20 @@ void PartyBotAI::UpdateAI(uint32 const diff)
 
     if (me->GetInvincibilityHpThreshold())
         me->SetCheatGod(false);
+
+    // Ported from upstream: interrupt pre-casted heals if the target is no longer injured
+    if (Spell* pCurrentSpell = me->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+    {
+        if (pCurrentSpell->getState() == SPELL_STATE_PREPARING &&
+            pCurrentSpell->m_spellInfo->IsHealSpell())
+        {
+            if (Unit* pTarget = pCurrentSpell->m_targets.getUnitTarget())
+            {
+                if (pTarget->GetHealth() == pTarget->GetMaxHealth())
+                    me->InterruptSpell(CURRENT_GENERIC_SPELL, true);
+            }
+        }
+    }
 
     if (me->IsNonMeleeSpellCasted(false, false, true))
         return;
@@ -1094,6 +1214,10 @@ void PartyBotAI::UpdateOutOfCombatAI()
     if (m_role != ROLE_TANK && me->GetVictim() && CrowdControlMarkedTargets())
         return;
 
+    // Ported from upstream: dispels take priority over class logic
+    if (CheckForDispelTargets())
+        return;
+
     switch (me->GetClass())
     {
         case CLASS_PALADIN:
@@ -1241,6 +1365,10 @@ void PartyBotAI::UpdateInCombatAI()
     else if (CrowdControlMarkedTargets())
         return;
 
+    // Ported from upstream: dispels take priority over class logic
+    if (CheckForDispelTargets())
+        return;
+
     // Now go to class combat logic
     switch (me->GetClass())
     {
@@ -1272,6 +1400,133 @@ void PartyBotAI::UpdateInCombatAI()
             UpdateInCombatAI_Druid();
             break;
     }
+}
+
+// Ported from upstream: high-priority dispels for every class
+bool PartyBotAI::CheckForDispelTargets()
+{
+    if (me->GetShapeshiftForm() != FORM_NONE)
+        return false;
+
+    switch (me->GetClass())
+    {
+        case CLASS_PALADIN:
+        {
+            if (m_spells.paladin.pCleanse)
+            {
+                if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pCleanse))
+                {
+                    if (CanTryToCastSpell(pFriend, m_spells.paladin.pCleanse))
+                    {
+                        if (DoCastSpell(pFriend, m_spells.paladin.pCleanse) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+            break;
+        }
+        case CLASS_SHAMAN:
+        {
+            if (m_spells.shaman.pCureDisease)
+            {
+                if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCureDisease))
+                {
+                    if (CanTryToCastSpell(pFriend, m_spells.shaman.pCureDisease))
+                    {
+                        if (DoCastSpell(pFriend, m_spells.shaman.pCureDisease) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+
+            if (m_spells.shaman.pCurePoison)
+            {
+                if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCurePoison))
+                {
+                    if (CanTryToCastSpell(pFriend, m_spells.shaman.pCurePoison))
+                    {
+                        if (DoCastSpell(pFriend, m_spells.shaman.pCurePoison) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+            break;
+        }
+        case CLASS_MAGE:
+        {
+            if (m_spells.mage.pRemoveLesserCurse)
+            {
+                if (Unit* pFriend = SelectDispelTarget(m_spells.mage.pRemoveLesserCurse))
+                {
+                    if (CanTryToCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse))
+                    {
+                        if (DoCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+            break;
+        }
+        case CLASS_PRIEST:
+        {
+            if (m_spells.priest.pDispelMagic)
+            {
+                if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pDispelMagic))
+                {
+                    if (CanTryToCastSpell(pFriend, m_spells.priest.pDispelMagic))
+                    {
+                        if (DoCastSpell(pFriend, m_spells.priest.pDispelMagic) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+            if (m_spells.priest.pAbolishDisease)
+            {
+                if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pAbolishDisease))
+                {
+                    if (CanTryToCastSpell(pFriend, m_spells.priest.pAbolishDisease))
+                    {
+                        if (DoCastSpell(pFriend, m_spells.priest.pAbolishDisease) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+            break;
+        }
+        case CLASS_DRUID:
+        {
+            SpellEntry const* pDispelSpell = m_spells.druid.pAbolishPoison ?
+                m_spells.druid.pAbolishPoison :
+                m_spells.druid.pCurePoison;
+
+            if (pDispelSpell)
+            {
+                if (Unit* pFriend = SelectDispelTarget(pDispelSpell))
+                {
+                    if (CanTryToCastSpell(pFriend, pDispelSpell))
+                    {
+                        if (DoCastSpell(pFriend, pDispelSpell) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+
+            if (m_spells.druid.pRemoveCurse)
+            {
+                if (Unit* pFriend = SelectDispelTarget(m_spells.druid.pRemoveCurse))
+                {
+                    if (CanTryToCastSpell(pFriend, m_spells.druid.pRemoveCurse))
+                    {
+                        if (DoCastSpell(pFriend, m_spells.druid.pRemoveCurse) == SPELL_CAST_OK)
+                            return true;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    return false;
 }
 
 void PartyBotAI::UpdateOutOfCombatAI_Paladin()
@@ -1453,6 +1708,10 @@ void PartyBotAI::UpdateInCombatAI_Paladin()
 
         if (FindAndHealInjuredAlly(95.0f, 50.0f))
             return;
+
+        // Ported from upstream: pre-heal the ally taking the most incoming damage
+        if (FindAndPreHealTarget())
+            return;
     }
     else
     {
@@ -1624,7 +1883,8 @@ void PartyBotAI::UpdateInCombatAI_Shaman()
 
     if (m_role == ROLE_HEALER)
     {
-        FindAndHealInjuredAlly(95.0f, 50.0f);
+        if (!FindAndHealInjuredAlly(95.0f, 50.0f))
+            FindAndPreHealTarget(); // ported from upstream
         return;
     }
     else
@@ -1970,27 +2230,14 @@ void PartyBotAI::UpdateInCombatAI_Hunter()
 
 void PartyBotAI::UpdateOutOfCombatAI_Mage()
 {
-    if (m_spells.mage.pArcaneBrilliance)
+    // Ported from upstream: single-target buff when only one member needs it, group buff otherwise
     {
-        if (Player* pTarget = SelectBuffTarget(m_spells.mage.pArcaneBrilliance))
+        SpellEntry const* pBuffSpell = nullptr;
+        if (Player* pTarget = SelectBuffTarget(m_spells.mage.pArcaneIntellect, m_spells.mage.pArcaneBrilliance, pBuffSpell))
         {
-            if (CanTryToCastSpell(pTarget, m_spells.mage.pArcaneBrilliance))
+            if (CanTryToCastSpell(pTarget, pBuffSpell))
             {
-                if (DoCastSpell(pTarget, m_spells.mage.pArcaneBrilliance) == SPELL_CAST_OK)
-                {
-                    m_isBuffing = true;
-                    return;
-                }
-            }
-        }
-    }
-    else if (m_spells.mage.pArcaneIntellect)
-    {
-        if (Player* pTarget = SelectBuffTarget(m_spells.mage.pArcaneIntellect))
-        {
-            if (CanTryToCastSpell(pTarget, m_spells.mage.pArcaneIntellect))
-            {
-                if (DoCastSpell(pTarget, m_spells.mage.pArcaneIntellect) == SPELL_CAST_OK)
+                if (DoCastSpell(pTarget, pBuffSpell) == SPELL_CAST_OK)
                 {
                     m_isBuffing = true;
                     return;
@@ -2304,27 +2551,14 @@ void PartyBotAI::UpdateInCombatAI_Mage()
 
 void PartyBotAI::UpdateOutOfCombatAI_Priest()
 {
-    if (m_spells.priest.pPrayerofFortitude)
+    // Ported from upstream: single-target buff when only one member needs it, group buff otherwise
     {
-        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pPrayerofFortitude))
+        SpellEntry const* pBuffSpell = nullptr;
+        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pPowerWordFortitude, m_spells.priest.pPrayerofFortitude, pBuffSpell))
         {
-            if (CanTryToCastSpell(pTarget, m_spells.priest.pPrayerofFortitude))
+            if (CanTryToCastSpell(pTarget, pBuffSpell))
             {
-                if (DoCastSpell(pTarget, m_spells.priest.pPrayerofFortitude) == SPELL_CAST_OK)
-                {
-                    m_isBuffing = true;
-                    return;
-                }
-            }
-        }
-    }
-    else if (m_spells.priest.pPowerWordFortitude)
-    {
-        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pPowerWordFortitude))
-        {
-            if (CanTryToCastSpell(pTarget, m_spells.priest.pPowerWordFortitude))
-            {
-                if (DoCastSpell(pTarget, m_spells.priest.pPowerWordFortitude) == SPELL_CAST_OK)
+                if (DoCastSpell(pTarget, pBuffSpell) == SPELL_CAST_OK)
                 {
                     m_isBuffing = true;
                     return;
@@ -2333,27 +2567,14 @@ void PartyBotAI::UpdateOutOfCombatAI_Priest()
         }
     }
 
-    if (m_spells.priest.pPrayerofSpirit)
+    // Ported from upstream: single-target buff when only one member needs it, group buff otherwise
     {
-        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pPrayerofSpirit))
+        SpellEntry const* pBuffSpell = nullptr;
+        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pDivineSpirit, m_spells.priest.pPrayerofSpirit, pBuffSpell))
         {
-            if (CanTryToCastSpell(pTarget, m_spells.priest.pPrayerofSpirit))
+            if (CanTryToCastSpell(pTarget, pBuffSpell))
             {
-                if (DoCastSpell(pTarget, m_spells.priest.pPrayerofSpirit) == SPELL_CAST_OK)
-                {
-                    m_isBuffing = true;
-                    return;
-                }
-            }
-        }
-    }
-    else if (m_spells.priest.pDivineSpirit)
-    {
-        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pDivineSpirit))
-        {
-            if (CanTryToCastSpell(me, m_spells.priest.pDivineSpirit))
-            {
-                if (DoCastSpell(me, m_spells.priest.pDivineSpirit) == SPELL_CAST_OK)
+                if (DoCastSpell(pTarget, pBuffSpell) == SPELL_CAST_OK)
                 {
                     m_isBuffing = true;
                     return;
@@ -2362,13 +2583,14 @@ void PartyBotAI::UpdateOutOfCombatAI_Priest()
         }
     }
 
-    if (m_spells.priest.pShadowProtection)
+    // Ported from upstream: single-target buff when only one member needs it, group buff otherwise
     {
-        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pShadowProtection))
+        SpellEntry const* pBuffSpell = nullptr;
+        if (Player* pTarget = SelectBuffTarget(m_spells.priest.pShadowProtection, m_spells.priest.pPrayerofShadowProtection, pBuffSpell))
         {
-            if (CanTryToCastSpell(pTarget, m_spells.priest.pShadowProtection))
+            if (CanTryToCastSpell(pTarget, pBuffSpell))
             {
-                if (DoCastSpell(pTarget, m_spells.priest.pShadowProtection) == SPELL_CAST_OK)
+                if (DoCastSpell(pTarget, pBuffSpell) == SPELL_CAST_OK)
                 {
                     m_isBuffing = true;
                     return;
@@ -2543,6 +2765,10 @@ void PartyBotAI::UpdateInCombatAI_Priest()
         }
 
         if (FindAndHealInjuredAlly(95.0f, 50.0f))
+            return;
+
+        // Ported from upstream: pre-heal the ally taking the most incoming damage
+        if (FindAndPreHealTarget())
             return;
     }
     else
@@ -3582,31 +3808,16 @@ void PartyBotAI::PopulateConsumableSpellData()
 
 void PartyBotAI::UpdateOutOfCombatAI_Druid()
 {
-    if (m_spells.druid.pGiftoftheWild)
+    // Ported from upstream: single-target buff when only one member needs it, group buff otherwise
     {
-        if (Player* pTarget = SelectBuffTarget(m_spells.druid.pGiftoftheWild))
+        SpellEntry const* pBuffSpell = nullptr;
+        if (Player* pTarget = SelectBuffTarget(m_spells.druid.pMarkoftheWild, m_spells.druid.pGiftoftheWild, pBuffSpell))
         {
-            if (CanTryToCastSpell(pTarget, m_spells.druid.pGiftoftheWild))
+            if (CanTryToCastSpell(pTarget, pBuffSpell))
             {
                 if (me->GetShapeshiftForm() != FORM_NONE)
                     me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
-                if (DoCastSpell(pTarget, m_spells.druid.pGiftoftheWild) == SPELL_CAST_OK)
-                {
-                    m_isBuffing = true;
-                    return;
-                }
-            }
-        }
-    }
-    else if (m_spells.druid.pMarkoftheWild)
-    {
-        if (Player* pTarget = SelectBuffTarget(m_spells.druid.pMarkoftheWild))
-        {
-            if (CanTryToCastSpell(pTarget, m_spells.druid.pMarkoftheWild))
-            {
-                if (me->GetShapeshiftForm() != FORM_NONE)
-                    me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
-                if (DoCastSpell(pTarget, m_spells.druid.pMarkoftheWild) == SPELL_CAST_OK)
+                if (DoCastSpell(pTarget, pBuffSpell) == SPELL_CAST_OK)
                 {
                     m_isBuffing = true;
                     return;
@@ -3783,6 +3994,10 @@ void PartyBotAI::UpdateInCombatAI_Druid()
         }
 
         if (FindAndHealInjuredAlly(95.0f, 50.0f))
+            return;
+
+        // Ported from upstream: pre-heal the ally taking the most incoming damage
+        if (FindAndPreHealTarget())
             return;
     }
     

@@ -2540,7 +2540,7 @@ GM.AllowPublicChannels = 0
 GMTickets.Enable = 1
 GMTickets.MinLevel = 0
 GMTickets.Admin.Security = 7
-GM.CheatGod = 1
+GM.CheatGod = 0
 
 ###################################################################################################################
 # VISIBILITY AND RADIUSES
@@ -3237,7 +3237,7 @@ PartyBot.SkipChecks = 0
 PartyBot.AutoEquip = 1
 PartyBot.RandomGearLevelDifference = 10
 
-BattleBot.AutoEquip = 1
+BattleBot.AutoEquip = 2
 BattleBot.AutoJoin = 0
 
 ###################################################################################################################
