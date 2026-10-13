@@ -866,6 +866,10 @@ void Item::AddToUpdateQueueOf(Player* player)
 
     if (!player)
     {
+        // Items without an owner (e.g. created by the auction house bot) have no update queue
+        if (GetOwnerGuid().IsEmpty())
+            return;
+
         player = GetOwner();
         if (!player)
         {
