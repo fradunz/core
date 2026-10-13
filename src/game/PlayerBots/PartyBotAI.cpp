@@ -2544,7 +2544,8 @@ void PartyBotAI::UpdateInCombatAI_Mage()
 
         if (me->HasSpell(PB_SPELL_SHOOT_WAND) &&
            !me->IsMoving() &&
-           !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+           !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
+            me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
             me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false);
     }
 }
@@ -2855,7 +2856,8 @@ void PartyBotAI::UpdateInCombatAI_Priest()
 
             if (me->HasSpell(PB_SPELL_SHOOT_WAND) &&
                 !me->IsMoving() &&
-                !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+                !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
+                me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
                 me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false);
         }
     }
@@ -3114,7 +3116,8 @@ void PartyBotAI::UpdateInCombatAI_Warlock()
 
         if (me->HasSpell(PB_SPELL_SHOOT_WAND) &&
            !me->IsMoving() &&
-           !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+           !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
+            me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
             me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false);
     }
 }
