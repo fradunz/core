@@ -20543,6 +20543,11 @@ void Player::AutoStoreLoot(Loot& loot, bool broadcast, uint8 bag, uint8 slot)
 uint32 Player::CalculateTalentsPoints() const
 {
     uint32 talentPointsForLevel = GetLevel() < 10 ? 0 : GetLevel() - 9;
+
+    // Bots always use the default talent rate (Rate.Talent applies to real players only)
+    if (IsBot())
+        return talentPointsForLevel;
+
     return uint32(talentPointsForLevel * sWorld.getConfig(CONFIG_FLOAT_RATE_TALENT));
 }
 

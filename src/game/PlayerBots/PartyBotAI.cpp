@@ -14,6 +14,8 @@
 #include "Chat.h"
 #include <string>
 #include <random>
+#include <algorithm>
+#include <sstream>
 
 #define PB_UPDATE_INTERVAL 1000
 #define PB_MIN_FOLLOW_DIST 3.0f
@@ -78,97 +80,363 @@ void PartyBotAI::CloneFromPlayer(Player const* pPlayer)
     }
 }
 
+namespace
+{
+    // Talent trees used by each role. Tabs are the client order index (TalentTab.dbc m_orderIndex),
+    // e.g. Warrior: 0 Arms, 1 Fury, 2 Protection.
+    struct TalentSpecRule
+    {
+        uint8 playerClass;
+        CombatBotRoles role;
+        uint8 primaryTab;
+        uint8 secondaryTab;
+    };
+
+    TalentSpecRule const TalentSpecRules[] =
+    {
+        { CLASS_WARRIOR, ROLE_TANK,      2, 0 }, // Protection / Arms
+        { CLASS_WARRIOR, ROLE_MELEE_DPS, 0, 1 }, // Arms / Fury
+        { CLASS_WARRIOR, ROLE_MELEE_DPS, 1, 0 }, // Fury / Arms
+        { CLASS_PALADIN, ROLE_HEALER,    0, 1 }, // Holy / Protection
+        { CLASS_PALADIN, ROLE_TANK,      1, 0 }, // Protection / Holy
+        { CLASS_PALADIN, ROLE_MELEE_DPS, 2, 0 }, // Retribution / Holy
+        { CLASS_HUNTER,  ROLE_RANGE_DPS, 1, 0 }, // Marksmanship / Beast Mastery
+        { CLASS_ROGUE,   ROLE_MELEE_DPS, 1, 0 }, // Combat / Assassination
+        { CLASS_ROGUE,   ROLE_MELEE_DPS, 0, 1 }, // Assassination / Combat
+        { CLASS_PRIEST,  ROLE_HEALER,    1, 0 }, // Holy / Discipline
+        { CLASS_PRIEST,  ROLE_HEALER,    0, 1 }, // Discipline / Holy
+        { CLASS_PRIEST,  ROLE_RANGE_DPS, 2, 0 }, // Shadow / Discipline
+        { CLASS_SHAMAN,  ROLE_HEALER,    2, 0 }, // Restoration / Elemental
+        { CLASS_SHAMAN,  ROLE_MELEE_DPS, 1, 2 }, // Enhancement / Restoration
+        { CLASS_SHAMAN,  ROLE_RANGE_DPS, 0, 2 }, // Elemental / Restoration
+        { CLASS_MAGE,    ROLE_RANGE_DPS, 2, 0 }, // Frost / Arcane
+        { CLASS_WARLOCK, ROLE_RANGE_DPS, 0, 1 }, // Affliction / Demonology
+        { CLASS_WARLOCK, ROLE_RANGE_DPS, 2, 1 }, // Destruction / Demonology
+        { CLASS_DRUID,   ROLE_HEALER,    2, 0 }, // Restoration / Balance
+        { CLASS_DRUID,   ROLE_TANK,      1, 2 }, // Feral / Restoration
+        { CLASS_DRUID,   ROLE_MELEE_DPS, 1, 2 }, // Feral / Restoration
+        { CLASS_DRUID,   ROLE_RANGE_DPS, 0, 2 }, // Balance / Restoration
+    };
+
+    char const* const TalentTabNames[MAX_CLASSES][3] =
+    {
+        { "", "", "" },
+        { "Arms", "Fury", "Protection" },                       // Warrior
+        { "Holy", "Protection", "Retribution" },                // Paladin
+        { "Beast Mastery", "Marksmanship", "Survival" },        // Hunter
+        { "Assassination", "Combat", "Subtlety" },              // Rogue
+        { "Discipline", "Holy", "Shadow" },                     // Priest
+        { "", "", "" },
+        { "Elemental", "Enhancement", "Restoration" },          // Shaman
+        { "Arcane", "Fire", "Frost" },                          // Mage
+        { "Affliction", "Demonology", "Destruction" },          // Warlock
+        { "", "", "" },
+        { "Balance", "Feral Combat", "Restoration" },           // Druid
+    };
+
+    char const* GetRoleName(CombatBotRoles role)
+    {
+        switch (role)
+        {
+            case ROLE_TANK:      return "tank";
+            case ROLE_HEALER:    return "healer";
+            case ROLE_MELEE_DPS: return "melee dps";
+            case ROLE_RANGE_DPS: return "ranged dps";
+            default:             return "none";
+        }
+    }
+}
+
+uint32 PartyBotAI::GetTalentTabId(uint8 tabPage) const
+{
+    for (uint32 i = 0; i < sTalentTabStore.GetNumRows(); ++i)
+    {
+        TalentTabEntry const* pTab = sTalentTabStore.LookupEntry(i);
+        if (pTab && (pTab->ClassMask & me->GetClassMask()) && pTab->tabpage == tabPage)
+            return pTab->TalentTabID;
+    }
+    return 0;
+}
+
+uint32 PartyBotAI::GetSpentTalentPoints(uint32 tabId) const
+{
+    uint32 points = 0;
+    for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+    {
+        TalentEntry const* pTalent = sTalentStore.LookupEntry(i);
+        if (!pTalent || pTalent->TalentTab != tabId)
+            continue;
+
+        for (int32 rank = MAX_TALENT_RANK - 1; rank >= 0; --rank)
+        {
+            if (pTalent->RankID[rank] && me->HasSpell(pTalent->RankID[rank]))
+            {
+                points += rank + 1;
+                break;
+            }
+        }
+    }
+    return points;
+}
+
+bool PartyBotAI::LearnNextTalentInTab(uint32 tabId)
+{
+    uint32 const spentPoints = GetSpentTalentPoints(tabId);
+
+    // Talents in unlocked rows that still have ranks to learn
+    std::vector<std::pair<TalentEntry const*, uint32 /*next rank*/>> candidates;
+    for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+    {
+        TalentEntry const* pTalent = sTalentStore.LookupEntry(i);
+        if (!pTalent || pTalent->TalentTab != tabId)
+            continue;
+
+        if (pTalent->Row * MAX_TALENT_RANK > spentPoints)
+            continue;
+
+        uint32 maxRank = 0;
+        while (maxRank < MAX_TALENT_RANK && pTalent->RankID[maxRank])
+            ++maxRank;
+
+        uint32 currentRank = 0;
+        for (int32 rank = maxRank - 1; rank >= 0; --rank)
+        {
+            if (me->HasSpell(pTalent->RankID[rank]))
+            {
+                currentRank = rank + 1;
+                break;
+            }
+        }
+
+        if (currentRank < maxRank)
+            candidates.push_back({ pTalent, currentRank });
+    }
+
+    // Random talent, deepest unlocked row first, so the tree reaches its 31 point talent
+    std::shuffle(candidates.begin(), candidates.end(), std::mt19937(std::random_device{}()));
+    std::stable_sort(candidates.begin(), candidates.end(),
+        [](std::pair<TalentEntry const*, uint32> const& a, std::pair<TalentEntry const*, uint32> const& b)
+        {
+            return a.first->Row > b.first->Row;
+        });
+
+    for (auto const& candidate : candidates)
+    {
+        // Fails when a required talent or spell is missing; try the next one
+        if (me->LearnTalent(candidate.first->TalentID, candidate.second))
+            return true;
+    }
+
+    return false;
+}
+
+void PartyBotAI::SpendTalentPointsInTab(uint32 tabId, uint32 maxPointsInTab)
+{
+    while (me->GetFreeTalentPoints() && GetSpentTalentPoints(tabId) < maxPointsInTab)
+    {
+        if (!LearnNextTalentInTab(tabId))
+            break;
+    }
+}
+
+void PartyBotAI::LearnTalentsForRole()
+{
+    if (!me->GetFreeTalentPoints())
+        return;
+
+    uint32 tabIds[3];
+    uint32 spentPoints[3];
+    for (uint8 page = 0; page < 3; ++page)
+    {
+        tabIds[page] = GetTalentTabId(page);
+        if (!tabIds[page])
+            return;
+        spentPoints[page] = GetSpentTalentPoints(tabIds[page]);
+    }
+
+    // Rules for the bot role; any rule of the class when the role has none (or is not set yet)
+    std::vector<TalentSpecRule const*> rules;
+    for (auto const& rule : TalentSpecRules)
+        if (rule.playerClass == me->GetClass() && rule.role == m_role)
+            rules.push_back(&rule);
+    if (rules.empty())
+        for (auto const& rule : TalentSpecRules)
+            if (rule.playerClass == me->GetClass())
+                rules.push_back(&rule);
+    if (rules.empty())
+        return;
+
+    TalentSpecRule const* pRule = SelectRandomContainerElement(rules);
+    uint8 primary = pRule->primaryTab;
+    uint8 secondary = pRule->secondaryTab;
+
+    // Keep the trees already used by a premade spec template
+    uint8 mostUsed = 0;
+    for (uint8 page = 1; page < 3; ++page)
+        if (spentPoints[page] > spentPoints[mostUsed])
+            mostUsed = page;
+
+    if (spentPoints[mostUsed])
+    {
+        primary = mostUsed;
+
+        uint8 secondMostUsed = (primary + 1) % 3;
+        uint8 const other = (primary + 2) % 3;
+        if (spentPoints[other] > spentPoints[secondMostUsed])
+            secondMostUsed = other;
+
+        if (spentPoints[secondMostUsed])
+            secondary = secondMostUsed;
+        else if (secondary == primary)
+            secondary = (pRule->primaryTab != primary) ? pRule->primaryTab : secondMostUsed;
+    }
+
+    // Primary tree up to its 31 point talent, then the secondary tree, then whatever is left
+    SpendTalentPointsInTab(tabIds[primary], 31);
+    SpendTalentPointsInTab(tabIds[secondary], UINT32_MAX);
+    SpendTalentPointsInTab(tabIds[primary], UINT32_MAX);
+    for (uint8 page = 0; page < 3; ++page)
+        SpendTalentPointsInTab(tabIds[page], UINT32_MAX);
+}
+
+void PartyBotAI::ReportBuildToLeader() const
+{
+    Player* pLeader = sObjectAccessor.FindPlayer(m_leaderGuid);
+    if (!pLeader || pLeader == me)
+        return;
+
+    std::ostringstream ss;
+    ss << me->GetName() << " (" << GetRoleName(m_role) << ") - Talents: ";
+    for (uint8 page = 0; page < 3; ++page)
+    {
+        if (page)
+            ss << " / ";
+        ss << TalentTabNames[me->GetClass()][page] << " " << GetSpentTalentPoints(GetTalentTabId(page));
+    }
+    ss << " [" << m_buildTalentSource << "] | Gear: " << m_buildGearSource;
+
+    ChatHandler(pLeader).SendSysMessage(ss.str().c_str());
+}
+
 void PartyBotAI::LearnPremadeSpecForClass()
 {
-    
-    if(m_level > sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
+    if (m_level > sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
         me->GiveLevel(sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL));
     else
         me->GiveLevel(m_level);
     me->InitTalentForLevel();
     me->SetUInt32Value(PLAYER_XP, 0);
-    
-    if (m_level < 5)
-        return;
 
-    uint8 level = m_level;
+    // PartyBot.AutoEquip: 2 = premade templates (random fallback), 1 = random, 0 = starting items
+    uint32 const gearMode = sWorld.getConfig(CONFIG_UINT32_PARTY_BOT_AUTO_EQUIP);
+    bool gearApplied = false;
+    m_buildTalentSource = "random";
+    m_buildGearSource = "";
 
-    std::vector<PlayerPremadeSpecTemplate> vSpecs;
-    std::vector<PlayerPremadeSpecTemplate> vSpecsAux;
-    std::vector<PlayerPremadeGearTemplate> vGears;
-    std::vector<PlayerPremadeGearTemplate> vGearsAux;
-    std::vector<PlayerPremadeGearTemplate> vGearsAux2;
-
-    PlayerPremadeSpecTemplate spec;
-    PlayerPremadeGearTemplate gear;
-
-    // Try to find spec to player - Maximum 3 level diference
-    while (vSpecs.empty() && level >= (m_level - 3))
+    // Templates start at level 5 (also keeps the level - N loops below from underflowing)
+    if (gearMode == PLAYER_BOT_AUTO_EQUIP_PREMADE_GEAR && m_level >= 5)
     {
-        for (const auto& itr : sObjectMgr.GetPlayerPremadeSpecTemplates())
-        {
-            if (itr.second.requiredClass == me->GetClass() &&
-                itr.second.level == level)
-            {
-                if (itr.second.role == m_role)
-                    vSpecs.push_back(itr.second);
-                else if(vSpecs.empty())
-                    vSpecsAux.push_back(itr.second);
-            }
-        }
-        if (vSpecs.empty() && !vSpecsAux.empty())
-            vSpecs = vSpecsAux;
-        level--;
-    }
-    
-    if (!vSpecs.empty())
-    {
-        // Select random spec template
-        spec = SelectRandomContainerElement(vSpecs);
-        // Apply selected spec template
-        sObjectMgr.ApplyPremadeSpecTemplateToPlayer(spec.entry, me);
+        uint8 level = m_level;
 
-        // Now try to find gear for selected spec
-        level = m_level;
-        while (vGears.empty() && level >= (m_level - 4))
+        std::vector<PlayerPremadeSpecTemplate> vSpecs;
+        std::vector<PlayerPremadeSpecTemplate> vSpecsAux;
+        std::vector<PlayerPremadeGearTemplate> vGears;
+        std::vector<PlayerPremadeGearTemplate> vGearsAux;
+        std::vector<PlayerPremadeGearTemplate> vGearsAux2;
+
+        PlayerPremadeSpecTemplate spec;
+        PlayerPremadeGearTemplate gear;
+
+        // Try to find spec to player - Maximum 3 level diference
+        while (vSpecs.empty() && level >= (m_level - 3))
         {
-            for (const auto& itr : sObjectMgr.GetPlayerPremadeGearTemplates())
+            for (const auto& itr : sObjectMgr.GetPlayerPremadeSpecTemplates())
             {
-                if (itr.second.requiredClass == spec.requiredClass &&
+                if (itr.second.requiredClass == me->GetClass() &&
                     itr.second.level == level)
                 {
-                    if (spec.name.size() <= itr.second.name.size() &&
-                        strncmp(spec.name.c_str(), itr.second.name.c_str(), spec.name.length()) == 0)
-                        vGears.push_back(itr.second);
-                    else if (vGears.empty())
-                    {
-                        if (itr.second.role == spec.role)
-                            vGearsAux.push_back(itr.second);
-                        else if (vGearsAux.empty())
-                            vGearsAux2.push_back(itr.second);
-                    }
+                    if (itr.second.role == m_role)
+                        vSpecs.push_back(itr.second);
+                    else if(vSpecs.empty())
+                        vSpecsAux.push_back(itr.second);
                 }
             }
-            if (vGears.empty())
-            {
-                if (!vGearsAux.empty())
-                    vGears = vGearsAux;
-                else if (!vGearsAux2.empty())
-                    vGears = vGearsAux2;
-            }
+            if (vSpecs.empty() && !vSpecsAux.empty())
+                vSpecs = vSpecsAux;
             level--;
         }
 
-        if(!vGears.empty())
-        { 
-            // Select random gear template
-            gear = SelectRandomContainerElement(vGears);
-            // Apply selected gear template
-            sObjectMgr.ApplyPremadeGearTemplateToPlayer(gear.entry, me);
-            return;
+        if (!vSpecs.empty())
+        {
+            // Select random spec template
+            spec = SelectRandomContainerElement(vSpecs);
+            // Apply selected spec template
+            sObjectMgr.ApplyPremadeSpecTemplateToPlayer(spec.entry, me);
+            m_buildTalentSource = spec.name;
+
+            // Now try to find gear for selected spec
+            level = m_level;
+            while (vGears.empty() && level >= (m_level - 4))
+            {
+                for (const auto& itr : sObjectMgr.GetPlayerPremadeGearTemplates())
+                {
+                    if (itr.second.requiredClass == spec.requiredClass &&
+                        itr.second.level == level)
+                    {
+                        if (spec.name.size() <= itr.second.name.size() &&
+                            strncmp(spec.name.c_str(), itr.second.name.c_str(), spec.name.length()) == 0)
+                            vGears.push_back(itr.second);
+                        else if (vGears.empty())
+                        {
+                            if (itr.second.role == spec.role)
+                                vGearsAux.push_back(itr.second);
+                            else if (vGearsAux.empty())
+                                vGearsAux2.push_back(itr.second);
+                        }
+                    }
+                }
+                if (vGears.empty())
+                {
+                    if (!vGearsAux.empty())
+                        vGears = vGearsAux;
+                    else if (!vGearsAux2.empty())
+                        vGears = vGearsAux2;
+                }
+                level--;
+            }
+
+            if (!vGears.empty())
+            {
+                // Select random gear template
+                gear = SelectRandomContainerElement(vGears);
+                // Apply selected gear template
+                sObjectMgr.ApplyPremadeGearTemplateToPlayer(gear.entry, me);
+                m_buildGearSource = gear.name;
+                gearApplied = true;
+            }
         }
     }
-    
+
+    // Points not covered by a premade spec (all of them when there is none) follow the role rules
+    bool const hasFreePoints = me->GetFreeTalentPoints() > 0;
+    LearnTalentsForRole();
+    if (hasFreePoints && m_buildTalentSource != "random")
+        m_buildTalentSource += " + random";
+
+    if (!gearApplied)
+    {
+        if (gearMode == PLAYER_BOT_AUTO_EQUIP_STARTING_GEAR)
+        {
+            AutoEquipGear(PLAYER_BOT_AUTO_EQUIP_STARTING_GEAR);
+            m_buildGearSource = "starting items";
+        }
+        else
+        {
+            // Random gear mode, or no premade gear template found
+            AutoEquipGear(PLAYER_BOT_AUTO_EQUIP_RANDOM_GEAR);
+            m_buildGearSource = "random";
+        }
+    }
 }
 
 Player* PartyBotAI::GetPartyLeader() const
@@ -935,6 +1203,9 @@ void PartyBotAI::UpdateAI(uint32 const diff)
 
         if (m_role == ROLE_INVALID)
             AutoAssignRole();
+
+        if (m_cloneGuid.IsEmpty())
+            ReportBuildToLeader();
 
         ResetSpellData();
         PopulateSpellData();

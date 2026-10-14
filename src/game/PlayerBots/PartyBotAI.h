@@ -106,6 +106,8 @@ public:
     uint32 GetMountSpellId() const;
     void CloneFromPlayer(Player const* pPlayer);
     void LearnPremadeSpecForClass();
+    void LearnTalentsForRole();
+    void ReportBuildToLeader() const;
     bool CanTryToCastSpell(Unit const* pTarget, SpellEntry const* pSpellEntry, uint32 maxStack = 1) const final;
     void AddToPlayerGroup();
 
@@ -154,6 +156,13 @@ public:
     void UpdateInCombatAI_Druid() final;
     void UpdateOutOfCombatAI_Druid() final;
 
+    uint32 GetTalentTabId(uint8 tabPage) const;
+    uint32 GetSpentTalentPoints(uint32 tabId) const;
+    bool LearnNextTalentInTab(uint32 tabId);
+    void SpendTalentPointsInTab(uint32 tabId, uint32 maxPointsInTab);
+
+    std::string m_buildTalentSource;
+    std::string m_buildGearSource;
     std::vector<RaidTargetIcon> m_marksToCC;
     std::vector<RaidTargetIcon> m_marksToFocus;
     ShortTimeTracker m_updateTimer;
