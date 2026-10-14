@@ -20546,7 +20546,7 @@ uint32 Player::CalculateTalentsPoints() const
 
     // Bots always use the default talent rate (Rate.Talent applies to real players only)
     if (IsBot())
-        return talentPointsForLevel;
+        return talentPointsForLevel + m_botBonusTalentPoints;
 
     return uint32(talentPointsForLevel * sWorld.getConfig(CONFIG_FLOAT_RATE_TALENT));
 }

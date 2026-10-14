@@ -16,6 +16,7 @@
 #include <random>
 #include <algorithm>
 #include <sstream>
+#include <cmath>
 
 #define PB_UPDATE_INTERVAL 1000
 #define PB_MIN_FOLLOW_DIST 3.0f
@@ -291,6 +292,8 @@ void PartyBotAI::LearnTalentsForRole()
             secondary = (pRule->primaryTab != primary) ? pRule->primaryTab : secondMostUsed;
     }
 
+    m_primaryTalentTabId = tabIds[primary];
+
     // Primary tree up to its 31 point talent, then the secondary tree, then whatever is left
     SpendTalentPointsInTab(tabIds[primary], 31);
     SpendTalentPointsInTab(tabIds[secondary], UINT32_MAX);
@@ -418,10 +421,24 @@ void PartyBotAI::LearnPremadeSpecForClass()
     }
 
     // Points not covered by a premade spec (all of them when there is none) follow the role rules
-    bool const hasFreePoints = me->GetFreeTalentPoints() > 0;
+    uint32 const randomPoints = me->GetFreeTalentPoints();
     LearnTalentsForRole();
-    if (hasFreePoints && m_buildTalentSource != "random")
+    if (randomPoints && m_buildTalentSource != "random")
         m_buildTalentSource += " + random";
+
+    // Bonus points for the randomly distributed part, rounded up, only in the primary tree (keeps the role)
+    // Only when Rate.Talent > 1, and never more than a real player would have at this level
+    float const bonusRate = sWorld.getConfig(CONFIG_FLOAT_PARTY_BOT_RANDOM_TALENT_BONUS);
+    float const talentRate = sWorld.getConfig(CONFIG_FLOAT_RATE_TALENT);
+    if (randomPoints && bonusRate > 0.0f && talentRate > 1.0f && m_primaryTalentTabId)
+    {
+        uint32 const levelPoints = me->GetLevel() < 10 ? 0 : me->GetLevel() - 9;
+        uint32 const maxBonusPoints = uint32(levelPoints * talentRate) - levelPoints;
+        uint32 const bonusPoints = std::min(uint32(std::ceil(randomPoints * bonusRate)), maxBonusPoints);
+        me->SetBotBonusTalentPoints(bonusPoints);
+        SpendTalentPointsInTab(m_primaryTalentTabId, UINT32_MAX);
+        m_buildTalentSource += " +" + std::to_string(bonusPoints) + " bonus";
+    }
 
     if (!gearApplied)
     {

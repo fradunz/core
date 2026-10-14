@@ -3209,6 +3209,13 @@ AHBot.itemcount = 50
 #        A lower number equals to gear being more close to the bot level.
 #        Default: 10 (bots will equip gear down to a minimum of 10 item level difference)
 #
+#    PartyBot.RandomTalentBonus
+#        Extra talent points for party bots, as a fraction of the points distributed randomly
+#        (not used by premade spec templates). Rounded up. Bonus points only go to the primary tree.
+#        Only applies when Rate.Talent > 1, and never exceeds the points a player gets with Rate.Talent.
+#        Default: 0   (disabled)
+#                 0.2 (20% more points, e.g. 51 -> 62 at level 60)
+#
 #    BattleBot.AutoEquip
 #        What gear will new battlebots spawn with.
 #        Default: 1 (random items)
@@ -3236,6 +3243,7 @@ PartyBot.MaxBots = 0
 PartyBot.SkipChecks = 0
 PartyBot.AutoEquip = 1
 PartyBot.RandomGearLevelDifference = 10
+PartyBot.RandomTalentBonus = 0
 
 BattleBot.AutoEquip = 2
 BattleBot.AutoJoin = 0

@@ -1410,6 +1410,7 @@ class Player final: public Unit
         mutable uint32 m_resetTalentsMultiplier;
         time_t m_resetTalentsTime;
         uint32 m_usedTalentCount;
+        uint32 m_botBonusTalentPoints = 0;
 
         void UpdateFreeTalentPoints(bool resetIfNeed = true);
         uint32 GetResetTalentsCost() const;
@@ -1419,6 +1420,8 @@ class Player final: public Unit
     public:
         uint32 GetFreeTalentPoints() const { return GetUInt32Value(PLAYER_CHARACTER_POINTS1); }
         void SetFreeTalentPoints(uint32 points) { SetUInt32Value(PLAYER_CHARACTER_POINTS1, points); }
+        // Extra talent points granted to bots on top of the level based amount
+        void SetBotBonusTalentPoints(uint32 points) { m_botBonusTalentPoints = points; UpdateFreeTalentPoints(false); }
         bool ResetTalents(bool noCost = false);
         void InitTalentForLevel();
         bool LearnTalent(uint32 talentId, uint32 talentRank);

@@ -161,6 +161,7 @@ public:
     bool LearnNextTalentInTab(uint32 tabId);
     void SpendTalentPointsInTab(uint32 tabId, uint32 maxPointsInTab);
 
+    uint32 m_primaryTalentTabId = 0;
     std::string m_buildTalentSource;
     std::string m_buildGearSource;
     std::vector<RaidTargetIcon> m_marksToCC;
