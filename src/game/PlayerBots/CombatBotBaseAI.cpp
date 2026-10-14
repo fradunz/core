@@ -1,5 +1,6 @@
 #include "World.h"
 #include "CombatBotBaseAI.h"
+#include <set>
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "Group.h"
@@ -3157,6 +3158,36 @@ void CombatBotBaseAI::EquipRandomGearInEmptySlots()
         }
     }
 
+    // Prefer items close to the bot level, then keep only the better half of large lists
+    uint32 const levelDiff = sWorld.getConfig(CONFIG_UINT32_PARTY_BOT_RANDOM_GEAR_LEVEL_DIFFERENCE);
+    uint32 const halfLevelDiff = levelDiff / 2;
+    bool const isMaxLevel = me->GetLevel() >= sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL);
+    for (auto& itr : itemsPerSlot)
+    {
+        // 1. Half of the level difference, unless that leaves fewer than 3 items
+        std::vector<ItemPrototype const*> closeItems;
+        for (auto const& pItem : itr.second)
+        {
+            if (pItem->ItemLevel + halfLevelDiff >= me->GetLevel() &&
+               (isMaxLevel || pItem->ItemLevel <= me->GetLevel() + halfLevelDiff))
+                closeItems.push_back(pItem);
+        }
+        if (closeItems.size() >= 3)
+            itr.second = closeItems;
+
+        // 2. More than 10 items: only the upper 50% by item level
+        if (itr.second.size() > 10)
+        {
+            std::stable_sort(itr.second.begin(), itr.second.end(),
+                [](ItemPrototype const* a, ItemPrototype const* b)
+                {
+                    return a->ItemLevel > b->ItemLevel;
+                });
+            itr.second.resize((itr.second.size() + 1) / 2);
+        }
+    }
+
+    std::set<uint32> equippedEntries;
     for (auto const& itr : itemsPerSlot)
     {
         // Don't equip offhand if using 2 handed weapon
@@ -3170,12 +3201,21 @@ void CombatBotBaseAI::EquipRandomGearInEmptySlots()
         if (itr.second.empty())
             continue;
 
-        ItemPrototype const* pProto = SelectRandomContainerElement(itr.second);
+        // Avoid the same item in both ring / trinket / weapon slots when there is another option
+        std::vector<ItemPrototype const*> candidates;
+        for (auto const& pItem : itr.second)
+            if (equippedEntries.find(pItem->ItemId) == equippedEntries.end())
+                candidates.push_back(pItem);
+        if (candidates.empty())
+            candidates = itr.second;
+
+        ItemPrototype const* pProto = SelectRandomContainerElement(candidates);
         if (!pProto)
             continue;
 
         me->SatisfyItemRequirements(pProto);
-        me->StoreNewItemInBestSlots(pProto->ItemId, 1);
+        if (me->StoreNewItemInBestSlots(pProto->ItemId, 1))
+            equippedEntries.insert(pProto->ItemId);
     }
 }
 
