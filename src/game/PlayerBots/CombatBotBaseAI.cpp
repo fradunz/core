@@ -3031,6 +3031,11 @@ void CombatBotBaseAI::EquipRandomGearInEmptySlots()
         if ((pProto->ItemLevel + sWorld.getConfig(CONFIG_UINT32_PARTY_BOT_RANDOM_GEAR_LEVEL_DIFFERENCE)) < me->GetLevel())
             continue;
 
+        // Avoid items far above the bot level, even without a level requirement (e.g. GM vendor copies)
+        if (me->GetLevel() < sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL) &&
+            pProto->ItemLevel > me->GetLevel() + sWorld.getConfig(CONFIG_UINT32_PARTY_BOT_RANDOM_GEAR_LEVEL_DIFFERENCE))
+            continue;
+
         if (me->CanUseItem(pProto, onlyPvE) != EQUIP_ERR_OK)
             continue;
 
