@@ -333,6 +333,7 @@ void PartyBotAI::LearnPremadeSpecForClass()
     // PartyBot.AutoEquip: 2 = premade templates (random fallback), 1 = random, 0 = starting items
     uint32 const gearMode = sWorld.getConfig(CONFIG_UINT32_PARTY_BOT_AUTO_EQUIP);
     bool gearApplied = false;
+    bool specApplied = false;
     m_buildTalentSource = "random";
     m_buildGearSource = "";
 
@@ -376,6 +377,7 @@ void PartyBotAI::LearnPremadeSpecForClass()
             // Apply selected spec template
             sObjectMgr.ApplyPremadeSpecTemplateToPlayer(spec.entry, me);
             m_buildTalentSource = spec.name;
+            specApplied = true;
 
             // Now try to find gear for selected spec
             level = m_level;
@@ -418,6 +420,15 @@ void PartyBotAI::LearnPremadeSpecForClass()
                 gearApplied = true;
             }
         }
+    }
+
+    // No premade spec: learn every trainer and item spell for the level, as upstream does
+    if (!specApplied)
+    {
+        char trainerArgs[] = "";
+        char itemArgs[] = "";
+        ChatHandler(me).HandleLearnAllTrainerCommand(trainerArgs);
+        ChatHandler(me).HandleLearnAllItemsCommand(itemArgs);
     }
 
     // Points not covered by a premade spec (all of them when there is none) follow the role rules
