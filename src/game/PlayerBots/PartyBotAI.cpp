@@ -135,6 +135,24 @@ namespace
         { "Balance", "Feral Combat", "Restoration" },           // Druid
     };
 
+    // One signature talent per tree, in client order. Used to identify the trees without trusting
+    // the order index of TalentTab.dbc, which is not 0, 1, 2 for every class.
+    char const* const TalentTabSignatures[MAX_CLASSES][3] =
+    {
+        { "", "", "" },
+        { "Mortal Strike", "Bloodthirst", "Shield Slam" },          // Warrior
+        { "Holy Shock", "Holy Shield", "Repentance" },              // Paladin
+        { "Bestial Wrath", "Trueshot Aura", "Wyvern Sting" },       // Hunter
+        { "Cold Blood", "Blade Flurry", "Preparation" },            // Rogue
+        { "Power Infusion", "Spirit of Redemption", "Shadowform" }, // Priest
+        { "", "", "" },
+        { "Elemental Mastery", "Stormstrike", "Mana Tide Totem" },  // Shaman
+        { "Arcane Power", "Combustion", "Ice Barrier" },            // Mage
+        { "Siphon Life", "Soul Link", "Conflagrate" },              // Warlock
+        { "", "", "" },
+        { "Moonkin Form", "Leader of the Pack", "Swiftmend" },      // Druid
+    };
+
     char const* GetRoleName(CombatBotRoles role)
     {
         switch (role)
@@ -148,15 +166,84 @@ namespace
     }
 }
 
-uint32 PartyBotAI::GetTalentTabId(uint8 tabPage) const
+char const* PartyBotAI::ResolveTalentTabs(uint32 (&tabIds)[3]) const
 {
+    tabIds[0] = tabIds[1] = tabIds[2] = 0;
+
+    std::vector<TalentTabEntry const*> classTabs;
     for (uint32 i = 0; i < sTalentTabStore.GetNumRows(); ++i)
     {
         TalentTabEntry const* pTab = sTalentTabStore.LookupEntry(i);
-        if (pTab && (pTab->ClassMask & me->GetClassMask()) && pTab->tabpage == tabPage)
-            return pTab->TalentTabID;
+        if (pTab && (pTab->ClassMask & me->GetClassMask()))
+            classTabs.push_back(pTab);
     }
-    return 0;
+
+    if (classTabs.size() != 3)
+        return "unexpected tab count";
+
+    // 1) By signature talent
+    bool byName = true;
+    for (uint8 page = 0; page < 3 && byName; ++page)
+    {
+        std::string const signature = TalentTabSignatures[me->GetClass()][page];
+        if (signature.empty())
+        {
+            byName = false;
+            break;
+        }
+
+        for (auto const* pTab : classTabs)
+        {
+            for (uint32 i = 0; i < sTalentStore.GetNumRows() && !tabIds[page]; ++i)
+            {
+                TalentEntry const* pTalent = sTalentStore.LookupEntry(i);
+                if (!pTalent || pTalent->TalentTab != pTab->TalentTabID || !pTalent->RankID[0])
+                    continue;
+
+                SpellEntry const* pSpell = sSpellMgr.GetSpellEntry(pTalent->RankID[0]);
+                if (pSpell && signature == pSpell->SpellName[0])
+                    tabIds[page] = pTab->TalentTabID;
+            }
+            if (tabIds[page])
+                break;
+        }
+
+        if (!tabIds[page])
+            byName = false;
+    }
+
+    if (byName && tabIds[0] != tabIds[1] && tabIds[1] != tabIds[2] && tabIds[0] != tabIds[2])
+        return "by talent name";
+
+    // 2) By the order index of the DBC, when it is a clean 0, 1, 2 sequence
+    tabIds[0] = tabIds[1] = tabIds[2] = 0;
+    bool cleanOrder = true;
+    for (auto const* pTab : classTabs)
+    {
+        if (pTab->tabpage > 2 || tabIds[pTab->tabpage])
+            cleanOrder = false;
+        else
+            tabIds[pTab->tabpage] = pTab->TalentTabID;
+    }
+    if (cleanOrder && tabIds[0] && tabIds[1] && tabIds[2])
+        return "by dbc order";
+
+    // 3) Last resort: order index, then id
+    std::sort(classTabs.begin(), classTabs.end(),
+        [](TalentTabEntry const* a, TalentTabEntry const* b)
+        {
+            return a->tabpage != b->tabpage ? a->tabpage < b->tabpage : a->TalentTabID < b->TalentTabID;
+        });
+    for (uint8 page = 0; page < 3; ++page)
+        tabIds[page] = classTabs[page]->TalentTabID;
+    return "sorted by order index and id";
+}
+
+uint32 PartyBotAI::GetTalentTabId(uint8 tabPage) const
+{
+    uint32 tabIds[3];
+    ResolveTalentTabs(tabIds);
+    return tabPage < 3 ? tabIds[tabPage] : 0;
 }
 
 uint32 PartyBotAI::GetSpentTalentPoints(uint32 tabId) const
@@ -247,9 +334,9 @@ void PartyBotAI::LearnTalentsForRole()
 
     uint32 tabIds[3];
     uint32 spentPoints[3];
+    ResolveTalentTabs(tabIds);
     for (uint8 page = 0; page < 3; ++page)
     {
-        tabIds[page] = GetTalentTabId(page);
         if (!tabIds[page])
             return;
         spentPoints[page] = GetSpentTalentPoints(tabIds[page]);
@@ -2841,7 +2928,14 @@ void PartyBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
-        if (me->HasSpell(PB_SPELL_SHOOT_WAND) &&
+        // Wand shots trigger the GCD server side, so only wand when low on mana
+        // (otherwise it starves the spell rotation). Stop wanding once mana recovered.
+        if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
+            me->GetPowerPercent(POWER_MANA) > 30.0f)
+            me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
+
+        if (me->GetPowerPercent(POWER_MANA) < 10.0f &&
+            me->HasSpell(PB_SPELL_SHOOT_WAND) &&
            !me->IsMoving() &&
            !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
             me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
@@ -3153,9 +3247,16 @@ void PartyBotAI::UpdateInCombatAI_Priest()
                     return;
             }
 
-            if (me->HasSpell(PB_SPELL_SHOOT_WAND) &&
-                !me->IsMoving() &&
-                !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
+            // Wand shots trigger the GCD server side, so only wand when low on mana
+            // (otherwise it starves the spell rotation). Stop wanding once mana recovered.
+            if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
+                me->GetPowerPercent(POWER_MANA) > 30.0f)
+                me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
+
+            if (me->GetPowerPercent(POWER_MANA) < 10.0f &&
+                me->HasSpell(PB_SPELL_SHOOT_WAND) &&
+               !me->IsMoving() &&
+               !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
                 me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
                 me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false);
         }
@@ -3413,7 +3514,14 @@ void PartyBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
-        if (me->HasSpell(PB_SPELL_SHOOT_WAND) &&
+        // Wand shots trigger the GCD server side, so only wand when low on mana
+        // (otherwise it starves the spell rotation). Stop wanding once mana recovered.
+        if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
+            me->GetPowerPercent(POWER_MANA) > 30.0f)
+            me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
+
+        if (me->GetPowerPercent(POWER_MANA) < 10.0f &&
+            me->HasSpell(PB_SPELL_SHOOT_WAND) &&
            !me->IsMoving() &&
            !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
             me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))

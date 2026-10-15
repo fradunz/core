@@ -157,6 +157,7 @@ public:
     void UpdateOutOfCombatAI_Druid() final;
 
     uint32 GetTalentTabId(uint8 tabPage) const;
+    char const* ResolveTalentTabs(uint32 (&tabIds)[3]) const;
     uint32 GetSpentTalentPoints(uint32 tabId) const;
     bool LearnNextTalentInTab(uint32 tabId);
     void SpendTalentPointsInTab(uint32 tabId, uint32 maxPointsInTab);
