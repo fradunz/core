@@ -81,7 +81,7 @@ class HonorMaintenancer
         uint32 GetLastMaintenanceDay() const { return m_lastMaintenanceDay; }
         uint32 GetNextMaintenanceDay() const { return m_nextMaintenanceDay; }
         uint32 GetWeekBeginDay() const { return m_lastMaintenanceDay; }
-        uint32 GetWeekEndDay() const { return m_lastMaintenanceDay + 6; }
+        uint32 GetWeekEndDay() const;
 
         void ToggleMaintenanceMarker();
         void SetMaintenanceDays(uint32 last, uint32 next = 0);

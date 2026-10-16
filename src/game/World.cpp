@@ -651,6 +651,7 @@ void World::LoadConfigSettings(bool reload)
 
     setConfigMinMax(CONFIG_FLOAT_RP_DECAY, "RpDecay", 0.2f, 0.0f, 1.0f);
     setConfigMinMax(CONFIG_UINT32_MAINTENANCE_DAY, "MaintenanceDay", 4, 0, 6);
+    setConfigMinMax(CONFIG_UINT32_HONOR_MAINTENANCE_PERIOD, "HonorMaintenancePeriod", 7, 1, 7);
     setConfig(CONFIG_BOOL_AUTO_HONOR_RESTART, "AutoHonorRestart", true);
     setConfig(CONFIG_BOOL_ALL_TAXI_PATHS, "AllFlightPaths", false);
     setConfig(CONFIG_BOOL_CAST_UNSTUCK, "CastUnstuck", true);

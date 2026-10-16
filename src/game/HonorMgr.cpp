@@ -274,7 +274,7 @@ void HonorMaintenancer::DoMaintenance()
 
     // Process all outstanding maintenance periods in a single run, so the
     // server doesn't need multiple restarts to catch up
-    uint32 const totalPeriods = (sWorld.GetGameDay() - m_nextMaintenanceDay) / 7 + 1;
+    uint32 const totalPeriods = (sWorld.GetGameDay() - m_nextMaintenanceDay) / sWorld.getConfig(CONFIG_UINT32_HONOR_MAINTENANCE_PERIOD) + 1;
     uint32 periodsProcessed = 0;
     while (m_markerToStart)
     {
@@ -632,6 +632,12 @@ void HonorMaintenancer::CheckMaintenanceDay()
     }
 }
 
+uint32 HonorMaintenancer::GetWeekEndDay() const
+{
+    // Last day of the maintenance period (7 days by default)
+    return m_lastMaintenanceDay + sWorld.getConfig(CONFIG_UINT32_HONOR_MAINTENANCE_PERIOD) - 1;
+}
+
 void HonorMaintenancer::ToggleMaintenanceMarker()
 {
     m_markerToStart = !m_markerToStart;
@@ -644,7 +650,7 @@ void HonorMaintenancer::SetMaintenanceDays(uint32 last, uint32 next)
     m_lastMaintenanceDay = last;
 
     if (!next)
-        m_nextMaintenanceDay = m_lastMaintenanceDay + 7;
+        m_nextMaintenanceDay = m_lastMaintenanceDay + sWorld.getConfig(CONFIG_UINT32_HONOR_MAINTENANCE_PERIOD);
 
     CharacterDatabase.DirectPExecute("INSERT INTO `saved_variables` (`key`, `honor_last_maintenance_day`, `honor_next_maintenance_day`) VALUES (0, %u, %u) "
         "ON DUPLICATE KEY UPDATE `honor_last_maintenance_day` = %u, `honor_next_maintenance_day` = %u",
