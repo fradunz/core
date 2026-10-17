@@ -22290,13 +22290,16 @@ void Player::AddCooldown(SpellEntry const* spellEntry, ItemPrototype const* item
     }
 
     // Shooting with Wands should trigger GCD. Without this check GCD is only client side but not server side.
+    // Bots use a fixed 1s GCD for wand shots: with the full wand speed the next shot would start exactly
+    // when the GCD ends, and the auto-repeat would starve the spell rotation.
     if (spellCategory && recTime)
     {
         if (SpellCategoryEntry const* pCategoryEntry = sSpellCategoryStore.LookupEntry(spellCategory))
         {
             if (pCategoryEntry->Flags & SCF_COOLDOWN_IS_GLOBAL)
             {
-                m_GCDCatMap.emplace(SPELLCATEGORY_GLOBAL, std::chrono::milliseconds(recTime) + sWorld.GetCurrentClockTime());
+                uint32 const gcdTime = IsBot() ? std::min<uint32>(recTime, 1000) : recTime;
+                m_GCDCatMap.emplace(SPELLCATEGORY_GLOBAL, std::chrono::milliseconds(gcdTime) + sWorld.GetCurrentClockTime());
             }
         }
     }
