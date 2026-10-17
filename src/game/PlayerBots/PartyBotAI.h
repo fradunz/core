@@ -187,9 +187,6 @@ public:
     uint32 m_aoeSpellTimer = 0;
     uint32 m_spellTimer1 = 0;
     uint32 m_dispelTimer = 0;          // restarted by any dispel, limits low priority dispels
-    ObjectGuid m_wandVictimGuid;       // victim used to detect long fights for the wand rule
-    uint32 m_wandVictimSince = 0;
-    bool m_wandLongFight = false;
     uint32 m_threatCheckTimer = 0;
     bool  m_threatOK = true;
     float m_x = 0.0f;

@@ -23,7 +23,6 @@
 #define PB_MAX_FOLLOW_DIST 6.0f
 
 // Dispel policy (see PartyBotAI::TryDispel)
-#define PB_LONG_FIGHT_TIME 25000 // ms until a fight with the target still above 50% health counts as long
 #define PB_DISPEL_DELAY 6000               // ms after any dispel before a low priority dispel is allowed
 #define PB_DISPEL_MIN_MANA_PERCENT 50.0f   // mana needed for low priority dispels
 #define PB_MIN_FOLLOW_ANGLE 2.0f
@@ -2592,28 +2591,14 @@ void PartyBotAI::UpdateOutOfCombatAI_Mage()
 }
 
 // Wand shots keep the GCD on and would starve the spell rotation, so bots only wand when the
-// target is nearly dead or they are low on mana. In long fights (raids, bosses) only when
+// target is nearly dead or they are low on mana. In raids and against rank 3 bosses only when
 // almost out of mana. Must be called before the filler spells, because those return early
 // whenever they can be cast.
 // Returns true when the bot is wanding (the caller should stop its rotation).
 bool PartyBotAI::TryWand(Unit* pVictim)
 {
-    // Dungeon bosses are plain elites in the database, so a long fight is detected by its
-    // duration: still above 50% health after PB_LONG_FIGHT_TIME means the fight is far from over.
-    uint32 const now = sWorld.GetCurrentMSTime();
-    if (m_wandVictimGuid != pVictim->GetObjectGuid())
-    {
-        m_wandVictimGuid = pVictim->GetObjectGuid();
-        m_wandVictimSince = now;
-        m_wandLongFight = false;
-    }
-    if (!m_wandLongFight &&
-        now - m_wandVictimSince > PB_LONG_FIGHT_TIME &&
-        pVictim->GetHealthPercent() > 50.0f)
-        m_wandLongFight = true;
-
-    bool const longFight = m_wandLongFight ||
-                           me->GetMap()->IsRaid() ||
+    // In raids and against rank 3 bosses fights are long: only wand there when almost out of mana.
+    bool const longFight = me->GetMap()->IsRaid() ||
                            (pVictim->IsCreature() && pVictim->ToCreature()->IsWorldBoss());
 
     bool const useWand = longFight ? me->GetPowerPercent(POWER_MANA) < 10.0f :
