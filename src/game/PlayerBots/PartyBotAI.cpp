@@ -21,6 +21,10 @@
 #define PB_UPDATE_INTERVAL 1000
 #define PB_MIN_FOLLOW_DIST 3.0f
 #define PB_MAX_FOLLOW_DIST 6.0f
+
+// Dispel policy (see PartyBotAI::TryDispel)
+#define PB_DISPEL_DELAY 6000               // ms after any dispel before a low priority dispel is allowed
+#define PB_DISPEL_MIN_MANA_PERCENT 50.0f   // mana needed for low priority dispels
 #define PB_MIN_FOLLOW_ANGLE 2.0f
 #define PB_MAX_FOLLOW_ANGLE 4.0f
 
@@ -1291,6 +1295,7 @@ void PartyBotAI::UpdateAI(uint32 const diff)
         else
             m_aoeSpellTimer -= diff;
     }
+    m_dispelTimer = (diff >= m_dispelTimer) ? 0 : m_dispelTimer - diff;
     if (m_threatCheckTimer > 0)
     {
         if (diff >= m_threatCheckTimer || m_threatCheckTimer > 3000)
@@ -1788,6 +1793,55 @@ void PartyBotAI::UpdateInCombatAI()
     }
 }
 
+// Dispel policy shared by every class: self, tanks and healers are dispelled with high priority
+// (priorityTargets = true, no timer or mana limit). Every dispel restarts the timer, and everyone else
+// only gets a low priority dispel when the caster has enough mana and that timer expired, so dispellers
+// never chain casts on low priority targets and drain their mana.
+bool PartyBotAI::TryDispel(SpellEntry const* pSpell, bool priorityTargets)
+{
+    if (!pSpell)
+        return false;
+
+    if (!priorityTargets &&
+       (m_dispelTimer > 0 || me->GetPowerPercent(POWER_MANA) < PB_DISPEL_MIN_MANA_PERCENT))
+        return false;
+
+    Player* pTarget = nullptr;
+    if (priorityTargets && IsValidDispelTarget(me, pSpell))
+        pTarget = me;
+    else if (Group* pGroup = me->GetGroup())
+    {
+        std::vector<Player*> candidates;
+        for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            Player* pMember = itr->getSource();
+            if (!pMember || pMember == me || pMember->IsGameMaster())
+                continue;
+
+            if ((IsTank(pMember) || IsHealer(pMember)) != priorityTargets)
+                continue;
+
+            if (me->IsValidHelpfulTarget(pMember) &&
+                IsValidDispelTarget(pMember, pSpell) &&
+                me->IsWithinLOSInMap(pMember) &&
+                me->IsWithinDist(pMember, 30.0f))
+                candidates.push_back(pMember);
+        }
+
+        if (!candidates.empty())
+            pTarget = SelectRandomContainerElement(candidates);
+    }
+
+    if (!pTarget ||
+        !CanTryToCastSpell(pTarget, pSpell) ||
+         DoCastSpell(pTarget, pSpell) != SPELL_CAST_OK)
+        return false;
+
+    // Any dispel restarts the timer that limits low priority dispels
+    m_dispelTimer = PB_DISPEL_DELAY;
+    return true;
+}
+
 // Ported from upstream: high-priority dispels for every class
 bool PartyBotAI::CheckForDispelTargets()
 {
@@ -1798,85 +1852,31 @@ bool PartyBotAI::CheckForDispelTargets()
     {
         case CLASS_PALADIN:
         {
-            if (m_spells.paladin.pCleanse)
-            {
-                if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pCleanse))
-                {
-                    if (CanTryToCastSpell(pFriend, m_spells.paladin.pCleanse))
-                    {
-                        if (DoCastSpell(pFriend, m_spells.paladin.pCleanse) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
+            if (TryDispel(m_spells.paladin.pCleanse, true))
+                return true;
             break;
         }
         case CLASS_SHAMAN:
         {
-            if (m_spells.shaman.pCureDisease)
-            {
-                if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCureDisease))
-                {
-                    if (CanTryToCastSpell(pFriend, m_spells.shaman.pCureDisease))
-                    {
-                        if (DoCastSpell(pFriend, m_spells.shaman.pCureDisease) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
+            if (TryDispel(m_spells.shaman.pCureDisease, true))
+                return true;
 
-            if (m_spells.shaman.pCurePoison)
-            {
-                if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCurePoison))
-                {
-                    if (CanTryToCastSpell(pFriend, m_spells.shaman.pCurePoison))
-                    {
-                        if (DoCastSpell(pFriend, m_spells.shaman.pCurePoison) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
+            if (TryDispel(m_spells.shaman.pCurePoison, true))
+                return true;
             break;
         }
         case CLASS_MAGE:
         {
-            if (m_spells.mage.pRemoveLesserCurse)
-            {
-                if (Unit* pFriend = SelectDispelTarget(m_spells.mage.pRemoveLesserCurse))
-                {
-                    if (CanTryToCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse))
-                    {
-                        if (DoCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
+            if (TryDispel(m_spells.mage.pRemoveLesserCurse, true))
+                return true;
             break;
         }
         case CLASS_PRIEST:
         {
-            if (m_spells.priest.pDispelMagic)
-            {
-                if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pDispelMagic))
-                {
-                    if (CanTryToCastSpell(pFriend, m_spells.priest.pDispelMagic))
-                    {
-                        if (DoCastSpell(pFriend, m_spells.priest.pDispelMagic) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
-            if (m_spells.priest.pAbolishDisease)
-            {
-                if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pAbolishDisease))
-                {
-                    if (CanTryToCastSpell(pFriend, m_spells.priest.pAbolishDisease))
-                    {
-                        if (DoCastSpell(pFriend, m_spells.priest.pAbolishDisease) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
+            if (TryDispel(m_spells.priest.pDispelMagic, true))
+                return true;
+            if (TryDispel(m_spells.priest.pAbolishDisease, true))
+                return true;
             break;
         }
         case CLASS_DRUID:
@@ -1885,29 +1885,11 @@ bool PartyBotAI::CheckForDispelTargets()
                 m_spells.druid.pAbolishPoison :
                 m_spells.druid.pCurePoison;
 
-            if (pDispelSpell)
-            {
-                if (Unit* pFriend = SelectDispelTarget(pDispelSpell))
-                {
-                    if (CanTryToCastSpell(pFriend, pDispelSpell))
-                    {
-                        if (DoCastSpell(pFriend, pDispelSpell) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
+            if (TryDispel(pDispelSpell, true))
+                return true;
 
-            if (m_spells.druid.pRemoveCurse)
-            {
-                if (Unit* pFriend = SelectDispelTarget(m_spells.druid.pRemoveCurse))
-                {
-                    if (CanTryToCastSpell(pFriend, m_spells.druid.pRemoveCurse))
-                    {
-                        if (DoCastSpell(pFriend, m_spells.druid.pRemoveCurse) == SPELL_CAST_OK)
-                            return true;
-                    }
-                }
-            }
+            if (TryDispel(m_spells.druid.pRemoveCurse, true))
+                return true;
             break;
         }
     }
@@ -1963,17 +1945,8 @@ void PartyBotAI::UpdateOutOfCombatAI_Paladin()
         m_isBuffing = false;
     }
 
-    if (m_spells.paladin.pCleanse)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pCleanse))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.paladin.pCleanse))
-            {
-                if (DoCastSpell(pFriend, m_spells.paladin.pCleanse) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.paladin.pCleanse, false))
+        return;
 
     if (m_role == ROLE_HEALER)
     {
@@ -2031,28 +2004,9 @@ void PartyBotAI::UpdateInCombatAI_Paladin()
     }
 
     // Dispel
-    if (m_spells.paladin.pCleanse)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pCleanse))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.paladin.pCleanse))
-            {
-                if (DoCastSpell(pFriend, m_spells.paladin.pCleanse) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
-    else if (m_spells.paladin.pPurify)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pPurify))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.paladin.pPurify))
-            {
-                if (DoCastSpell(pFriend, m_spells.paladin.pPurify) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.paladin.pCleanse, false) ||
+        TryDispel(m_spells.paladin.pPurify, false))
+        return;
 
     if (!me->GetAttackers().empty())
     {
@@ -2243,29 +2197,11 @@ void PartyBotAI::UpdateInCombatAI_Shaman()
         return;
 
     // Dispels
-    if (m_spells.shaman.pCureDisease)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCureDisease))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.shaman.pCureDisease))
-            {
-                if (DoCastSpell(pFriend, m_spells.shaman.pCureDisease) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.shaman.pCureDisease, false))
+        return;
 
-    if (m_spells.shaman.pCurePoison)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCurePoison))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.shaman.pCurePoison))
-            {
-                if (DoCastSpell(pFriend, m_spells.shaman.pCurePoison) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.shaman.pCurePoison, false))
+        return;
 
     if (m_role == ROLE_HEALER)
     {
@@ -2650,33 +2586,15 @@ void PartyBotAI::UpdateOutOfCombatAI_Mage()
     }
 
     // Decurse
-    if (m_spells.mage.pRemoveLesserCurse)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.mage.pRemoveLesserCurse))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse))
-            {
-                if (DoCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.mage.pRemoveLesserCurse, false))
+        return;
 }
 
 void PartyBotAI::UpdateInCombatAI_Mage()
 {
     // Decurse - Priority for boss fights
-    if (m_spells.mage.pRemoveLesserCurse)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.mage.pRemoveLesserCurse))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse))
-            {
-                if (DoCastSpell(pFriend, m_spells.mage.pRemoveLesserCurse) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.mage.pRemoveLesserCurse, false))
+        return;
 
     if (Unit* pVictim = me->GetVictim())
     {
@@ -2928,13 +2846,15 @@ void PartyBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
-        // Wand shots trigger the GCD server side, so only wand when low on mana
-        // (otherwise it starves the spell rotation). Stop wanding once mana recovered.
-        if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
-            me->GetPowerPercent(POWER_MANA) > 30.0f)
+        // Wand shots keep the GCD on and starve the spell rotation, so only wand
+        // when the target is nearly dead or we are low on mana.
+        bool const useWand = pVictim->GetHealthPercent() < 30.0f ||
+                             me->GetPowerPercent(POWER_MANA) < 30.0f;
+
+        if (!useWand && me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
             me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
 
-        if (me->GetPowerPercent(POWER_MANA) < 10.0f &&
+        if (useWand &&
             me->HasSpell(PB_SPELL_SHOOT_WAND) &&
            !me->IsMoving() &&
            !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
@@ -3021,29 +2941,11 @@ void PartyBotAI::UpdateOutOfCombatAI_Priest()
     }
 
     // Dispels
-    if (m_spells.priest.pDispelMagic)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pDispelMagic))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.priest.pDispelMagic))
-            {
-                if (DoCastSpell(pFriend, m_spells.priest.pDispelMagic) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.priest.pDispelMagic, false))
+        return;
 
-    if (m_spells.priest.pAbolishDisease)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pAbolishDisease))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.priest.pAbolishDisease))
-            {
-                if (DoCastSpell(pFriend, m_spells.priest.pAbolishDisease) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.priest.pAbolishDisease, false))
+        return;
 
     if (m_role == ROLE_HEALER)
     {
@@ -3110,29 +3012,11 @@ void PartyBotAI::UpdateInCombatAI_Priest()
         return;
 
     // Dispels
-    if (m_spells.priest.pDispelMagic)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pDispelMagic))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.priest.pDispelMagic))
-            {
-                if (DoCastSpell(pFriend, m_spells.priest.pDispelMagic) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.priest.pDispelMagic, false))
+        return;
 
-    if (m_spells.priest.pAbolishDisease)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.priest.pAbolishDisease))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.priest.pAbolishDisease))
-            {
-                if (DoCastSpell(pFriend, m_spells.priest.pAbolishDisease) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.priest.pAbolishDisease, false))
+        return;
 
     if (m_role == ROLE_HEALER)
     {
@@ -3247,13 +3131,15 @@ void PartyBotAI::UpdateInCombatAI_Priest()
                     return;
             }
 
-            // Wand shots trigger the GCD server side, so only wand when low on mana
-            // (otherwise it starves the spell rotation). Stop wanding once mana recovered.
-            if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
-                me->GetPowerPercent(POWER_MANA) > 30.0f)
+            // Wand shots keep the GCD on and starve the spell rotation, so only wand
+            // when the target is nearly dead or we are low on mana.
+            bool const useWand = pVictim->GetHealthPercent() < 30.0f ||
+                                 me->GetPowerPercent(POWER_MANA) < 30.0f;
+
+            if (!useWand && me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
                 me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
 
-            if (me->GetPowerPercent(POWER_MANA) < 10.0f &&
+            if (useWand &&
                 me->HasSpell(PB_SPELL_SHOOT_WAND) &&
                !me->IsMoving() &&
                !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
@@ -3474,8 +3360,10 @@ void PartyBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
+        // Fear can pull extra mobs in instances, so only use it there as a last resort
         if (m_spells.warlock.pFear &&
             pVictim->GetVictim() == me &&
+           (!me->GetMap()->IsDungeon() || me->GetHealthPercent() < 30.0f) &&
             CanTryToCastSpell(pVictim, m_spells.warlock.pFear))
         {
             if (DoCastSpell(pVictim, m_spells.warlock.pFear) == SPELL_CAST_OK)
@@ -3514,13 +3402,15 @@ void PartyBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
-        // Wand shots trigger the GCD server side, so only wand when low on mana
-        // (otherwise it starves the spell rotation). Stop wanding once mana recovered.
-        if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
-            me->GetPowerPercent(POWER_MANA) > 30.0f)
+        // Wand shots keep the GCD on and starve the spell rotation, so only wand
+        // when the target is nearly dead or we are low on mana.
+        bool const useWand = pVictim->GetHealthPercent() < 30.0f ||
+                             me->GetPowerPercent(POWER_MANA) < 30.0f;
+
+        if (!useWand && me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
             me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
 
-        if (me->GetPowerPercent(POWER_MANA) < 10.0f &&
+        if (useWand &&
             me->HasSpell(PB_SPELL_SHOOT_WAND) &&
            !me->IsMoving() &&
            !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
@@ -4278,29 +4168,11 @@ void PartyBotAI::UpdateOutOfCombatAI_Druid()
     SpellEntry const* pDispelSpell = m_spells.druid.pAbolishPoison ?
         m_spells.druid.pAbolishPoison :
         m_spells.druid.pCurePoison;
-    if (pDispelSpell)
-    {
-        if (Unit* pFriend = SelectDispelTarget(pDispelSpell))
-        {
-            if (CanTryToCastSpell(pFriend, pDispelSpell))
-            {
-                if (DoCastSpell(pFriend, pDispelSpell) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(pDispelSpell, false))
+        return;
 
-    if (m_spells.druid.pRemoveCurse)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.druid.pRemoveCurse))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.druid.pRemoveCurse))
-            {
-                if (DoCastSpell(pFriend, m_spells.druid.pRemoveCurse) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.druid.pRemoveCurse, false))
+        return;
 
     if (m_role == ROLE_HEALER)
     {
@@ -4356,29 +4228,11 @@ void PartyBotAI::UpdateInCombatAI_Druid()
     SpellEntry const* pDispelSpell = m_spells.druid.pAbolishPoison ?
         m_spells.druid.pAbolishPoison :
         m_spells.druid.pCurePoison;
-    if (pDispelSpell)
-    {
-        if (Unit* pFriend = SelectDispelTarget(pDispelSpell))
-        {
-            if (CanTryToCastSpell(pFriend, pDispelSpell))
-            {
-                if (DoCastSpell(pFriend, pDispelSpell) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(pDispelSpell, false))
+        return;
 
-    if (m_spells.druid.pRemoveCurse)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.druid.pRemoveCurse))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.druid.pRemoveCurse))
-            {
-                if (DoCastSpell(pFriend, m_spells.druid.pRemoveCurse) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-    }
+    if (TryDispel(m_spells.druid.pRemoveCurse, false))
+        return;
 
     if (m_role == ROLE_HEALER)
     {

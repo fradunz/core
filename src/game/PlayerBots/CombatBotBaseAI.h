@@ -185,6 +185,7 @@ public:
     bool IsWearingShield(Player* pPlayer) const;
     bool IsDualWielding() const;
     bool IsTank(Player* pPlayer) const;
+    bool IsHealer(Player* pPlayer) const;
     bool IsInDuel() const;
     CombatBotRoles GetRole() const;
 

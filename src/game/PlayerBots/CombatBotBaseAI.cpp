@@ -3619,6 +3619,18 @@ bool CombatBotBaseAI::IsTank(Player* pPlayer) const
     return false;
 }
 
+bool CombatBotBaseAI::IsHealer(Player* pPlayer) const
+{
+    // Only bots have a known role
+    if (pPlayer->AI())
+    {
+        if (CombatBotBaseAI* pAI = dynamic_cast<CombatBotBaseAI*>(pPlayer->AI()))
+            return pAI->m_role == ROLE_HEALER;
+    }
+
+    return false;
+}
+
 void CombatBotBaseAI::BreakCrowdControlEffects()
 {
     if (UseTrinketEffects(true))
