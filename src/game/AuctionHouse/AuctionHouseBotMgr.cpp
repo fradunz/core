@@ -235,14 +235,24 @@ void AuctionHouseBotMgr::AddItem(AuctionHouseBotEntry e, AuctionHouseObject *auc
     auctionEntry->SaveToDB();
 }
 
-void AuctionHouseBotMgr::Create(uint32 itemId)
+AuctionHouseBotCreateResult AuctionHouseBotMgr::Create(uint32 itemId, bool allowDuplicate /* = false */)
 {
-
     ItemPrototype const* prototype = sObjectMgr.GetItemPrototype(itemId);
     if (prototype == nullptr)
     {
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::Create() : Item %u does not exist.", itemId);
-        return;
+        return AHBOT_CREATE_ITEM_NOT_FOUND;
+    }
+
+    // Check the table itself, m_items is only refreshed on reload
+    if (!allowDuplicate)
+    {
+        std::unique_ptr<QueryResult> existing(WorldDatabase.PQuery("SELECT 1 FROM `auctionhousebot` WHERE `item` = %u LIMIT 1", itemId));
+        if (existing)
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::Create() : Item %u already has an auction template.", itemId);
+            return AHBOT_CREATE_DUPLICATE;
+        }
     }
 
     uint32 stack = prototype->GetMaxStackSize();
@@ -250,13 +260,13 @@ void AuctionHouseBotMgr::Create(uint32 itemId)
     uint32 bid = prototype->SellPrice * multi * stack;
     uint32 buyout = bid * 2;
 
-
     if (!WorldDatabase.PExecute("INSERT INTO `auctionhousebot` (`item`, `stack`, `bid`, `buyout`) VALUES (%u, %u, %u, %u)", itemId, stack, bid, buyout))
     {
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "AHBot::Create() : Error creating auction for item %u.", itemId);
-        return;
+        return AHBOT_CREATE_DB_ERROR;
     }
 
+    return AHBOT_CREATE_OK;
 }
 
 bool ChatHandler::HandleAHBotUpdateCommand(char *args)
@@ -275,14 +285,31 @@ bool ChatHandler::HandleAHBotReloadCommand(char *args)
 
 bool ChatHandler::HandleAHBotCreateCommand(char *args)
 {
-    ///- Get the command line arguments
+    ///- Get the command line arguments: <itemId> [allowDuplicate (0|1)]
     uint32 itemId;
-    if(!ExtractUInt32(&args, itemId))
+    if (!ExtractUInt32(&args, itemId))
         return false;
 
-    std::string msg = "[AHBot] Auction Created for item " + std::to_string(itemId) + ".";
+    uint32 allowDuplicate;
+    if (!ExtractOptUInt32(&args, allowDuplicate, 0) || allowDuplicate > 1)
+        return false;
 
-    sAuctionHouseBotMgr.Create(itemId);
-    SendSysMessage(msg.c_str());
-    return true;
+    switch (sAuctionHouseBotMgr.Create(itemId, allowDuplicate == 1))
+    {
+        case AHBOT_CREATE_OK:
+            PSendSysMessage("[AHBot] Auction Created for item %u.", itemId);
+            return true;
+        case AHBOT_CREATE_ITEM_NOT_FOUND:
+            PSendSysMessage("[AHBot] Item %u does not exist.", itemId);
+            break;
+        case AHBOT_CREATE_DUPLICATE:
+            PSendSysMessage("[AHBot] Item %u already has an auction template. Use '.ahbot create %u 1' to create a duplicate.", itemId, itemId);
+            break;
+        case AHBOT_CREATE_DB_ERROR:
+            PSendSysMessage("[AHBot] Error creating auction for item %u.", itemId);
+            break;
+    }
+
+    SetSentErrorMessage(true);
+    return false;
 }

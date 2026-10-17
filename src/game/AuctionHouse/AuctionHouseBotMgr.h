@@ -25,6 +25,14 @@ struct AuctionHouseBotConfig
     bool enable;
 };
 
+enum AuctionHouseBotCreateResult
+{
+    AHBOT_CREATE_OK = 0,
+    AHBOT_CREATE_ITEM_NOT_FOUND,
+    AHBOT_CREATE_DUPLICATE,
+    AHBOT_CREATE_DB_ERROR
+};
+
 class AuctionHouseBotMgr
 {
     public :
@@ -36,7 +44,8 @@ class AuctionHouseBotMgr
         // force - put items in AH even if bot is disabled
         void Update(bool force = false);
         void AddItem(AuctionHouseBotEntry e, AuctionHouseObject *auctionHouse);
-        void Create(uint32 itemId);
+        // allowDuplicate - create the template even if the item already has one
+        AuctionHouseBotCreateResult Create(uint32 itemId, bool allowDuplicate = false);
 
     protected:
         std::vector<AuctionHouseBotEntry> m_items;
