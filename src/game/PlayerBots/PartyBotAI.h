@@ -136,6 +136,7 @@ public:
 
     bool CheckForDispelTargets();
     bool TryDispel(SpellEntry const* pSpell, bool priorityTargets);
+    bool TryWand(Unit* pVictim);
     void UpdateInCombatAI() final;
     void UpdateOutOfCombatAI() final;
     void UpdateInCombatAI_Paladin() final;

@@ -2590,6 +2590,41 @@ void PartyBotAI::UpdateOutOfCombatAI_Mage()
         return;
 }
 
+// Wand shots keep the GCD on and would starve the spell rotation, so bots only wand when the
+// target is nearly dead or they are low on mana (raids/bosses: only when almost out of mana). Must be called before the filler spells,
+// because those return early whenever they can be cast.
+// Returns true when the bot is wanding (the caller should stop its rotation).
+bool PartyBotAI::TryWand(Unit* pVictim)
+{
+    // In raids and against bosses fights are long, so 30% is still far from the end: keep casting.
+    // Only wand there when out of mana.
+    bool const longFight = me->GetMap()->IsRaid() ||
+                           (pVictim->IsCreature() && pVictim->ToCreature()->IsWorldBoss());
+
+    bool const useWand = longFight ? me->GetPowerPercent(POWER_MANA) < 10.0f :
+                         (pVictim->GetHealthPercent() < 30.0f ||
+                          me->GetPowerPercent(POWER_MANA) < 30.0f);
+
+    if (!useWand || !me->HasSpell(PB_SPELL_SHOOT_WAND))
+    {
+        if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+            me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
+        return false;
+    }
+
+    if (me->IsMoving())
+        return false;
+
+    if (me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+        return true;
+
+    if (me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)) &&
+        me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false) == SPELL_CAST_OK)
+        return true;
+
+    return false;
+}
+
 void PartyBotAI::UpdateInCombatAI_Mage()
 {
     // Decurse - Priority for boss fights
@@ -2774,6 +2809,18 @@ void PartyBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
+        if (m_spells.mage.pEvocation &&
+           (me->GetPowerPercent(POWER_MANA) < 30.0f) &&
+           (GetAttackersInRangeCount(10.0f) == 0) &&
+            CanTryToCastSpell(me, m_spells.mage.pEvocation))
+        {
+            if (DoCastSpell(me, m_spells.mage.pEvocation) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (TryWand(pVictim))
+            return;
+
         // If has improved fireball, try fire spells
         if (m_spells.mage.pImprovedFireball)
         {
@@ -2836,30 +2883,6 @@ void PartyBotAI::UpdateInCombatAI_Mage()
             if (DoCastSpell(pVictim, m_spells.mage.pFireball) == SPELL_CAST_OK)
                 return;
         }
-
-        if (m_spells.mage.pEvocation &&
-           (me->GetPowerPercent(POWER_MANA) < 30.0f) &&
-           (GetAttackersInRangeCount(10.0f) == 0) &&
-            CanTryToCastSpell(me, m_spells.mage.pEvocation))
-        {
-            if (DoCastSpell(me, m_spells.mage.pEvocation) == SPELL_CAST_OK)
-                return;
-        }
-
-        // Wand shots keep the GCD on and starve the spell rotation, so only wand
-        // when the target is nearly dead or we are low on mana.
-        bool const useWand = pVictim->GetHealthPercent() < 30.0f ||
-                             me->GetPowerPercent(POWER_MANA) < 30.0f;
-
-        if (!useWand && me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
-            me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
-
-        if (useWand &&
-            me->HasSpell(PB_SPELL_SHOOT_WAND) &&
-           !me->IsMoving() &&
-           !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
-            me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
-            me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false);
     }
 }
 
@@ -3110,6 +3133,9 @@ void PartyBotAI::UpdateInCombatAI_Priest()
                     return;
             }
 
+            if (TryWand(pVictim))
+                return;
+
             if (m_spells.priest.pMindBlast &&
                 CanTryToCastSpell(pVictim, m_spells.priest.pMindBlast))
             {
@@ -3130,21 +3156,6 @@ void PartyBotAI::UpdateInCombatAI_Priest()
                 if (DoCastSpell(pVictim, m_spells.priest.pSmite) == SPELL_CAST_OK)
                     return;
             }
-
-            // Wand shots keep the GCD on and starve the spell rotation, so only wand
-            // when the target is nearly dead or we are low on mana.
-            bool const useWand = pVictim->GetHealthPercent() < 30.0f ||
-                                 me->GetPowerPercent(POWER_MANA) < 30.0f;
-
-            if (!useWand && me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
-                me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
-
-            if (useWand &&
-                me->HasSpell(PB_SPELL_SHOOT_WAND) &&
-               !me->IsMoving() &&
-               !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
-                me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
-                me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false);
         }
     }
 }
@@ -3370,21 +3381,6 @@ void PartyBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
-        if (m_spells.warlock.pSearingPain &&
-            (pVictim->GetHealthPercent() < 20.0f) &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pSearingPain))
-        {
-            if (DoCastSpell(pVictim, m_spells.warlock.pSearingPain) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warlock.pShadowBolt &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pShadowBolt))
-        {
-            if (DoCastSpell(pVictim, m_spells.warlock.pShadowBolt) == SPELL_CAST_OK)
-                return;
-        }
-
         if (m_spells.warlock.pLifeTap &&
            (me->GetPowerPercent(POWER_MANA) < 10.0f) &&
            (me->GetHealthPercent() > 70.0f) &&
@@ -3402,20 +3398,23 @@ void PartyBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
-        // Wand shots keep the GCD on and starve the spell rotation, so only wand
-        // when the target is nearly dead or we are low on mana.
-        bool const useWand = pVictim->GetHealthPercent() < 30.0f ||
-                             me->GetPowerPercent(POWER_MANA) < 30.0f;
+        if (TryWand(pVictim))
+            return;
 
-        if (!useWand && me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
-            me->InterruptSpell(CURRENT_AUTOREPEAT_SPELL, true);
+        if (m_spells.warlock.pSearingPain &&
+            (pVictim->GetHealthPercent() < 20.0f) &&
+            CanTryToCastSpell(pVictim, m_spells.warlock.pSearingPain))
+        {
+            if (DoCastSpell(pVictim, m_spells.warlock.pSearingPain) == SPELL_CAST_OK)
+                return;
+        }
 
-        if (useWand &&
-            me->HasSpell(PB_SPELL_SHOOT_WAND) &&
-           !me->IsMoving() &&
-           !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) &&
-            me->IsSpellReady(sSpellMgr.GetSpellEntry(PB_SPELL_SHOOT_WAND)))
-            me->CastSpell(pVictim, PB_SPELL_SHOOT_WAND, false);
+        if (m_spells.warlock.pShadowBolt &&
+            CanTryToCastSpell(pVictim, m_spells.warlock.pShadowBolt))
+        {
+            if (DoCastSpell(pVictim, m_spells.warlock.pShadowBolt) == SPELL_CAST_OK)
+                return;
+        }
     }
 }
 
