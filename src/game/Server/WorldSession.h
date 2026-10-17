@@ -66,6 +66,9 @@
 
 #include <memory>
 
+// Gossip sender id used by the meeting stone menu (see HandleMeetingStoneJoinOpcode)
+static constexpr uint32 MEETINGSTONE_GOSSIP_SENDER = 0x4D53;
+
 struct ItemPrototype;
 struct AuctionEntry;
 struct AuctionHouseEntry;
@@ -575,6 +578,8 @@ class WorldSession
 
         void HandleGameObjectUseOpcode(WorldPackets::Misc::GameObjectUse const& packet);
         void HandleMeetingStoneJoinOpcode(WorldPackets::Misc::MeetingStoneJoin const& packet);
+        bool CanJoinMeetingStoneQueue();
+        void JoinMeetingStoneQueue(GameObject* obj);
         void HandleMeetingStoneLeaveOpcode(NullClientPacket const& packet);
         void HandleMeetingStoneInfoOpcode(NullClientPacket const& packet);
 

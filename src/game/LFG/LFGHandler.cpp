@@ -27,6 +27,41 @@
 #include "World.h"
 #include "Group.h"
 #include "LFGMgr.h"
+#include "GossipDef.h"
+
+bool WorldSession::CanJoinMeetingStoneQueue()
+{
+    if (Group* grp = _player->GetGroup())
+    {
+        if (!grp->IsLeader(_player->GetObjectGuid()))
+        {
+            SendMeetingstoneFailed(MEETINGSTONE_FAIL_PARTYLEADER);
+            return false;
+        }
+
+        if (grp->isRaidGroup())
+        {
+            SendMeetingstoneFailed(MEETINGSTONE_FAIL_RAID_GROUP);
+            return false;
+        }
+
+        if (grp->IsFull())
+        {
+            SendMeetingstoneFailed(MEETINGSTONE_FAIL_FULL_GROUP);
+            return false;
+        }
+    }
+    return true;
+}
+
+void WorldSession::JoinMeetingStoneQueue(GameObject* obj)
+{
+    if (!CanJoinMeetingStoneQueue())
+        return;
+
+    GameObjectInfo const* gInfo = sObjectMgr.GetGameObjectTemplate(obj->GetEntry());
+    sLFGMgr.AddToQueue(_player, gInfo->meetingstone.areaID);
+}
 
 void WorldSession::HandleMeetingStoneJoinOpcode(WorldPackets::Misc::MeetingStoneJoin const& packet)
 {
@@ -46,32 +81,14 @@ void WorldSession::HandleMeetingStoneJoinOpcode(WorldPackets::Misc::MeetingStone
         return;
     }
 
-    if (Group* grp = _player->GetGroup())
-    {
-        if (!grp->IsLeader(_player->GetObjectGuid()))
-        {
-            SendMeetingstoneFailed(MEETINGSTONE_FAIL_PARTYLEADER);
+    if (!CanJoinMeetingStoneQueue())
+        return;
 
-            return;
-        }
-
-        if (grp->isRaidGroup())
-        {
-            SendMeetingstoneFailed(MEETINGSTONE_FAIL_RAID_GROUP);
-            return;
-        }
-
-        if (grp->IsFull())
-        {
-            SendMeetingstoneFailed(MEETINGSTONE_FAIL_FULL_GROUP);
-            return;
-        }
-    }
-
-
-   GameObjectInfo const* gInfo = sObjectMgr.GetGameObjectTemplate(obj->GetEntry());
-
-   sLFGMgr.AddToQueue(_player, gInfo->meetingstone.areaID);
+    // TEST: intermediate gossip menu, the LFG queue is only joined after choosing the option
+    // (handled in HandleGossipSelectOptionOpcode).
+    _player->PlayerTalkClass->ClearMenus();
+    _player->PlayerTalkClass->GetGossipMenu().AddMenuItem(GOSSIP_ICON_CHAT, "Join the LFG queue", MEETINGSTONE_GOSSIP_SENDER, 1);
+    _player->PlayerTalkClass->SendGossipMenu(DEFAULT_GOSSIP_MESSAGE, obj->GetObjectGuid());
 }
 
 void WorldSession::HandleMeetingStoneLeaveOpcode(NullClientPacket const& /*packet*/)

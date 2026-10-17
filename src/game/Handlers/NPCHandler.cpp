@@ -408,6 +408,14 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
             return;
         }
 
+        // TEST: meeting stone menu, joins the LFG queue
+        if (pGo->GetGoType() == GAMEOBJECT_TYPE_MEETINGSTONE && sender == MEETINGSTONE_GOSSIP_SENDER)
+        {
+            _player->PlayerTalkClass->CloseGossip();
+            JoinMeetingStoneQueue(pGo);
+            return;
+        }
+
         if (!sScriptMgr.OnGossipSelect(_player, pGo, sender, action, code))
             _player->OnGossipSelect(pGo, packet.gossipListId);
     }
