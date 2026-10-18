@@ -112,6 +112,9 @@ class ChatHandler
 
         static void LoadRbacPermissions();
 
+        // Adds one party bot (tank, healer, dps, ...) to the player, running the usual requirement checks.
+        static bool PartyBotMenuAdd(Player* pPlayer, char const* option);
+
         static char* LineFromMessage(char*& pos) { char* start = strtok(pos,"\n"); pos = nullptr; return start; }
 
         // function with different implementation for chat/console

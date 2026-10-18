@@ -623,6 +623,20 @@ bool PlayerBotMgr::AddPartyBot(Player* pPlayer, std::string option, uint32 force
     return true;
 }
 
+uint32 PlayerBotMgr::CountPartyBots(ObjectGuid leaderGuid) const
+{
+    uint32 count = 0;
+    for (auto const& itr : m_bots)
+    {
+        if (itr.second->requestRemoval || !itr.second->ai)
+            continue;
+        if (PartyBotAI const* pAI = dynamic_cast<PartyBotAI const*>(itr.second->ai.get()))
+            if (pAI->m_leaderGuid == leaderGuid)
+                ++count;
+    }
+    return count;
+}
+
 bool PlayerBotMgr::DeleteRandomBot()
 {
     if (m_stats.onlineCount < 1)
@@ -1053,6 +1067,14 @@ bool ChatHandler::PartyBotAddRequirementCheck(Player const* pPlayer, Player cons
     }
 
     return true;
+}
+
+bool ChatHandler::PartyBotMenuAdd(Player* pPlayer, char const* option)
+{
+    ChatHandler handler(pPlayer->GetSession());
+    if (!handler.PartyBotAddRequirementCheck(pPlayer, nullptr))
+        return false;
+    return sPlayerBotMgr.AddPartyBot(pPlayer, option, 0);
 }
 
 bool ChatHandler::HandlePartyBotAddCommand(char* args)

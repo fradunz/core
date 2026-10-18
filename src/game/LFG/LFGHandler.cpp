@@ -28,6 +28,8 @@
 #include "Group.h"
 #include "LFGMgr.h"
 #include "GossipDef.h"
+#include "Chat.h"
+#include "PlayerBotMgr.h"
 
 bool WorldSession::CanJoinMeetingStoneQueue()
 {
@@ -84,11 +86,66 @@ void WorldSession::HandleMeetingStoneJoinOpcode(WorldPackets::Misc::MeetingStone
     if (!CanJoinMeetingStoneQueue())
         return;
 
-    // TEST: intermediate gossip menu, the LFG queue is only joined after choosing the option
-    // (handled in HandleGossipSelectOptionOpcode).
+    // Meeting stone menu: join the LFG queue or recruit party bots. The choice is handled in
+    // HandleGossipSelectOptionOpcode -> HandleMeetingStoneMenuSelect.
     _player->PlayerTalkClass->ClearMenus();
-    _player->PlayerTalkClass->GetGossipMenu().AddMenuItem(GOSSIP_ICON_CHAT, "Join the LFG queue", MEETINGSTONE_GOSSIP_SENDER, 1);
+    GossipMenu& menu = _player->PlayerTalkClass->GetGossipMenu();
+    menu.AddMenuItem(GOSSIP_ICON_CHAT, "Join the LFG queue", MEETINGSTONE_GOSSIP_SENDER, MEETINGSTONE_MENU_LFG);
+    menu.AddMenuItem(GOSSIP_ICON_CHAT, "I need a brave and mighty adventurer to stand at the front of my party.", MEETINGSTONE_GOSSIP_SENDER, MEETINGSTONE_MENU_TANK);
+    menu.AddMenuItem(GOSSIP_ICON_CHAT, "I need a caring adventurer to tend our wounds along the journey.", MEETINGSTONE_GOSSIP_SENDER, MEETINGSTONE_MENU_HEALER);
+    menu.AddMenuItem(GOSSIP_ICON_CHAT, "I need more adventurers to complete our expedition.", MEETINGSTONE_GOSSIP_SENDER, MEETINGSTONE_MENU_DPS);
     _player->PlayerTalkClass->SendGossipMenu(DEFAULT_GOSSIP_MESSAGE, obj->GetObjectGuid());
+}
+
+void WorldSession::HandleMeetingStoneMenuSelect(GameObject* obj, uint32 action)
+{
+    if (action == MEETINGSTONE_MENU_LFG)
+    {
+        JoinMeetingStoneQueue(obj);
+        return;
+    }
+
+    if (action != MEETINGSTONE_MENU_TANK &&
+        action != MEETINGSTONE_MENU_HEALER &&
+        action != MEETINGSTONE_MENU_DPS)
+        return;
+
+    // A party has at most 5 members: count the other humans plus the bots already recruited
+    // (bots still logging in are not in the group yet).
+    constexpr uint32 maxPartySize = 5;
+    uint32 humans = 1;
+    if (Group* grp = _player->GetGroup())
+    {
+        humans = 0;
+        for (GroupReference* itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
+            if (Player* pMember = itr->getSource())
+                if (!pMember->IsBot())
+                    ++humans;
+        humans = std::max(humans, 1u);
+    }
+
+    uint32 const bots = sPlayerBotMgr.CountPartyBots(_player->GetObjectGuid());
+    uint32 slots = humans + bots >= maxPartySize ? 0 : maxPartySize - humans - bots;
+
+    if (uint32 const maxBots = sWorld.getConfig(CONFIG_UINT32_PARTY_BOT_MAX_BOTS))
+        slots = bots >= maxBots ? 0 : std::min(slots, maxBots - bots);
+
+    if (!slots)
+    {
+        ChatHandler(this).SendSysMessage("Your party is already complete.");
+        return;
+    }
+
+    if (action == MEETINGSTONE_MENU_TANK)
+        ChatHandler::PartyBotMenuAdd(_player, "tank");
+    else if (action == MEETINGSTONE_MENU_HEALER)
+        ChatHandler::PartyBotMenuAdd(_player, "healer");
+    else
+    {
+        for (uint32 i = 0; i < slots; ++i)
+            if (!ChatHandler::PartyBotMenuAdd(_player, "dps"))
+                break;
+    }
 }
 
 void WorldSession::HandleMeetingStoneLeaveOpcode(NullClientPacket const& /*packet*/)

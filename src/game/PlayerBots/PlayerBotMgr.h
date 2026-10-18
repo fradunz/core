@@ -84,6 +84,7 @@ class PlayerBotMgr
         bool DeleteBot(std::map<uint64, std::shared_ptr<PlayerBotEntry>>::iterator iter);
         bool DeleteBot(uint32 playerGuid);
         bool AddPartyBot(Player* pPlayer, std::string option, uint32 botLevel);
+        uint32 CountPartyBots(ObjectGuid leaderGuid) const; // party bots led by this player, including ones still logging in
 
         bool AddRandomBot();
         bool DeleteRandomBot();
