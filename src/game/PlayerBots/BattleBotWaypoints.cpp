@@ -1772,7 +1772,30 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     // Without this the flag carrier picked it in reverse (it ties with the tunnel path) and looped around the base.
     &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard,
     &vPath_WSG_HordeFlagRoom_to_HordeGraveyard,
+    // WSG: walking these backwards only leads to the spot where the graveyard jump lands, which is a dead end
+    // (below the cliff). Bots that picked them as "closer to the target" walked there and had to turn back.
+    &vPath_WSG_HordeGYJump_to_HordeTunnel,
+    &vPath_WSG_HordeGYJump_to_AllianceTunnel,
+    &vPath_WSG_AllianceGYJump_to_AllianceTunnel,
+    &vPath_WSG_AllianceGYJump_to_HordeTunnel,
+    &vPath_WSG_HordeGYJump_to_AllianceFlagRoom,
+    &vPath_WSG_AllianceGYJump_to_HordeFlagRoom,
 };
+
+// The base roof paths are lookout routes: only useful to search for the enemy carrier inside our base.
+static bool IsPathAllowedForRandomChoice(BattleBotAI const* pAI, BattleBotPath const* pPath)
+{
+    if (pPath != &vPath_WSG_HordeTunnel_to_HordeBaseRoof && pPath != &vPath_WSG_AllianceTunnel_to_AllianceBaseRoof)
+        return true;
+
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_WS)
+        return true;
+
+    BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
+    bool const ownFlagTaken = pAI->me->GetTeam() == HORDE ? !pWS->GetHordeFlagPickerGuid().IsEmpty() : !pWS->GetAllianceFlagPickerGuid().IsEmpty();
+    return ownFlagTaken;
+}
 
 void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
 {
@@ -1848,6 +1871,9 @@ bool BattleBotAI::StartNewPathFromBeginning()
 
     for (const auto& pPath : *vPaths)
     {
+        if (!IsPathAllowedForRandomChoice(this, pPath))
+            continue;
+
         BattleBotWaypoint* pStart = &((*pPath)[0]);
         if (me->GetDistance(pStart->x, pStart->y, pStart->z) < INTERACTION_DISTANCE)
             availablePaths.emplace_back(AvailablePath(pPath, false));
@@ -1902,6 +1928,9 @@ void BattleBotAI::StartNewPathFromAnywhere()
 
     for (const auto& pPath : *vPaths)
     {
+        if (!IsPathAllowedForRandomChoice(this, pPath))
+            continue;
+
         for (uint32 i = 0; i < pPath->size(); i++)
         {
             BattleBotWaypoint& waypoint = ((*pPath)[i]);
@@ -1922,6 +1951,63 @@ void BattleBotAI::StartNewPathFromAnywhere()
     m_movingInReverse = false;
     m_currentPoint = closestPoint-1;
     MoveToNextPoint();
+}
+
+static float WSG_Distance3D(float x1, float y1, float z1, float x2, float y2, float z2)
+{
+    float const dx = x1 - x2, dy = y1 - y2, dz = z1 - z2;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// Walks the path graph (paths are linked where one ends and another begins, or through the graveyard jump)
+// and tells if the target can be reached from the end of this path.
+static bool WSG_RouteReachesTarget(BattleBotAI const* pAI, std::vector<BattleBotPath*> const& vPaths, BattleBotPath* pPath,
+                                   bool reverse, Position const& target, std::vector<std::pair<BattleBotPath*, bool>>& visited)
+{
+    static float const TARGET_RADIUS = 25.0f;
+    static float const LINK_RADIUS = 5.0f;
+    static size_t const MAX_PATHS_IN_ROUTE = 6;
+
+    BattleBotWaypoint const& exit = reverse ? (*pPath)[0] : (*pPath)[pPath->size() - 1];
+    if (WSG_Distance3D(exit.x, exit.y, exit.z, target.x, target.y, target.z) < TARGET_RADIUS)
+        return true;
+
+    if (visited.size() >= MAX_PATHS_IN_ROUTE)
+        return false;
+
+    std::vector<RecordedMovementPacket> const& jumpPath = pAI->me->GetTeam() == HORDE ? vHordeGraveyardJumpPath : vAllianceGraveyardJumpPath;
+    RecordedMovementPacket const& graveyardTop = jumpPath.front();
+    RecordedMovementPacket const& landing = jumpPath.back();
+    bool const exitAtGraveyardTop = WSG_Distance3D(exit.x, exit.y, exit.z, graveyardTop.position.x, graveyardTop.position.y, graveyardTop.position.z) < LINK_RADIUS;
+
+    for (BattleBotPath* pNext : vPaths)
+    {
+        if (!IsPathAllowedForRandomChoice(pAI, pNext))
+            continue;
+
+        for (bool nextReverse : { false, true })
+        {
+            if (nextReverse && std::find(vPaths_NoReverseAllowed.begin(), vPaths_NoReverseAllowed.end(), pNext) != vPaths_NoReverseAllowed.end())
+                continue;
+            if (std::find(visited.begin(), visited.end(), std::make_pair(pNext, nextReverse)) != visited.end())
+                continue;
+
+            BattleBotWaypoint const& entry = nextReverse ? (*pNext)[pNext->size() - 1] : (*pNext)[0];
+            bool linked = WSG_Distance3D(exit.x, exit.y, exit.z, entry.x, entry.y, entry.z) < LINK_RADIUS;
+            if (!linked && exitAtGraveyardTop && !nextReverse)
+                linked = WSG_Distance3D(landing.position.x, landing.position.y, landing.position.z, entry.x, entry.y, entry.z) < LINK_RADIUS;
+            if (!linked)
+                continue;
+
+            visited.emplace_back(pNext, nextReverse);
+            bool const reaches = WSG_RouteReachesTarget(pAI, vPaths, pNext, nextReverse, target, visited);
+            visited.pop_back();
+            if (reaches)
+                return true;
+        }
+    }
+
+    return false;
 }
 
 bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::vector<BattleBotPath*> const& vPaths)
@@ -1980,6 +2066,60 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
                     }
                 }
             }
+        }
+    }
+
+    // Warsong Gulch: instead of always taking the path that ends closest to the target in a straight line,
+    // pick randomly among all the routes that actually lead there (tunnel, graveyard, ...).
+    if (me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS)
+    {
+        struct RouteStart
+        {
+            BattleBotPath* pPath;
+            bool reverse;
+            uint32 point;
+        };
+        std::vector<RouteStart> routes;
+
+        for (BattleBotPath* pPath : vPaths)
+        {
+            if (!IsPathAllowedForRandomChoice(this, pPath))
+                continue;
+
+            for (bool pathReverse : { false, true })
+            {
+                if (pathReverse && std::find(vPaths_NoReverseAllowed.begin(), vPaths_NoReverseAllowed.end(), pPath) != vPaths_NoReverseAllowed.end())
+                    continue;
+
+                float nearest = 50.0f;
+                int32 nearestPoint = -1;
+                for (uint32 i = 0; i < pPath->size(); i++)
+                {
+                    float const distance = me->GetDistance((*pPath)[i].x, (*pPath)[i].y, (*pPath)[i].z);
+                    if (distance < nearest)
+                    {
+                        nearest = distance;
+                        nearestPoint = int32(i);
+                    }
+                }
+
+                // Nothing to walk if we are already at the end of it.
+                if (nearestPoint < 0 || (pathReverse ? nearestPoint == 0 : uint32(nearestPoint) == pPath->size() - 1))
+                    continue;
+
+                std::vector<std::pair<BattleBotPath*, bool>> visited;
+                visited.emplace_back(pPath, pathReverse);
+                if (WSG_RouteReachesTarget(this, vPaths, pPath, pathReverse, targetPosition, visited))
+                    routes.push_back({ pPath, pathReverse, uint32(nearestPoint) });
+            }
+        }
+
+        if (!routes.empty())
+        {
+            RouteStart const& chosen = SelectRandomContainerElement(routes);
+            pClosestPath = chosen.pPath;
+            reverse = chosen.reverse;
+            closestPoint = chosen.point;
         }
     }
 
