@@ -167,7 +167,8 @@ static void WSG_ContinueFromGraveyard(BattleBotAI* pAI, BattleBotPath* pFromFlag
 
 void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
 {
-    if ((pAI->me->GetTeam() == ALLIANCE) && !pAI->me->IsMounted() && urand(0, 1))
+    // The jump is the way out of the base: always do it.
+    if (pAI->me->GetTeam() == ALLIANCE)
     {
         pAI->ClearPath();
         pAI->DoGraveyardJump();
@@ -178,7 +179,7 @@ void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
 
 void WSG_AtHordeGraveyard(BattleBotAI* pAI)
 {
-    if ((pAI->me->GetTeam() == HORDE) && !pAI->me->IsMounted() && urand(0, 1))
+    if (pAI->me->GetTeam() == HORDE)
     {
         pAI->ClearPath();
         pAI->DoGraveyardJump();
@@ -1997,6 +1998,25 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     {
         if (closestPoint == pClosestPath->size() - 1)
             return false;
+    }
+
+    // Paths that start where the graveyard jump lands cannot be walked to from the graveyard (there is a cliff
+    // in between), so the bot has to jump to reach them.
+    if (!reverse && me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
+        !me->IsInCombat())
+    {
+        std::vector<RecordedMovementPacket> const& jumpPath = me->GetTeam() == HORDE ? vHordeGraveyardJumpPath : vAllianceGraveyardJumpPath;
+        RecordedMovementPacket const& graveyardTop = jumpPath.front();
+        RecordedMovementPacket const& landing = jumpPath.back();
+        BattleBotWaypoint const& pathStart = (*pClosestPath)[0];
+        if (std::abs(pathStart.x - landing.position.x) < 3.0f && std::abs(pathStart.y - landing.position.y) < 3.0f &&
+            me->GetDistance2d(graveyardTop.position.x, graveyardTop.position.y) < 25.0f &&
+            me->GetPositionZ() - landing.position.z > 8.0f)
+        {
+            ClearPath();
+            DoGraveyardJump();
+            return true;
+        }
     }
 
     // If we were interrupted on this same path, never go back to a point behind where we were.

@@ -502,9 +502,36 @@ bool BattleBotAI::IsObjectiveFocused() const
            !me->HasAura(AURA_SILVERWING_FLAG) && !me->HasAura(AURA_WARSONG_FLAG);
 }
 
+// Capturers do not get stuck in the middle of the map: after a short fight they ignore combat and keep running,
+// and for a while they do not start new fights.
+bool BattleBotAI::IsFocusFightTooLong() const
+{
+    static uint32 const FOCUS_MAX_FIGHT_TIME = 5 * IN_MILLISECONDS;
+    static uint32 const FOCUS_IGNORE_COMBAT_TIME = 10 * IN_MILLISECONDS;
+
+    if (!me->IsInCombat())
+    {
+        m_focusFightStart = 0;
+        return false;
+    }
+
+    uint32 const now = WorldTimer::getMSTime();
+    if (!m_focusFightStart)
+        m_focusFightStart = now;
+
+    if (WorldTimer::getMSTimeDiff(m_focusFightStart, now) > FOCUS_MAX_FIGHT_TIME)
+    {
+        m_focusIgnoreUntil = now + FOCUS_IGNORE_COMBAT_TIME;
+        return true;
+    }
+
+    return false;
+}
+
 bool BattleBotAI::ShouldKeepMoving() const
 {
-    return ShouldIgnoreCombat() || (IsObjectiveFocused() && !SelectAttackTarget(nullptr));
+    return ShouldIgnoreCombat() ||
+           (IsObjectiveFocused() && (IsFocusFightTooLong() || !SelectAttackTarget(nullptr)));
 }
 
 Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
@@ -515,6 +542,10 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
 
     bool const focused = IsObjectiveFocused();
     Player* pEscort = GetEscortCarrier();
+
+    // A capturer that just left a long fight does not start another one right away.
+    if (focused && int32(m_focusIgnoreUntil - WorldTimer::getMSTime()) > 0)
+        return nullptr;
 
     // While escorting only fight what threatens the carrier or us.
     auto const escortAllows = [&](Unit* pTarget)
@@ -1252,7 +1283,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     }
 
     // Objective focused bots ignore fights that are not very close and keep following their path.
-    if (IsObjectiveFocused() && !SelectAttackTarget(nullptr))
+    if (IsObjectiveFocused() && (IsFocusFightTooLong() || !SelectAttackTarget(nullptr)))
     {
         if (me->GetVictim())
         {

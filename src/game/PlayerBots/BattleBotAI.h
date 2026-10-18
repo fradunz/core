@@ -132,6 +132,7 @@ public:
     void RollWSGRole();
     bool IsObjectiveFocused() const;
     bool ShouldKeepMoving() const;
+    bool IsFocusFightTooLong() const;
     bool StartNewPathToPosition(Position const& position, std::vector<BattleBotPath*> const& vPaths);
     void ClearPath();
     void StopMoving();
@@ -146,6 +147,9 @@ public:
     bool m_resumeReverse = false;
     uint32 m_resumePoint = 0;
     uint32 m_resumeTime = 0;
+    // Flag capturers: when the current fight started and until when new fights are ignored (ms timestamps).
+    mutable uint32 m_focusFightStart = 0;
+    mutable uint32 m_focusIgnoreUntil = 0;
     uint8 m_waitingSpot = BB_WSG_WAIT_SPOT_SPAWN;
 };
 
