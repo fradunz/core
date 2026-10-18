@@ -70,6 +70,7 @@ public:
     Unit* SelectHealTarget(float healthPercent = 100.0f, bool periodic = false) const override;
     Player* SelectShieldTarget() const;
     bool IsOwnFlagCarrier(Unit const* pUnit) const;
+    Player* GetEscortCarrier() const;
     Unit* SelectFollowTarget() const;
 
     void OnJustRevived();

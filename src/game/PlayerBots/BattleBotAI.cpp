@@ -17,6 +17,7 @@
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
 #include "BattleGround.h"
+#include "BattleGroundWS.h"
 #include "Player.h"
 #include "Group.h"
 #include "CreatureAI.h"
@@ -352,6 +353,45 @@ bool BattleBotAI::IsOwnFlagCarrier(Unit const* pUnit) const
     return pUnit->HasAura(me->GetTeam() == ALLIANCE ? AURA_WARSONG_FLAG : AURA_SILVERWING_FLAG);
 }
 
+// Distances (yards) used while escorting the carrier of our team.
+static float const ESCORT_MAX_CARRIER_DISTANCE = 80.0f; // Farther bots walk towards the carrier using the paths.
+static float const ESCORT_THREAT_RADIUS = 20.0f;        // Enemies this close to the carrier are worth fighting.
+static float const ESCORT_SELF_DEFENSE_DISTANCE = 8.0f; // Enemies this close to us are fought anywhere.
+static float const ESCORT_CLOSE_DISTANCE = 8.0f;        // Escorts try to stay this close to the carrier.
+
+// Carrier of our team that this bot has to stay close to, if any.
+// Bots that are not defenders escort while our own flag is safe. Defenders stay at the base,
+// except when both flags are taken: then they protect our carrier.
+Player* BattleBotAI::GetEscortCarrier() const
+{
+    if (m_battlegroundId != BATTLEGROUND_QUEUE_WS)
+        return nullptr;
+
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_WS || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return nullptr;
+
+    if (me->HasAura(AURA_WARSONG_FLAG) || me->HasAura(AURA_SILVERWING_FLAG))
+        return nullptr;
+
+    BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
+    bool const isHorde = me->GetTeam() == HORDE;
+    bool const ownFlagStolen = !(isHorde ? pWS->GetHordeFlagPickerGuid() : pWS->GetAllianceFlagPickerGuid()).IsEmpty();
+    if (IsWSGDefender() != ownFlagStolen)
+        return nullptr;
+
+    ObjectGuid const carrierGuid = isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid();
+    if (carrierGuid.IsEmpty())
+        return nullptr;
+
+    Player* pCarrier = sObjectAccessor.FindPlayer(carrierGuid);
+    if (!pCarrier || !pCarrier->IsAlive() || pCarrier->GetMapId() != me->GetMapId() ||
+        !me->IsWithinDist(pCarrier, ESCORT_MAX_CARRIER_DISTANCE))
+        return nullptr;
+
+    return pCarrier;
+}
+
 // In battlegrounds heal the flag carrier first, then whoever has the lowest health.
 Unit* BattleBotAI::SelectHealTarget(float healthPercent, bool periodic) const
 {
@@ -474,6 +514,15 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         return nullptr;
 
     bool const focused = IsObjectiveFocused();
+    Player* pEscort = GetEscortCarrier();
+
+    // While escorting only fight what threatens the carrier or us.
+    auto const escortAllows = [&](Unit* pTarget)
+    {
+        return !pEscort ||
+               pTarget->IsWithinDist(pEscort, ESCORT_THREAT_RADIUS) ||
+               me->IsWithinDist(pTarget, ESCORT_SELF_DEFENSE_DISTANCE);
+    };
 
     // 1. Check units we are currently in combat with.
 
@@ -501,6 +550,9 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
 
                 // Focused bots only fight enemies that are very close.
                 if (focused && !me->IsWithinDist(pTarget, OBJECTIVE_FOCUS_COMBAT_DISTANCE))
+                    continue;
+
+                if (!escortAllows(pTarget))
                     continue;
 
                 targets.push_back(pTarget);
@@ -548,6 +600,9 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         float aggroDistance = me->GetHealth() > pTarget->GetHealth() ? maxAggroDistance : 20.0f;
         if (focused)
             aggroDistance = OBJECTIVE_FOCUS_COMBAT_DISTANCE;
+
+        if (!escortAllows(pTarget))
+            continue;
         if (!me->IsWithinDist(pTarget, aggroDistance))
             continue;
 
@@ -560,7 +615,7 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
 
     // 3. Check party attackers.
 
-    if (Group* pGroup = focused ? nullptr : me->GetGroup())
+    if (Group* pGroup = (focused || pEscort) ? nullptr : me->GetGroup())
     {
         for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
@@ -1171,6 +1226,31 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         return;
     }
 
+    // Escorts do not leave the carrier alone: ignore fights that do not threaten the carrier or us.
+    if (m_role != ROLE_HEALER)
+    {
+        if (Player* pEscort = GetEscortCarrier())
+        {
+            if (!SelectAttackTarget(nullptr))
+            {
+                if (me->GetVictim())
+                {
+                    me->AttackStop(false);
+                    if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+                        StopMoving();
+                }
+
+                if (!me->IsWithinDist(pEscort, ESCORT_CLOSE_DISTANCE) &&
+                    me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+                {
+                    ClearPath();
+                    me->GetMotionMaster()->MoveFollow(pEscort, frand(3.0f, 5.0f), frand(0.0f, 3.0f));
+                }
+                return;
+            }
+        }
+    }
+
     // Objective focused bots ignore fights that are not very close and keep following their path.
     if (IsObjectiveFocused() && !SelectAttackTarget(nullptr))
     {
@@ -1241,15 +1321,32 @@ void BattleBotAI::UpdateBattleGroundAI()
                 pGo->Use(me);
 
             // Pick up stationary flags from bases.
-            if (me->GetTeam() == HORDE)
             {
-                if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_SILVERWING_FLAG, INTERACTION_DISTANCE))
-                    pGo->Use(me);
-            }
-            else
-            {
-                if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_WARSONG_FLAG, INTERACTION_DISTANCE))
-                    pGo->Use(me);
+                static float const FLAG_DETOUR_DISTANCE = 30.0f;
+                bool const carryingFlag = me->HasAura(AURA_WARSONG_FLAG) || me->HasAura(AURA_SILVERWING_FLAG);
+                uint32 const enemyFlagEntry = me->GetTeam() == HORDE ? GO_WSG_SILVERWING_FLAG : GO_WSG_WARSONG_FLAG;
+
+                if (!carryingFlag)
+                {
+                    if (GameObject* pGo = me->FindNearestGameObject(enemyFlagEntry, FLAG_DETOUR_DISTANCE))
+                    {
+                        if (pGo->isSpawned())
+                        {
+                            if (me->IsWithinDistInMap(pGo, INTERACTION_DISTANCE))
+                            {
+                                pGo->Use(me);
+                            }
+                            else if (m_role != ROLE_HEALER && !me->IsInCombat() && !me->IsMounted() &&
+                                     (!me->IsMoving() || m_currentPath))
+                            {
+                                // The path passed close to the flag without ending at it: go and take it.
+                                ClearPath();
+                                me->GetMotionMaster()->MovePoint(0, pGo->GetPositionX(), pGo->GetPositionY(), pGo->GetPositionZ(),
+                                                                 MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                            }
+                        }
+                    }
+                }
             }
             break;
         }

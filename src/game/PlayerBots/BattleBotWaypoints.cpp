@@ -144,6 +144,27 @@ void WSG_AtHordeFlag(BattleBotAI* pAI)
     pAI->MoveToNextPoint();
 }
 
+extern BattleBotPath vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard;
+extern BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceTunnel;
+extern BattleBotPath vPath_WSG_HordeFlagRoom_to_HordeGraveyard;
+extern BattleBotPath vPath_WSG_HordeGraveyard_to_HordeTunnel;
+
+// When the walk from the flag room ends at the graveyard (and the bot does not jump), continue with the walking path
+// to the tunnel. Letting the objective logic choose here made bots pick the paths that start where the jump lands,
+// sending them back to look for another route.
+static void WSG_ContinueFromGraveyard(BattleBotAI* pAI, BattleBotPath* pFromFlagRoom, BattleBotPath* pToTunnel)
+{
+    if (pAI->m_currentPath == pFromFlagRoom && pAI->me->IsAlive() && !pAI->me->IsInCombat())
+    {
+        pAI->m_currentPath = pToTunnel;
+        pAI->m_movingInReverse = false;
+        pAI->m_currentPoint = 0;
+        pAI->MoveToNextPoint();
+    }
+    else
+        pAI->MoveToNextPoint();
+}
+
 void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
 {
     if ((pAI->me->GetTeam() == ALLIANCE) && !pAI->me->IsMounted() && urand(0, 1))
@@ -152,7 +173,7 @@ void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
         pAI->DoGraveyardJump();
     }
     else
-        pAI->MoveToNextPoint();
+        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard, &vPath_WSG_AllianceGraveyard_to_AllianceTunnel);
 }
 
 void WSG_AtHordeGraveyard(BattleBotAI* pAI)
@@ -163,7 +184,7 @@ void WSG_AtHordeGraveyard(BattleBotAI* pAI)
         pAI->DoGraveyardJump();
     }
     else
-        pAI->MoveToNextPoint();
+        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_HordeFlagRoom_to_HordeGraveyard, &vPath_WSG_HordeGraveyard_to_HordeTunnel);
 }
 
 #define SPELL_CAPTURE_BANNER 21651
