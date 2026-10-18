@@ -253,6 +253,20 @@ bool BattleBotAI::UseMount()
     return false;
 }
 
+static float const DRINK_EAT_ENEMY_DISTANCE = 40.0f;
+
+bool BattleBotAI::HasHostilePlayerNearby(float range) const
+{
+    std::list<Player*> players;
+    me->GetAlivePlayerListInRange(me, players, range);
+    for (Player* pPlayer : players)
+    {
+        if (pPlayer != me && !pPlayer->IsGameMaster() && me->IsHostileTo(pPlayer) && pPlayer->IsVisibleForOrDetect(me, me, false))
+            return true;
+    }
+    return false;
+}
+
 bool BattleBotAI::DrinkAndEat()
 {
     if (m_isBuffing)
@@ -263,6 +277,18 @@ bool BattleBotAI::DrinkAndEat()
 
     if (me->GetVictim())
         return false;
+
+    // Never sit down (or stay seated) with an enemy close by: stand up and let the combat logic pick a target.
+    if (HasHostilePlayerNearby(DRINK_EAT_ENEMY_DISTANCE))
+    {
+        if (me->HasAura(BB_SPELL_FOOD))
+            me->RemoveAurasDueToSpell(BB_SPELL_FOOD);
+        if (me->HasAura(BB_SPELL_DRINK))
+            me->RemoveAurasDueToSpell(BB_SPELL_DRINK);
+        if (me->GetStandState() != UNIT_STAND_STATE_STAND)
+            me->SetStandState(UNIT_STAND_STATE_STAND);
+        return false;
+    }
 
     BattleGround* bg;
     bool const needToEat = me->GetHealthPercent() < 95.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);

@@ -145,9 +145,9 @@ void WSG_AtHordeFlag(BattleBotAI* pAI)
 }
 
 extern BattleBotPath vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard;
-extern BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceTunnel;
+extern BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceRamp;
 extern BattleBotPath vPath_WSG_HordeFlagRoom_to_HordeGraveyard;
-extern BattleBotPath vPath_WSG_HordeGraveyard_to_HordeTunnel;
+extern BattleBotPath vPath_WSG_HordeGraveyard_to_HordeRamp;
 
 // When the walk from the flag room ends at the graveyard (and the bot does not jump), continue with the walking path
 // to the tunnel. Letting the objective logic choose here made bots pick the paths that start where the jump lands,
@@ -174,7 +174,7 @@ void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
         pAI->DoGraveyardJump();
     }
     else
-        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard, &vPath_WSG_AllianceGraveyard_to_AllianceTunnel);
+        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard, &vPath_WSG_AllianceGraveyard_to_AllianceRamp);
 }
 
 void WSG_AtHordeGraveyard(BattleBotAI* pAI)
@@ -185,7 +185,7 @@ void WSG_AtHordeGraveyard(BattleBotAI* pAI)
         pAI->DoGraveyardJump();
     }
     else
-        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_HordeFlagRoom_to_HordeGraveyard, &vPath_WSG_HordeGraveyard_to_HordeTunnel);
+        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_HordeFlagRoom_to_HordeGraveyard, &vPath_WSG_HordeGraveyard_to_HordeRamp);
 }
 
 #define SPELL_CAPTURE_BANNER 21651
@@ -338,8 +338,8 @@ BattleBotPath vPath_WSG_HordeFlagRoom_to_HordeGraveyard =
     { 1016.42f, 1402.33f, 341.352f, nullptr },
     { 1029.14f, 1387.49f, 340.836f, &WSG_AtHordeGraveyard },
 };
-// Horde Graveyard to Horde Tunnel
-BattleBotPath vPath_WSG_HordeGraveyard_to_HordeTunnel =
+// Horde Graveyard to Horde Ramp
+BattleBotPath vPath_WSG_HordeGraveyard_to_HordeRamp =
 {
     { 1029.14f, 1387.49f, 340.836f, nullptr },
     { 1034.95f, 1392.62f, 340.856f, nullptr },
@@ -353,11 +353,7 @@ BattleBotPath vPath_WSG_HordeGraveyard_to_HordeTunnel =
     { 1042.19f, 1521.69f, 338.003f, nullptr },
     { 1050.01f, 1538.22f, 332.43f, nullptr },
     { 1068.15f, 1548.1f, 321.446f, nullptr },
-    { 1088.14f, 1538.45f, 316.398f, nullptr },
-    { 1101.26f, 1522.79f, 314.918f, nullptr },
-    { 1114.67f, 1503.18f, 312.947f, nullptr },
-    { 1126.45f, 1487.4f, 314.136f, nullptr },
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1087.2f, 1540.0f, 316.7f, nullptr },
 };
 // Horde Flag Room to Horde Ramp
 // Leaves the flag room, cuts before the graveyard and goes down the ramp (the side exit of the Horde base).
@@ -501,8 +497,8 @@ BattleBotPath vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard =
     { 1422.88f, 1552.37f, 342.751f, nullptr },
     { 1415.33f, 1554.79f, 343.156f, &WSG_AtAllianceGraveyard },
 };
-// Alliance Graveyard to Alliance Tunnel
-BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceTunnel =
+// Alliance Graveyard to Alliance Ramp
+BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceRamp =
 {
     { 1415.33f, 1554.79f, 343.156f, nullptr },
     { 1428.29f, 1551.79f, 342.751f, nullptr },
@@ -519,11 +515,7 @@ BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceTunnel =
     { 1385.96f, 1394.15f, 333.829f, nullptr },
     { 1372.38f, 1390.75f, 328.722f, nullptr },
     { 1362.93f, 1390.02f, 327.034f, nullptr },
-    { 1357.91f, 1398.07f, 325.674f, nullptr },
-    { 1354.17f, 1411.56f, 324.327f, nullptr },
-    { 1351.44f, 1430.38f, 323.506f, nullptr },
-    { 1350.36f, 1444.43f, 323.388f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1355.0f, 1398.0f, 325.6f, nullptr },
 };
 // Alliance Flag Room to Alliance Ramp
 // Leaves the flag room, cuts before the graveyard and goes down the ramp (the side exit of the Alliance base).
@@ -1757,7 +1749,7 @@ BattleBotPath vPath_AV_Alliance_Cave_to_Alliance_Cave_Slop_Crossroad =
 std::vector<BattleBotPath*> const vPaths_WS =
 {
     &vPath_WSG_HordeFlagRoom_to_HordeGraveyard,
-    &vPath_WSG_HordeGraveyard_to_HordeTunnel,
+    &vPath_WSG_HordeGraveyard_to_HordeRamp,
     &vPath_WSG_HordeFlagRoom_to_HordeRamp,
     &vPath_WSG_HordeRamp_to_HordeTunnel,
     &vPath_WSG_HordeRamp_to_Center_1,
@@ -1767,7 +1759,7 @@ std::vector<BattleBotPath*> const vPaths_WS =
     &vPath_WSG_HordeGYJump_to_HordeTunnel,
     &vPath_WSG_HordeGYJump_to_AllianceTunnel,
     &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard,
-    &vPath_WSG_AllianceGraveyard_to_AllianceTunnel,
+    &vPath_WSG_AllianceGraveyard_to_AllianceRamp,
     &vPath_WSG_AllianceFlagRoom_to_AllianceRamp,
     &vPath_WSG_AllianceRamp_to_AllianceTunnel,
     &vPath_WSG_AllianceRamp_to_Center_2,
@@ -2178,9 +2170,8 @@ static float WSG_Distance3D(float x1, float y1, float z1, float x2, float y2, fl
 // startPoint of this path (FLT_MAX if there is none). Paths are linked where one ends and another begins, where
 // one ends exactly on a point of another (connectors), or through the graveyard jump.
 static float WSG_RouteLength(BattleBotAI const* pAI, std::vector<BattleBotPath*> const& vPaths, BattleBotPath* pPath, bool reverse,
-                             uint32 startPoint, Position const& target, std::vector<std::pair<BattleBotPath*, bool>>& visited)
+                             uint32 startPoint, Position const& target, float targetRadius, std::vector<std::pair<BattleBotPath*, bool>>& visited)
 {
-    static float const TARGET_RADIUS = 25.0f;
     static float const LINK_RADIUS = 5.0f;        // End of a path close to the start (or end, if walked backwards) of another.
     static float const JOIN_RADIUS = 1.5f;        // End of a path exactly on a point in the middle of another.
     static size_t const MAX_PATHS_IN_ROUTE = 6;
@@ -2188,13 +2179,18 @@ static float WSG_RouteLength(BattleBotAI const* pAI, std::vector<BattleBotPath*>
     int32 const step = reverse ? -1 : 1;
     int32 const lastIndex = reverse ? 0 : int32(pPath->size()) - 1;
 
+    // The target is reached as soon as the route passes close enough to it.
     float length = 0.0f;
-    for (int32 i = int32(startPoint); i != lastIndex; i += step)
+    for (int32 i = int32(startPoint); ; i += step)
+    {
+        if (WSG_Distance3D((*pPath)[i].x, (*pPath)[i].y, (*pPath)[i].z, target.x, target.y, target.z) < targetRadius)
+            return length;
+        if (i == lastIndex)
+            break;
         length += WSG_Distance3D((*pPath)[i].x, (*pPath)[i].y, (*pPath)[i].z, (*pPath)[i + step].x, (*pPath)[i + step].y, (*pPath)[i + step].z);
+    }
 
     BattleBotWaypoint const& exit = (*pPath)[lastIndex];
-    if (WSG_Distance3D(exit.x, exit.y, exit.z, target.x, target.y, target.z) < TARGET_RADIUS)
-        return length;
 
     if (visited.size() >= MAX_PATHS_IN_ROUTE)
         return FLT_MAX;
@@ -2250,7 +2246,7 @@ static float WSG_RouteLength(BattleBotAI const* pAI, std::vector<BattleBotPath*>
                 continue;
 
             visited.emplace_back(pNext, nextReverse);
-            float const rest = WSG_RouteLength(pAI, vPaths, pNext, nextReverse, uint32(entry), target, visited);
+            float const rest = WSG_RouteLength(pAI, vPaths, pNext, nextReverse, uint32(entry), target, targetRadius, visited);
             visited.pop_back();
             if (rest < FLT_MAX)
                 best = std::min(best, length + extra + rest);
@@ -2332,6 +2328,12 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
         };
         std::vector<RouteStart> routes;
 
+        // Look for routes that end near the target; if there are none, accept ending further away.
+        for (float const targetRadius : { 25.0f, 60.0f, 120.0f })
+        {
+        if (!routes.empty())
+            break;
+
         for (BattleBotPath* pPath : vPaths)
         {
             if (!IsPathAllowedForRandomChoice(this, pPath))
@@ -2360,10 +2362,27 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
                 std::vector<std::pair<BattleBotPath*, bool>> visited;
                 visited.emplace_back(pPath, pathReverse);
-                float const length = nearest + WSG_RouteLength(this, vPaths, pPath, pathReverse, uint32(nearestPoint), targetPosition, visited);
+                float const length = nearest + WSG_RouteLength(this, vPaths, pPath, pathReverse, uint32(nearestPoint), targetPosition, targetRadius, visited);
                 if (length < FLT_MAX)
                     routes.push_back({ pPath, pathReverse, uint32(nearestPoint), length });
             }
+        }
+        }
+
+        // Do not start by walking away from the target (e.g. back towards the ramp or the graveyard from the tunnel entrance).
+        if (routes.size() > 1)
+        {
+            static float const MAX_STEP_BACK = 3.0f;
+            float const myDistance = me->GetDistance(targetPosition);
+            std::vector<RouteStart> forwardRoutes;
+            for (RouteStart const& route : routes)
+            {
+                BattleBotWaypoint const& firstExit = route.reverse ? (*route.pPath)[0] : (*route.pPath)[route.pPath->size() - 1];
+                if (WSG_Distance3D(firstExit.x, firstExit.y, firstExit.z, targetPosition.x, targetPosition.y, targetPosition.z) <= myDistance + MAX_STEP_BACK)
+                    forwardRoutes.push_back(route);
+            }
+            if (!forwardRoutes.empty())
+                routes = forwardRoutes;
         }
 
         // Alternatives are fine, but not absurd detours (e.g. walking a loop the wrong way around).
@@ -2374,7 +2393,7 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
             for (RouteStart const& route : routes)
                 shortest = std::min(shortest, route.length);
             routes.erase(std::remove_if(routes.begin(), routes.end(),
-                [&](RouteStart const& route) { return route.length > shortest * MAX_ROUTE_LENGTH_FACTOR; }), routes.end());
+                [&](RouteStart const& route) { return route.length > std::max(shortest * MAX_ROUTE_LENGTH_FACTOR, shortest + 100.0f); }), routes.end());
         }
 
         if (!routes.empty())

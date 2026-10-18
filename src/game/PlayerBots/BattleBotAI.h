@@ -133,6 +133,7 @@ public:
     bool IsObjectiveFocused() const;
     bool ShouldKeepMoving() const;
     bool IsFocusFightTooLong() const;
+    bool HasHostilePlayerNearby(float range) const;
     bool StartNewPathToPosition(Position const& position, std::vector<BattleBotPath*> const& vPaths);
     void ClearPath();
     // Moves on to the next waypoint before reaching the current one, so movement looks less robotic.
