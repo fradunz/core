@@ -242,7 +242,7 @@ void MoveToNextPointSpecial(BattleBotAI* pAI)
     uint32 const lastPointInPath = pAI->m_movingInReverse ? 0 : ((*pAI->m_currentPath).size() - 1);
 
     if ((pAI->m_currentPoint == lastPointInPath) ||
-        (pAI->me->IsInCombat() && !pAI->ShouldIgnoreCombat()) || !pAI->me->IsAlive())
+        (pAI->me->IsInCombat() && !pAI->ShouldKeepMoving()) || !pAI->me->IsAlive())
     {
         // Path is over.
         pAI->ClearPath();
@@ -1746,6 +1746,10 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_Horde_Cave_to_Frostwolf_Graveyard_Flag,
     &vPath_AV_Alliance_Cave_Slop_Crossroad_to_Alliance_Slope_Crossroad,
     &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
+    // WSG: the path through the Alliance graveyard is only good for leaving the base.
+    // Without this the flag carrier picked it in reverse (it ties with the tunnel path) and looped around the base.
+    &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard,
+    &vPath_WSG_HordeFlagRoom_to_HordeGraveyard,
 };
 
 void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
@@ -1769,9 +1773,11 @@ void BattleBotAI::MoveToNextPoint()
     uint32 const lastPointInPath = m_movingInReverse ? 0 : ((*m_currentPath).size() - 1);
 
     if ((m_currentPoint == lastPointInPath) ||
-        (me->IsInCombat() && !ShouldIgnoreCombat()) || !me->IsAlive())
+        (me->IsInCombat() && !ShouldKeepMoving()) || !me->IsAlive())
     {
-        // Path is over.
+        // Path is over or interrupted by a fight.
+        if (m_currentPoint != lastPointInPath && me->IsAlive())
+            SavePathForResume();
         ClearPath();
         return;
     }
@@ -1972,9 +1978,81 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
             return false;
     }
 
+    // If we were interrupted on this same path, never go back to a point behind where we were.
+    uint32 resumePoint;
+    if (m_resumePath == pClosestPath && m_resumeReverse == reverse && FindResumePoint(pClosestPath, reverse, resumePoint) &&
+        (reverse ? resumePoint < closestPoint : resumePoint > closestPoint))
+        closestPoint = resumePoint;
+
+    if (reverse ? closestPoint == 0 : closestPoint == pClosestPath->size() - 1)
+        return false;
+
     m_currentPath = pClosestPath;
     m_movingInReverse = reverse;
     m_currentPoint = m_movingInReverse ? closestPoint + 1 : closestPoint - 1;
+    MoveToNextPoint();
+    return true;
+}
+
+void BattleBotAI::SavePathForResume()
+{
+    if (!m_currentPath)
+        return;
+
+    m_resumePath = m_currentPath;
+    m_resumeReverse = m_movingInReverse;
+    m_resumePoint = m_currentPoint;
+    m_resumeTime = WorldTimer::getMSTime();
+}
+
+bool BattleBotAI::FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const
+{
+    static uint32 const RESUME_EXPIRE_TIME = 45 * IN_MILLISECONDS;
+    static float const RESUME_MAX_DISTANCE = 60.0f;
+
+    if (!pPath || pPath != m_resumePath || WorldTimer::getMSTimeDiffToNow(m_resumeTime) > RESUME_EXPIRE_TIME)
+        return false;
+
+    // Nearest point from the interruption point onwards (one point back is allowed).
+    int32 const step = reverse ? -1 : 1;
+    int32 const size = int32(pPath->size());
+    int32 const first = std::max(0, std::min(size - 1, int32(m_resumePoint) - step));
+    float bestDistance = RESUME_MAX_DISTANCE;
+    bool found = false;
+
+    for (int32 i = first; i >= 0 && i < size; i += step)
+    {
+        BattleBotWaypoint const& waypoint = (*pPath)[i];
+        float const distance = me->GetDistance(waypoint.x, waypoint.y, waypoint.z);
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            point = uint32(i);
+            found = true;
+        }
+    }
+
+    return found;
+}
+
+bool BattleBotAI::ResumeSavedPath()
+{
+    uint32 point;
+    if (!FindResumePoint(m_resumePath, m_resumeReverse, point))
+    {
+        m_resumePath = nullptr;
+        return false;
+    }
+
+    if (m_resumeReverse ? point == 0 : point == m_resumePath->size() - 1)
+    {
+        m_resumePath = nullptr;
+        return false;
+    }
+
+    m_currentPath = m_resumePath;
+    m_movingInReverse = m_resumeReverse;
+    m_currentPoint = m_movingInReverse ? point + 1 : point - 1;
     MoveToNextPoint();
     return true;
 }
@@ -2153,33 +2231,145 @@ bool BattleBotAI::StartNewPathToObjective()
         }
         case BATTLEGROUND_WS:
         {
-            if (me->GetTeam() == HORDE)
+            BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
+            bool const isHorde = me->GetTeam() == HORDE;
+            Position const& ownFlagPos = isHorde ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE;
+            Position const& enemyFlagPos = isHorde ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
+
+            // 1. Carrier goes home.
+            if (me->HasAura(isHorde ? AURA_SILVERWING_FLAG : AURA_WARSONG_FLAG))
+                return StartNewPathToPosition(ownFlagPos, vPaths_WS);
+
+            // 2. Defenders stay at the base. Exceptions: protect our carrier when both flags are taken,
+            //    hunt the enemy carrier when only our flag was taken (step 4), or grab a dropped flag close to them (step 3).
+            ObjectGuid const ownFlagCarrier = isHorde ? pWS->GetHordeFlagPickerGuid() : pWS->GetAllianceFlagPickerGuid();
+            ObjectGuid const enemyFlagCarrier = isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid();
+            bool const isDefender = IsWSGDefender();
+            // Capturers keep going for the enemy flag while it is still at its base.
+            bool const capturerBusy = IsWSGCapturer() && enemyFlagCarrier.IsEmpty();
+            if (isDefender && !ownFlagCarrier.IsEmpty() && !enemyFlagCarrier.IsEmpty())
             {
-                if (me->HasAura(AURA_SILVERWING_FLAG))
-                    return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
-                if (!static_cast<BattleGroundWS*>(bg)->IsAllianceFlagPickedup())
+                Player* pCarrier = sObjectAccessor.FindPlayer(enemyFlagCarrier);
+                if (pCarrier && pCarrier->IsAlive())
                 {
-                    float const distance = me->GetDistance(WS_FLAG_POS_ALLIANCE);
-                    if (distance > 20.0f && distance < 300.0f)
-                        return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
+                    if (me->GetDistance(pCarrier) <= 20.0f)
+                        return true; // Stay close, follow logic handles the rest.
+                    if (StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
+                        return true;
                 }
+            }
+
+            // 3. Dropped flag: touching it either returns it (own flag) or picks it up (enemy flag).
+            {
+                GameObject* pDropped = nullptr;
+                float droppedDistance = FLT_MAX;
+                for (Team team : { ALLIANCE, HORDE })
+                {
+                    ObjectGuid const& guid = pWS->GetDroppedFlagGuid(team);
+                    if (guid.IsEmpty())
+                        continue;
+                    GameObject* pGo = me->GetMap()->GetGameObject(guid);
+                    if (pGo && pGo->isSpawned() && me->GetDistance(pGo) < droppedDistance)
+                    {
+                        pDropped = pGo;
+                        droppedDistance = me->GetDistance(pGo);
+                    }
+                }
+
+                if (pDropped)
+                {
+                    if (droppedDistance > INTERACTION_DISTANCE && droppedDistance < 40.0f)
+                    {
+                        me->GetMotionMaster()->MovePoint(0, pDropped->GetPositionX(), pDropped->GetPositionY(), pDropped->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                        return true;
+                    }
+                    if (!isDefender && !capturerBusy && droppedDistance >= 40.0f && StartNewPathToPosition(pDropped->GetPosition(), vPaths_WS))
+                        return true;
+                }
+            }
+
+            // 4. Our flag was taken: hunt the enemy carrier.
+            if (!ownFlagCarrier.IsEmpty() && !capturerBusy)
+            {
+                if (Player* pCarrier = sObjectAccessor.FindPlayer(ownFlagCarrier))
+                {
+                    if (pCarrier->IsAlive() && StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
+                        return true;
+                }
+            }
+
+            // 5. Defenders stay close to our flag.
+            if (isDefender)
+            {
+                if (me->GetDistance(ownFlagPos) < 30.0f)
+                    return true; // Stay here, enemies in range are handled by combat AI.
+                return StartNewPathToPosition(ownFlagPos, vPaths_WS);
+            }
+
+            // 6. Our team has the enemy flag: go meet the carrier.
+            if (!enemyFlagCarrier.IsEmpty())
+            {
+                Player* pCarrier = sObjectAccessor.FindPlayer(enemyFlagCarrier);
+                if (pCarrier && pCarrier->IsAlive() && me->GetDistance(pCarrier) > 20.0f &&
+                    StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
+                    return true;
             }
             else
             {
-                if (me->HasAura(AURA_WARSONG_FLAG))
-                    return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
-                if (!static_cast<BattleGroundWS*>(bg)->IsHordeFlagPickedup())
+                // 7. Healers stay with the team: go to the nearest non-healer ally and follow it.
+                if (m_role == ROLE_HEALER)
                 {
-                    float const distance = me->GetDistance(WS_FLAG_POS_HORDE);
-                    if (distance > 20.0f && distance < 300.0f)
-                        return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
+                    Player* pBuddy = nullptr;
+                    float buddyDistance = 80.0f;
+                    std::list<Player*> allies;
+                    me->GetAlivePlayerListInRange(me, allies, buddyDistance);
+                    for (Player* pAlly : allies)
+                    {
+                        if (pAlly == me || pAlly->GetTeam() != me->GetTeam() || pAlly->IsGameMaster() ||
+                            IsHealerClass(pAlly->GetClass()) || IsStealthClass(pAlly->GetClass()))
+                            continue;
+
+                        float const distance = me->GetDistance(pAlly);
+                        if (distance < buddyDistance)
+                        {
+                            buddyDistance = distance;
+                            pBuddy = pAlly;
+                        }
+                    }
+
+                    if (pBuddy)
+                    {
+                        if (buddyDistance <= 20.0f)
+                            return true; // Follow logic takes over.
+                        if (StartNewPathToPosition(pBuddy->GetPosition(), vPaths_WS))
+                            return true;
+                    }
                 }
+
+                // 8. Go for the enemy flag.
+                float const distance = me->GetDistance(enemyFlagPos);
+                if (distance > 20.0f && distance < 300.0f)
+                    return StartNewPathToPosition(enemyFlagPos, vPaths_WS);
             }
             break;
         }
     }
 
     return false;
+}
+
+void BattleBotAI::RollWSGRole()
+{
+    // Roles are rolled once per match. Like human teams, sometimes there are several defenders and sometimes none.
+    static uint32 const DEFENDER_CHANCE = 25;
+    static uint32 const CAPTURER_CHANCE = 35; // Of the bots that are not defenders.
+
+    if (roll_chance_i(DEFENDER_CHANCE))
+        m_wsgRole = WSG_ROLE_DEFENDER;
+    else if (m_role != ROLE_HEALER && roll_chance_i(CAPTURER_CHANCE)) // Healers support the others.
+        m_wsgRole = WSG_ROLE_CAPTURER;
+    else
+        m_wsgRole = WSG_ROLE_ATTACKER;
 }
 
 void BattleBotAI::ClearPath()

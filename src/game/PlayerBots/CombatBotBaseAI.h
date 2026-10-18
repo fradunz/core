@@ -156,7 +156,7 @@ public:
     uint8 GetAttackersInRangeCount(float range) const;
     uint8 GetAlliesNeedingHealCount(float range, float healthPercent) const;
     Unit* SelectAttackerDifferentFrom(Unit const* pExcept) const;
-    Unit* SelectHealTarget(float healthPercent = 100.0f, bool periodic = false) const;
+    virtual Unit* SelectHealTarget(float healthPercent = 100.0f, bool periodic = false) const;
     Player* SelectBuffTarget(SpellEntry const* pSpellEntry) const;
     Player* SelectBuffTarget(SpellEntry const* pSpellEntryMeele, SpellEntry const* pSpellEntryRanged) const;
     Player* SelectBuffTarget(SpellEntry const* pSingleSpellEntry, SpellEntry const* pGroupSpellEntry, SpellEntry const*& pSelectedSpellEntry) const;

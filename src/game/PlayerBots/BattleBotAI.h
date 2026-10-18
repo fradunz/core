@@ -33,6 +33,14 @@ enum FlagSpellsWS
     AURA_SILVERWING_FLAG = 23335
 };
 
+enum WSGRole : uint8
+{
+    WSG_ROLE_NONE     = 0,
+    WSG_ROLE_DEFENDER = 1, // Stays near own flag.
+    WSG_ROLE_ATTACKER = 2, // Regular bot.
+    WSG_ROLE_CAPTURER = 3, // Focused on taking the enemy flag, ignores fights that are not very close.
+};
+
 class BattleBotAI : public CombatBotBaseAI
 {
 public:
@@ -59,6 +67,9 @@ public:
     float GetMaxAggroDistanceForMap() const;
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget(Unit* pExcept = nullptr) const;
+    Unit* SelectHealTarget(float healthPercent = 100.0f, bool periodic = false) const override;
+    Player* SelectShieldTarget() const;
+    bool IsOwnFlagCarrier(Unit const* pUnit) const;
     Unit* SelectFollowTarget() const;
 
     void OnJustRevived();
@@ -112,13 +123,28 @@ public:
     bool StartNewPathFromBeginning();
     void StartNewPathFromAnywhere();
     bool StartNewPathToObjective();
+    void SavePathForResume();
+    bool FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const;
+    bool ResumeSavedPath();
+    bool IsWSGDefender() const { return m_wsgRole == WSG_ROLE_DEFENDER; }
+    bool IsWSGCapturer() const { return m_wsgRole == WSG_ROLE_CAPTURER; }
+    void RollWSGRole();
+    bool IsObjectiveFocused() const;
+    bool ShouldKeepMoving() const;
     bool StartNewPathToPosition(Position const& position, std::vector<BattleBotPath*> const& vPaths);
     void ClearPath();
     void StopMoving();
     bool m_doingGraveyardJump = false;
     bool m_movingInReverse = false;
+    // WSG role, rolled once per battleground.
+    uint8 m_wsgRole = WSG_ROLE_NONE;
     uint32 m_currentPoint = 0;
     BattleBotPath* m_currentPath = nullptr;
+    // Path interrupted by a fight, so it can be resumed ahead of where the bot was instead of starting over.
+    BattleBotPath* m_resumePath = nullptr;
+    bool m_resumeReverse = false;
+    uint32 m_resumePoint = 0;
+    uint32 m_resumeTime = 0;
     uint8 m_waitingSpot = BB_WSG_WAIT_SPOT_SPAWN;
 };
 

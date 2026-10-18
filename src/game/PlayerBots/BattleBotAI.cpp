@@ -329,6 +329,7 @@ bool BattleBotAI::AttackStart(Unit* pVictim)
 
     if (me->Attack(pVictim, true))
     {
+        SavePathForResume();
         ClearPath();
         BeginChasing(pVictim);
         return true;
@@ -345,11 +346,134 @@ bool BattleBotAI::ShouldIgnoreCombat() const
     return false;
 }
 
+// Flag carrier of our team (carries the flag of the enemy team).
+bool BattleBotAI::IsOwnFlagCarrier(Unit const* pUnit) const
+{
+    return pUnit->HasAura(me->GetTeam() == ALLIANCE ? AURA_WARSONG_FLAG : AURA_SILVERWING_FLAG);
+}
+
+// In battlegrounds heal the flag carrier first, then whoever has the lowest health.
+Unit* BattleBotAI::SelectHealTarget(float healthPercent, bool periodic) const
+{
+    if (IsInDuel())
+        return nullptr;
+
+    // The carrier is healed earlier than other allies.
+    static float const CARRIER_HEAL_BONUS = 15.0f;
+
+    Unit* pCarrier = nullptr;
+    Unit* pLowest = nullptr;
+    float lowestPercent = 101.0f;
+
+    auto const consider = [&](Unit* pUnit, bool isSelf)
+    {
+        if (periodic && pUnit->HasAuraType(SPELL_AURA_PERIODIC_HEAL))
+            return;
+
+        if (!isSelf)
+        {
+            if (Player* pPlayer = pUnit->ToPlayer())
+            {
+                // Avoid several healers picking the same target.
+                if ((!periodic && pPlayer->GetHealDirectTargetTimer() > 0) ||
+                    (periodic && pPlayer->GetHealPeriodicTargetTimer() > 0))
+                    return;
+            }
+        }
+
+        if (IsOwnFlagCarrier(pUnit))
+        {
+            if (!pCarrier && (isSelf ? pUnit->GetHealthPercent() < std::min(95.0f, healthPercent + CARRIER_HEAL_BONUS) :
+                              IsValidHealTarget(pUnit, std::min(95.0f, healthPercent + CARRIER_HEAL_BONUS))))
+                pCarrier = pUnit;
+            return;
+        }
+
+        if (isSelf ? pUnit->GetHealthPercent() >= healthPercent : !IsValidHealTarget(pUnit, healthPercent))
+            return;
+
+        if (pUnit->GetHealthPercent() < lowestPercent)
+        {
+            lowestPercent = pUnit->GetHealthPercent();
+            pLowest = pUnit;
+        }
+    };
+
+    consider(me, true);
+
+    if (Group* pGroup = me->GetGroup())
+    {
+        for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Player* pMember = itr->getSource())
+            {
+                if (pMember != me)
+                    consider(pMember, false);
+            }
+        }
+    }
+
+    return pCarrier ? pCarrier : pLowest;
+}
+
+// Target for Power Word: Shield: the carrier, or the most hurt ally that is being attacked.
+Player* BattleBotAI::SelectShieldTarget() const
+{
+    static uint32 const SPELL_WEAKENED_SOUL = 6788;
+
+    if (IsInDuel())
+        return nullptr;
+
+    Player* pTarget = nullptr;
+    float lowestPercent = 70.0f;
+
+    if (Group* pGroup = me->GetGroup())
+    {
+        for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            Player* pMember = itr->getSource();
+            if (!pMember || pMember == me || !pMember->IsAlive())
+                continue;
+
+            if (pMember->HasAura(SPELL_WEAKENED_SOUL) || pMember->IsImmuneToMechanic(MECHANIC_SHIELD) ||
+                !IsValidHealTarget(pMember, 101.0f))
+                continue;
+
+            if (IsOwnFlagCarrier(pMember) && !pMember->GetAttackers().empty())
+                return pMember;
+
+            if (!pMember->GetAttackers().empty() && pMember->GetHealthPercent() < lowestPercent)
+            {
+                lowestPercent = pMember->GetHealthPercent();
+                pTarget = pMember;
+            }
+        }
+    }
+
+    return pTarget;
+}
+
+// Distance below which a focused bot (flag capturer) still fights back.
+static float const OBJECTIVE_FOCUS_COMBAT_DISTANCE = 25.0f;
+
+bool BattleBotAI::IsObjectiveFocused() const
+{
+    return m_battlegroundId == BATTLEGROUND_QUEUE_WS && IsWSGCapturer() &&
+           !me->HasAura(AURA_SILVERWING_FLAG) && !me->HasAura(AURA_WARSONG_FLAG);
+}
+
+bool BattleBotAI::ShouldKeepMoving() const
+{
+    return ShouldIgnoreCombat() || (IsObjectiveFocused() && !SelectAttackTarget(nullptr));
+}
+
 Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
 {
     // Ignore attackers while carrying flag, just keep running.
     if (ShouldIgnoreCombat())
         return nullptr;
+
+    bool const focused = IsObjectiveFocused();
 
     // 1. Check units we are currently in combat with.
 
@@ -374,6 +498,10 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                     if (pTarget->HasAura(AURA_SILVERWING_FLAG))
                         return pTarget;
                 }
+
+                // Focused bots only fight enemies that are very close.
+                if (focused && !me->IsWithinDist(pTarget, OBJECTIVE_FOCUS_COMBAT_DISTANCE))
+                    continue;
 
                 targets.push_back(pTarget);
             }
@@ -417,7 +545,9 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         }
 
         // Aggro weak enemies from further away.
-        uint32 const aggroDistance = me->GetHealth() > pTarget->GetHealth() ? maxAggroDistance : 20.0f;
+        float aggroDistance = me->GetHealth() > pTarget->GetHealth() ? maxAggroDistance : 20.0f;
+        if (focused)
+            aggroDistance = OBJECTIVE_FOCUS_COMBAT_DISTANCE;
         if (!me->IsWithinDist(pTarget, aggroDistance))
             continue;
 
@@ -430,7 +560,7 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
 
     // 3. Check party attackers.
 
-    if (Group* pGroup = me->GetGroup())
+    if (Group* pGroup = focused ? nullptr : me->GetGroup())
     {
         for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
@@ -584,7 +714,10 @@ void BattleBotAI::UpdateWaypointMovement()
 {
     // We already have a path.
     if (m_currentPath)
+    {
+        m_resumePath = nullptr;
         return;
+    }
 
     if (me->IsMoving())
         return;
@@ -609,7 +742,31 @@ void BattleBotAI::UpdateWaypointMovement()
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
             return;
 
+    // WSG: a flag carrier close to its own base goes straight to the capture point and waits there
+    // (own flag may be missing) instead of picking random paths around the base.
+    if (me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS)
+    {
+        bool const isHorde = me->GetTeam() == HORDE;
+        if (me->HasAura(isHorde ? AURA_SILVERWING_FLAG : AURA_WARSONG_FLAG))
+        {
+            Position const& capturePos = isHorde ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE;
+            float const distance = me->GetDistance(capturePos);
+            if (distance < 40.0f)
+            {
+                if (distance > 3.0f)
+                    me->GetMotionMaster()->MovePoint(0, capturePos.x, capturePos.y, capturePos.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                else if (!urand(0, 4))
+                    ActivateNearbyAreaTrigger(); // Retry capture, own flag may have just returned.
+                return;
+            }
+        }
+    }
+
     if (StartNewPathToObjective())
+        return;
+
+    // Fight is over: continue the interrupted path instead of walking back.
+    if (ResumeSavedPath())
         return;
 
     if (StartNewPathFromBeginning())
@@ -620,6 +777,7 @@ void BattleBotAI::UpdateWaypointMovement()
 
 void BattleBotAI::OnJustDied()
 {
+    m_resumePath = nullptr;
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -634,6 +792,11 @@ void BattleBotAI::OnJustRevived()
 
 void BattleBotAI::OnEnterBattleGround()
 {
+    m_wsgRole = WSG_ROLE_NONE;
+    m_resumePath = nullptr;
+    if (me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS)
+        RollWSGRole();
+
     BattleGround* bg = me->GetBattleGround();
     if (!bg)
         return;
@@ -1004,6 +1167,19 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     if (ShouldIgnoreCombat())
     {
         UpdateFlagCarrierAI();
+        UpdateWaypointMovement();
+        return;
+    }
+
+    // Objective focused bots ignore fights that are not very close and keep following their path.
+    if (IsObjectiveFocused() && !SelectAttackTarget(nullptr))
+    {
+        if (me->GetVictim())
+        {
+            me->AttackStop(false);
+            if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+                StopMoving();
+        }
         UpdateWaypointMovement();
         return;
     }
@@ -1410,6 +1586,10 @@ void BattleBotAI::UpdateInCombatAI_Paladin()
             return;
     }
 
+    // Holy paladins heal before anything else.
+    if (m_role == ROLE_HEALER && FindAndHealInjuredAlly(80.0f, 40.0f))
+        return;
+
     bool const hasSeal = m_spells.paladin.pSeal && me->HasAura(m_spells.paladin.pSeal->Id);
 
     if (!hasSeal &&
@@ -1516,13 +1696,14 @@ void BattleBotAI::UpdateInCombatAI_Paladin()
             return;
     }
 
-    if (m_spells.paladin.pCleanse)
+    // Purify is the only dispel available before Cleanse is learned.
+    if (SpellEntry const* pDispelSpell = m_spells.paladin.pCleanse ? m_spells.paladin.pCleanse : m_spells.paladin.pPurify)
     {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pCleanse))
+        if (Unit* pFriend = SelectDispelTarget(pDispelSpell))
         {
-            if (CanTryToCastSpell(pFriend, m_spells.paladin.pCleanse))
+            if (CanTryToCastSpell(pFriend, pDispelSpell))
             {
-                if (DoCastSpell(pFriend, m_spells.paladin.pCleanse) == SPELL_CAST_OK)
+                if (DoCastSpell(pFriend, pDispelSpell) == SPELL_CAST_OK)
                     return;
             }
         }
@@ -1572,6 +1753,10 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
     if (m_spells.shaman.pGhostWolf &&
         me->GetShapeshiftForm() == FORM_GHOSTWOLF)
         me->RemoveAurasDueToSpellByCancel(m_spells.shaman.pGhostWolf->Id);
+
+    // Restoration shamans heal before anything else.
+    if (m_role == ROLE_HEALER && FindAndHealInjuredAlly(80.0f, 40.0f))
+        return;
 
     if (Unit* pVictim = me->GetVictim())
     {
@@ -1727,6 +1912,84 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
             }
         }
 
+        bool const victimInMelee = pVictim->CanReachWithMeleeAutoAttack(me);
+
+        if (m_spells.hunter.pDeterrence &&
+            (me->GetHealthPercent() < 50.0f) &&
+            GetAttackersInRangeCount(8.0f) &&
+            CanTryToCastSpell(me, m_spells.hunter.pDeterrence))
+        {
+            if (DoCastSpell(me, m_spells.hunter.pDeterrence) == SPELL_CAST_OK)
+                return;
+        }
+
+        // Tranquilizing Shot removes enrage / frenzy effects.
+        if (m_spells.hunter.pTranquilizingShot &&
+            pVictim->HasAuraType(SPELL_AURA_MOD_MELEE_HASTE) &&
+            CanTryToCastSpell(pVictim, m_spells.hunter.pTranquilizingShot))
+        {
+            if (DoCastSpell(pVictim, m_spells.hunter.pTranquilizingShot) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (me->GetPet())
+        {
+            if (m_spells.hunter.pIntimidation && victimInMelee &&
+                CanTryToCastSpell(pVictim, m_spells.hunter.pIntimidation))
+            {
+                if (DoCastSpell(pVictim, m_spells.hunter.pIntimidation) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (m_spells.hunter.pBestialWrath &&
+                CanTryToCastSpell(pVictim, m_spells.hunter.pBestialWrath))
+            {
+                if (DoCastSpell(pVictim, m_spells.hunter.pBestialWrath) == SPELL_CAST_OK)
+                    return;
+            }
+        }
+
+        if (m_spells.hunter.pRapidFire && !victimInMelee &&
+            pVictim->GetHealthPercent() > 50.0f &&
+            CanTryToCastSpell(me, m_spells.hunter.pRapidFire))
+        {
+            if (DoCastSpell(me, m_spells.hunter.pRapidFire) == SPELL_CAST_OK)
+                return;
+        }
+
+        // Traps are only worth it when an enemy is on top of us.
+        if (victimInMelee && !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+        {
+            std::vector<SpellEntry const*> vTraps;
+            if (m_spells.hunter.pFrosTrap && !pVictim->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) &&
+                CanTryToCastSpell(me, m_spells.hunter.pFrosTrap))
+                vTraps.push_back(m_spells.hunter.pFrosTrap);
+            if (m_spells.hunter.pImmolationTrap && CanTryToCastSpell(me, m_spells.hunter.pImmolationTrap))
+                vTraps.push_back(m_spells.hunter.pImmolationTrap);
+            if (m_spells.hunter.pExplosiveTrap && CanTryToCastSpell(me, m_spells.hunter.pExplosiveTrap))
+                vTraps.push_back(m_spells.hunter.pExplosiveTrap);
+            if (!vTraps.empty())
+            {
+                if (DoCastSpell(me, SelectRandomContainerElement(vTraps)) == SPELL_CAST_OK)
+                    return;
+            }
+        }
+
+        if (m_spells.hunter.pCounterattack && victimInMelee &&
+            CanTryToCastSpell(pVictim, m_spells.hunter.pCounterattack))
+        {
+            if (DoCastSpell(pVictim, m_spells.hunter.pCounterattack) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_spells.hunter.pVolley && !GetAttackersInRangeCount(8.0f) &&
+            (me->GetEnemyCountInRadiusAround(pVictim, 10.0f) > 2) &&
+            CanTryToCastSpell(pVictim, m_spells.hunter.pVolley))
+        {
+            if (DoCastSpell(pVictim, m_spells.hunter.pVolley) == SPELL_CAST_OK)
+                return;
+        }
+
         if (m_spells.hunter.pConcussiveShot &&
             pVictim->IsMoving() && (pVictim->GetVictim() == me) &&
             CanTryToCastSpell(pVictim, m_spells.hunter.pConcussiveShot))
@@ -1749,10 +2012,14 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
                 return;
         }
 
-        if (m_spells.hunter.pSerpentSting &&
-            CanTryToCastSpell(pVictim, m_spells.hunter.pSerpentSting))
+        // Only one sting per hunter can be on a target: drain mana from casters, damage everyone else.
+        SpellEntry const* pSting = (m_spells.hunter.pViperSting && pVictim->IsCaster() &&
+                                    pVictim->GetPowerType() == POWER_MANA &&
+                                    pVictim->GetPowerPercent(POWER_MANA) > 30.0f) ?
+                                    m_spells.hunter.pViperSting : m_spells.hunter.pSerpentSting;
+        if (pSting && CanTryToCastSpell(pVictim, pSting))
         {
-            if (DoCastSpell(pVictim, m_spells.hunter.pSerpentSting) == SPELL_CAST_OK)
+            if (DoCastSpell(pVictim, pSting) == SPELL_CAST_OK)
                 return;
         }
 
@@ -2009,6 +2276,24 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
+        if (m_spells.mage.pFlamestrike && !GetAttackersInRangeCount(10.0f) &&
+           (me->GetEnemyCountInRadiusAround(pVictim, 8.0f) > 2) &&
+            CanTryToCastSpell(pVictim, m_spells.mage.pFlamestrike))
+        {
+            if (DoCastSpell(pVictim, m_spells.mage.pFlamestrike) == SPELL_CAST_OK)
+                return;
+        }
+
+        // Arcane Missiles is a channel: only when nobody is hitting us, as main filler for arcane mages
+        // or when no other bolt is available yet.
+        if (m_spells.mage.pArcaneMissiles && !GetAttackersInRangeCount(10.0f) &&
+           (m_spells.mage.pImprovedArcaneMissiles || (!m_spells.mage.pFrostbolt && !m_spells.mage.pFireball)) &&
+            CanTryToCastSpell(pVictim, m_spells.mage.pArcaneMissiles))
+        {
+            if (DoCastSpell(pVictim, m_spells.mage.pArcaneMissiles) == SPELL_CAST_OK)
+                return;
+        }
+
         if (m_spells.mage.pScorch &&
            (pVictim->GetHealthPercent() < 20.0f) &&
             CanTryToCastSpell(pVictim, m_spells.mage.pScorch))
@@ -2167,9 +2452,37 @@ void BattleBotAI::UpdateInCombatAI_Priest()
         DoCastSpell(me, m_spells.priest.pInnerFocus);
     }
 
+    if (m_spells.priest.pTouchOfWeakness &&
+        CanTryToCastSpell(me, m_spells.priest.pTouchOfWeakness))
+    {
+        if (DoCastSpell(me, m_spells.priest.pTouchOfWeakness) == SPELL_CAST_OK)
+            return;
+    }
+
+    // Shield the flag carrier or allies under attack.
+    if (m_role == ROLE_HEALER && m_spells.priest.pPowerWordShield)
+    {
+        if (Player* pShieldTarget = SelectShieldTarget())
+        {
+            if (CanTryToCastSpell(pShieldTarget, m_spells.priest.pPowerWordShield) &&
+                DoCastSpell(pShieldTarget, m_spells.priest.pPowerWordShield) == SPELL_CAST_OK)
+                return;
+        }
+    }
+
+    // Group heal
+    if (m_role == ROLE_HEALER && me->GetShapeshiftForm() == FORM_NONE &&
+        m_spells.priest.pPrayerofHealing &&
+        GetAlliesNeedingHealCount(20.0f, 70.0f) >= 3 &&
+        CanTryToCastSpell(me, m_spells.priest.pPrayerofHealing))
+    {
+        if (DoCastSpell(me, m_spells.priest.pPrayerofHealing) == SPELL_CAST_OK)
+            return;
+    }
+
     // Heal
     if (me->GetShapeshiftForm() == FORM_NONE &&
-        FindAndHealInjuredAlly(70.0f,35.0f))
+        (m_role == ROLE_HEALER ? FindAndHealInjuredAlly(80.0f, 40.0f) : FindAndHealInjuredAlly(70.0f, 35.0f)))
         return;
 
     // Dispels
@@ -2338,13 +2651,16 @@ void BattleBotAI::UpdateOutOfCombatAI_Warlock()
         }
     }
 
-    if (m_spells.warlock.pDemonArmor &&
-        CanTryToCastSpell(me, m_spells.warlock.pDemonArmor))
+    // Demon Skin is the armor buff before Demon Armor is learned.
+    if (SpellEntry const* pArmorSpell = m_spells.warlock.pDemonArmor ? m_spells.warlock.pDemonArmor : m_spells.warlock.pDemonSkin)
     {
-        if (DoCastSpell(me, m_spells.warlock.pDemonArmor) == SPELL_CAST_OK)
+        if (CanTryToCastSpell(me, pArmorSpell))
         {
-            m_isBuffing = true;
-            return;
+            if (DoCastSpell(me, pArmorSpell) == SPELL_CAST_OK)
+            {
+                m_isBuffing = true;
+                return;
+            }
         }
     }
 
@@ -2484,6 +2800,15 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
             }
         }
 
+        // Curse of Agony only while no better curse is available, to not replace Tongues / Exhaustion.
+        if (m_spells.warlock.pCurseofAgony &&
+           !m_spells.warlock.pCurseofTongues && !m_spells.warlock.pCurseofExhaustion &&
+            CanTryToCastSpell(pVictim, m_spells.warlock.pCurseofAgony))
+        {
+            if (DoCastSpell(pVictim, m_spells.warlock.pCurseofAgony) == SPELL_CAST_OK)
+                return;
+        }
+
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE
             && me->GetDistance(pVictim) > 30.0f)
         {
@@ -2583,6 +2908,43 @@ void BattleBotAI::UpdateInCombatAI_Warrior()
         {
             if (DoCastSpell(pVictim, m_spells.warrior.pExecute) == SPELL_CAST_OK)
                 return;
+        }
+
+        if (m_spells.warrior.pRevenge &&
+            me->GetShapeshiftForm() == FORM_DEFENSIVESTANCE &&
+            CanTryToCastSpell(pVictim, m_spells.warrior.pRevenge))
+        {
+            if (DoCastSpell(pVictim, m_spells.warrior.pRevenge) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_spells.warrior.pSweepingStrikes &&
+           (me->GetEnemyCountInRadiusAround(pVictim, 10.0f) > 1) &&
+            CanTryToCastSpell(me, m_spells.warrior.pSweepingStrikes))
+        {
+            if (DoCastSpell(me, m_spells.warrior.pSweepingStrikes) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (pVictim->CanReachWithMeleeAutoAttack(me))
+        {
+            // Slows melee enemies and hits everyone around.
+            if (m_spells.warrior.pThunderClap &&
+               !pVictim->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) &&
+                CanTryToCastSpell(pVictim, m_spells.warrior.pThunderClap))
+            {
+                if (DoCastSpell(pVictim, m_spells.warrior.pThunderClap) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (m_spells.warrior.pDemoralizingShout &&
+                IsMeleeDamageClass(pVictim->GetClass()) &&
+               (me->GetPower(POWER_RAGE) >= 25) &&
+                CanTryToCastSpell(pVictim, m_spells.warrior.pDemoralizingShout))
+            {
+                if (DoCastSpell(pVictim, m_spells.warrior.pDemoralizingShout) == SPELL_CAST_OK)
+                    return;
+            }
         }
 
         if (m_spells.warrior.pOverpower &&
@@ -2769,6 +3131,15 @@ void BattleBotAI::UpdateInCombatAI_Warrior()
             && !me->CanReachWithMeleeAutoAttack(pVictim))
         {
             BeginChasing(pVictim);
+        }
+
+        if (m_spells.warrior.pCleave &&
+           (me->GetPower(POWER_RAGE) > 30) &&
+           (me->GetEnemyCountInRadiusAround(pVictim, 8.0f) > 1) &&
+            CanTryToCastSpell(pVictim, m_spells.warrior.pCleave))
+        {
+            if (DoCastSpell(pVictim, m_spells.warrior.pCleave) == SPELL_CAST_OK)
+                return;
         }
 
         if (m_spells.warrior.pHeroicStrike &&
@@ -3164,8 +3535,34 @@ void BattleBotAI::UpdateInCombatAI_Druid()
             }
         }
 
+        if (m_role == ROLE_HEALER)
+        {
+            // Tranquility is channeled: only when nobody is around to interrupt it.
+            if (m_spells.druid.pTranquility &&
+                GetAlliesNeedingHealCount(20.0f, 70.0f) >= 3 &&
+               !GetAttackersInRangeCount(15.0f) &&
+                CanTryToCastSpell(me, m_spells.druid.pTranquility))
+            {
+                if (DoCastSpell(me, m_spells.druid.pTranquility) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (m_spells.druid.pSwiftmend)
+            {
+                if (Unit* pTarget = SelectHealTarget(50.0f, false))
+                {
+                    if (pTarget->HasAuraType(SPELL_AURA_PERIODIC_HEAL) &&
+                        CanTryToCastSpell(pTarget, m_spells.druid.pSwiftmend))
+                    {
+                        if (DoCastSpell(pTarget, m_spells.druid.pSwiftmend) == SPELL_CAST_OK)
+                            return;
+                    }
+                }
+            }
+        }
+
         // Heal
-        if (FindAndHealInjuredAlly(70.0f,35.0f))
+        if (m_role == ROLE_HEALER ? FindAndHealInjuredAlly(80.0f, 40.0f) : FindAndHealInjuredAlly(70.0f, 35.0f))
             return;
 
         // Dispels

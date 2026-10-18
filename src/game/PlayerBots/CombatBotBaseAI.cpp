@@ -3573,7 +3573,12 @@ bool CombatBotBaseAI::UseItemEffect(Item* pItem, bool onlyToBreakCC)
             {
                 if (me->IsSpellReady(pSpellEntry, pProto))
                 {
-                    if (onlyToBreakCC && !pSpellEntry->HasAttribute(SPELL_ATTR_EX_IMMUNITY_PURGES_EFFECT))
+                    bool const breaksCC = pSpellEntry->HasAttribute(SPELL_ATTR_EX_IMMUNITY_PURGES_EFFECT);
+                    if (onlyToBreakCC && !breaksCC)
+                        continue;
+
+                    // Keep PvP trinkets (CC breakers) for when we are actually crowd controlled.
+                    if (!onlyToBreakCC && breaksCC)
                         continue;
 
                     if (pSpellEntry->IsPositiveSpell())
@@ -3827,8 +3832,8 @@ void CombatBotBaseAI::ActivateNearbyAreaTrigger()
         if (!IsPointInAreaTriggerZone(pTrigger, me->GetMapId(), me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), 5.0f))
             continue;
 
+        // Do not stop at the first match: triggers can overlap (e.g. WSG buff triggers inside the flag trigger).
         SendAreaTriggerPacket(pTrigger->id);
-        break;
     }
 }
 
