@@ -135,6 +135,18 @@ public:
     bool IsFocusFightTooLong() const;
     bool StartNewPathToPosition(Position const& position, std::vector<BattleBotPath*> const& vPaths);
     void ClearPath();
+    // Moves on to the next waypoint before reaching the current one, so movement looks less robotic.
+    void UpdatePathProgress();
+    // WSG attackers gather near the enemy base and enter it together.
+    bool ShouldWaitForGroup();
+    bool IsWSGAttacker() const;
+    bool m_waitingForGroup = false;
+    uint32 m_groupWaitStart = 0;
+    uint32 m_groupWaitIgnoreUntil = 0;
+    float m_cornerTolerance = 0.0f;
+    float m_moveTargetX = 0.0f;
+    float m_moveTargetY = 0.0f;
+    float m_moveTargetZ = 0.0f;
     void StopMoving();
     bool m_doingGraveyardJump = false;
     bool m_movingInReverse = false;

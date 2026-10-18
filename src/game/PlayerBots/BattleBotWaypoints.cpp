@@ -1827,6 +1827,18 @@ void BattleBotAI::MoveToNextPoint()
         return;
     }
 
+    if (ShouldWaitForGroup())
+    {
+        if (!m_waitingForGroup)
+        {
+            m_waitingForGroup = true;
+            m_cornerTolerance = 0.0f;
+            StopMoving();
+        }
+        return;
+    }
+    m_waitingForGroup = false;
+
     if (m_movingInReverse)
         m_currentPoint--;
     else
@@ -1834,7 +1846,113 @@ void BattleBotAI::MoveToNextPoint()
 
     BattleBotWaypoint& nextPoint = m_currentPath->at(m_currentPoint);
 
-    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+    // Plain waypoints are only a guide: wander a bit around them and turn towards the next one before reaching them.
+    // Waypoints with a callback and the last one of the path must be reached exactly.
+    bool const isLastPoint = (m_currentPoint == lastPointInPath);
+    bool const isPlainPoint = !nextPoint.pFunc && !isLastPoint;
+    float const jitter = isPlainPoint ? 3.0f : 1.0f;
+    m_cornerTolerance = isPlainPoint ? frand(3.0f, 5.0f) : 0.0f;
+    m_moveTargetX = nextPoint.x + frand(-jitter, jitter);
+    m_moveTargetY = nextPoint.y + frand(-jitter, jitter);
+    m_moveTargetZ = nextPoint.z;
+
+    me->GetMotionMaster()->MovePoint(m_currentPoint, m_moveTargetX, m_moveTargetY, m_moveTargetZ, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+}
+
+bool BattleBotAI::IsWSGAttacker() const
+{
+    return me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
+           m_wsgRole == WSG_ROLE_NONE && m_role != ROLE_HEALER;
+}
+
+// Attackers do not enter the enemy base one by one: before the last stretch they wait for some company.
+bool BattleBotAI::ShouldWaitForGroup()
+{
+    static float const GATHER_MIN_DISTANCE = 40.0f;   // Distance to the enemy flag where the wait ends (enter together).
+    static float const GATHER_MAX_DISTANCE = 80.0f;   // Distance to the enemy flag where the wait starts.
+    static float const GROUP_RADIUS = 25.0f;          // Allies this close count as "together".
+    static float const SEARCH_RADIUS = 80.0f;         // Allies further than this are not expected to come.
+    static uint32 const GROUP_SIZE = 3;               // Allies wanted nearby (fewer if there are fewer around).
+    static uint32 const MAX_WAIT_TIME = 25 * IN_MILLISECONDS;
+    static uint32 const IGNORE_TIME = 60 * IN_MILLISECONDS;
+
+    if (!IsWSGAttacker() || me->IsInCombat() || me->IsMounted() || !me->IsAlive())
+        return false;
+
+    BattleGround* bg = me->GetBattleGround();
+    if (bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
+    bool const isHorde = me->GetTeam() == HORDE;
+    // Only while our team is attacking the enemy flag at its base.
+    if (me->HasAura(isHorde ? AURA_SILVERWING_FLAG : AURA_WARSONG_FLAG) ||
+        !(isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid()).IsEmpty())
+        return false;
+
+    Position const& enemyFlagPos = isHorde ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
+    float const flagDistance = me->GetDistance(enemyFlagPos);
+    if (flagDistance < GATHER_MIN_DISTANCE || flagDistance > GATHER_MAX_DISTANCE)
+        return false;
+
+    uint32 const now = WorldTimer::getMSTime();
+    if (int32(m_groupWaitIgnoreUntil - now) > 0)
+        return false;
+
+    uint32 nearby = 0;
+    uint32 together = 0;
+    std::list<Player*> allies;
+    me->GetAlivePlayerListInRange(me, allies, SEARCH_RADIUS);
+    for (Player* pAlly : allies)
+    {
+        if (pAlly == me || pAlly->GetTeam() != me->GetTeam() || pAlly->IsGameMaster())
+            continue;
+        ++nearby;
+        if (me->IsWithinDist(pAlly, GROUP_RADIUS))
+            ++together;
+    }
+
+    // Nobody is coming, or the group is here: go.
+    if (!nearby || together >= std::min(GROUP_SIZE, nearby))
+    {
+        m_groupWaitStart = 0;
+        if (nearby)
+            m_groupWaitIgnoreUntil = now + IGNORE_TIME;
+        return false;
+    }
+
+    if (!m_groupWaitStart)
+        m_groupWaitStart = now;
+    else if (WorldTimer::getMSTimeDiff(m_groupWaitStart, now) > MAX_WAIT_TIME)
+    {
+        m_groupWaitStart = 0;
+        m_groupWaitIgnoreUntil = now + IGNORE_TIME;
+        return false;
+    }
+
+    return true;
+}
+
+void BattleBotAI::UpdatePathProgress()
+{
+    if (!m_currentPath || !me->IsAlive())
+        return;
+
+    // Waiting for the group at the gathering distance: keep checking until it is time to go.
+    if (m_waitingForGroup)
+    {
+        MoveToNextPoint();
+        return;
+    }
+
+    if (m_cornerTolerance <= 0.0f)
+        return;
+
+    if (me->GetDistance2d(m_moveTargetX, m_moveTargetY) < m_cornerTolerance && std::abs(me->GetPositionZ() - m_moveTargetZ) < 3.0f)
+    {
+        m_cornerTolerance = 0.0f;
+        MoveToNextPoint();
+    }
 }
 
 bool BattleBotAI::StartNewPathFromBeginning()
@@ -2116,7 +2234,9 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
         if (!routes.empty())
         {
-            RouteStart const& chosen = SelectRandomContainerElement(routes);
+            // Attackers of the same team pick the same route in a given moment, so they travel together.
+            RouteStart const& chosen = IsWSGAttacker() ?
+                routes[(WorldTimer::getMSTime() / (20 * IN_MILLISECONDS)) % routes.size()] : SelectRandomContainerElement(routes);
             pClosestPath = chosen.pPath;
             reverse = chosen.reverse;
             closestPoint = chosen.point;
@@ -2529,7 +2649,9 @@ bool BattleBotAI::StartNewPathToObjective()
 
                 // 8. Go for the enemy flag.
                 float const distance = me->GetDistance(enemyFlagPos);
-                if (distance > 20.0f && distance < 300.0f)
+                // No upper distance limit: at the start of the match the enemy base is far away (more than 300 yards)
+                // and bots must head there right away instead of waiting for a random path.
+                if (distance > 20.0f)
                     return StartNewPathToPosition(enemyFlagPos, vPaths_WS);
             }
             break;
@@ -2568,7 +2690,7 @@ static uint32 GetWSGCapturerChance(Player const* pPlayer, CombatBotRoles role)
 void BattleBotAI::RollWSGRole()
 {
     // Roles are rolled once per match. Like human teams, sometimes there are several defenders and sometimes none.
-    static uint32 const DEFENDER_CHANCE = 25;
+    static uint32 const DEFENDER_CHANCE = 20;
 
     if (roll_chance_i(DEFENDER_CHANCE))
         m_wsgRole = WSG_ROLE_DEFENDER;
@@ -2584,4 +2706,5 @@ void BattleBotAI::ClearPath()
     m_currentPath = nullptr;
     m_currentPoint = 0;
     m_movingInReverse = false;
+    m_waitingForGroup = false;
 }

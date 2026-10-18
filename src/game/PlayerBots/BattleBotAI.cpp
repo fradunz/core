@@ -805,6 +805,19 @@ void BattleBotAI::UpdateWaypointMovement()
         return;
     }
 
+    // Stuck following someone who died, left, or is no longer worth escorting (the flag was lost or returned).
+    if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+    {
+        if (FollowMovementGenerator<Player> const* pMoveGen = dynamic_cast<FollowMovementGenerator<Player> const*>(me->GetMotionMaster()->GetCurrent()))
+        {
+            Unit* pTarget = pMoveGen->GetTarget();
+            bool const targetCarriesFlag = pTarget && (pTarget->HasAura(AURA_WARSONG_FLAG) || pTarget->HasAura(AURA_SILVERWING_FLAG));
+            if (!pTarget || !pTarget->IsAlive() || !pTarget->IsWithinDist(me, VISIBILITY_DISTANCE_NORMAL) ||
+                (targetCarriesFlag && !GetEscortCarrier()))
+                StopMoving();
+        }
+    }
+
     if (me->IsMoving())
         return;
 
@@ -880,6 +893,9 @@ void BattleBotAI::OnEnterBattleGround()
 {
     m_wsgRole = WSG_ROLE_NONE;
     m_resumePath = nullptr;
+    m_waitingForGroup = false;
+    m_groupWaitStart = 0;
+    m_groupWaitIgnoreUntil = 0;
     if (me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS)
         RollWSGRole();
 
@@ -983,6 +999,8 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     if (!me->IsInWorld() || me->IsBeingTeleported() || m_doingGraveyardJump)
         return;
+
+    UpdatePathProgress();
 
     if (!m_initialized)
     {
