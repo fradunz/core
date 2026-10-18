@@ -359,6 +359,46 @@ BattleBotPath vPath_WSG_HordeGraveyard_to_HordeTunnel =
     { 1126.45f, 1487.4f, 314.136f, nullptr },
     { 1124.37f, 1462.28f, 315.853f, nullptr },
 };
+// Horde Flag Room to Horde Ramp
+// Leaves the flag room, cuts before the graveyard and goes down the ramp (the side exit of the Horde base).
+BattleBotPath vPath_WSG_HordeFlagRoom_to_HordeRamp =
+{
+    { 933.331f, 1433.72f, 345.536f, &WSG_AtHordeFlag },
+    { 944.859f, 1423.05f, 345.437f, nullptr },
+    { 966.691f, 1422.53f, 345.223f, nullptr },
+    { 979.588f, 1422.84f, 345.46f, nullptr },
+    { 997.806f, 1422.52f, 344.623f, nullptr },
+    { 1008.53f, 1417.02f, 343.206f, nullptr },
+    { 1043.87f, 1426.9f, 339.197f, nullptr },
+    { 1054.53f, 1441.47f, 339.725f, nullptr },
+    { 1056.33f, 1456.03f, 341.463f, nullptr },
+    { 1057.39f, 1469.98f, 342.148f, nullptr },
+    { 1057.67f, 1487.55f, 342.537f, nullptr },
+    { 1048.7f, 1505.37f, 341.117f, nullptr },
+    { 1042.19f, 1521.69f, 338.003f, nullptr },
+    { 1050.01f, 1538.22f, 332.43f, nullptr },
+    { 1068.15f, 1548.1f, 321.446f, nullptr },
+    { 1087.2f, 1540.0f, 316.7f, nullptr },
+};
+// Horde Ramp to Horde Tunnel
+BattleBotPath vPath_WSG_HordeRamp_to_HordeTunnel =
+{
+    { 1087.2f, 1540.0f, 316.7f, nullptr },
+    { 1101.26f, 1522.79f, 314.918f, nullptr },
+    { 1114.67f, 1503.18f, 312.947f, nullptr },
+    { 1126.45f, 1487.4f, 314.136f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, nullptr },
+};
+// Horde Ramp to Central Path 1
+// Connector: from the foot of the Horde ramp straight to point 10 of HordeTunnel_to_AllianceTunnel_1 (joins it there,
+// without going through the tunnel entrance). The points in between are guides; movement is pathfound between them.
+BattleBotPath vPath_WSG_HordeRamp_to_Center_1 =
+{
+    { 1087.2f, 1540.0f, 316.7f, nullptr },
+    { 1155.0f, 1513.0f, 310.5f, nullptr },
+    { 1213.9f, 1485.3f, 305.7f, nullptr },
+    { 1297.11f, 1461.2f, 315.485f, nullptr },
+};
 // Horde Tunnel to Horde Flag Room
 BattleBotPath vPath_WSG_HordeTunnel_to_HordeFlagRoom =
 {
@@ -485,6 +525,47 @@ BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceTunnel =
     { 1350.36f, 1444.43f, 323.388f, nullptr },
     { 1348.02f, 1461.06f, 323.167f, nullptr },
 };
+// Alliance Flag Room to Alliance Ramp
+// Leaves the flag room, cuts before the graveyard and goes down the ramp (the side exit of the Alliance base).
+BattleBotPath vPath_WSG_AllianceFlagRoom_to_AllianceRamp =
+{
+    { 1519.53f, 1481.87f, 352.024f, &WSG_AtAllianceFlag },
+    { 1508.27f, 1493.17f, 352.005f, nullptr },
+    { 1490.78f, 1493.51f, 352.141f, nullptr },
+    { 1469.79f, 1494.13f, 351.774f, nullptr },
+    { 1453.65f, 1494.39f, 350.614f, nullptr },
+    { 1443.51f, 1501.75f, 348.317f, nullptr },
+    { 1424.81f, 1499.24f, 349.486f, nullptr },
+    { 1416.31f, 1483.94f, 348.536f, nullptr },
+    { 1408.83f, 1468.4f, 347.648f, nullptr },
+    { 1404.64f, 1449.79f, 347.279f, nullptr },
+    { 1405.34f, 1432.33f, 345.792f, nullptr },
+    { 1406.38f, 1416.18f, 344.755f, nullptr },
+    { 1400.22f, 1401.87f, 340.496f, nullptr },
+    { 1385.96f, 1394.15f, 333.829f, nullptr },
+    { 1372.38f, 1390.75f, 328.722f, nullptr },
+    { 1362.93f, 1390.02f, 327.034f, nullptr },
+    { 1355.0f, 1398.0f, 325.6f, nullptr },
+};
+// Alliance Ramp to Alliance Tunnel
+BattleBotPath vPath_WSG_AllianceRamp_to_AllianceTunnel =
+{
+    { 1355.0f, 1398.0f, 325.6f, nullptr },
+    { 1354.17f, 1411.56f, 324.327f, nullptr },
+    { 1351.44f, 1430.38f, 323.506f, nullptr },
+    { 1350.36f, 1444.43f, 323.388f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, nullptr },
+};
+// Alliance Ramp to Central Path 2
+// Connector: from the foot of the Alliance ramp straight to point 3 of HordeTunnel_to_AllianceTunnel_2 (joins it there,
+// without going through the tunnel entrance). The points in between are guides; movement is pathfound between them.
+BattleBotPath vPath_WSG_AllianceRamp_to_Center_2 =
+{
+    { 1355.0f, 1398.0f, 325.6f, nullptr },
+    { 1292.0f, 1411.0f, 315.0f, nullptr },
+    { 1228.5f, 1422.7f, 309.4f, nullptr },
+    { 1171.29f, 1438.04f, 307.462f, nullptr },
+};
 // Alliance Tunnel to Alliance Flag Room
 BattleBotPath vPath_WSG_AllianceTunnel_to_AllianceFlagRoom =
 {
@@ -543,8 +624,8 @@ BattleBotPath vPath_WSG_AllianceGYJump_to_HordeTunnel =
     { 1135.4f, 1465.54f, 315.622f, nullptr },
     { 1124.37f, 1462.28f, 315.853f, nullptr },
 };
-// Horde GY Jump to Alliance Flag Room through Side Entrance
-BattleBotPath vPath_WSG_HordeGYJump_to_AllianceFlagRoom =
+// Horde GY Jump to Alliance Ramp
+BattleBotPath vPath_WSG_HordeGYJump_to_AllianceRamp =
 {
     { 1077.87f, 1400.27f, 323.153f, nullptr },
     { 1084.45f, 1388.76f, 319.724f, nullptr },
@@ -566,24 +647,29 @@ BattleBotPath vPath_WSG_HordeGYJump_to_AllianceFlagRoom =
     { 1325.81f, 1361.58f, 319.39f, nullptr },
     { 1337.48f, 1371.68f, 318.706f, nullptr },
     { 1342.62f, 1390.03f, 321.435f, nullptr },
-    { 1352.23f, 1397.97f, 325.547f, nullptr },
-    { 1366.38f, 1385.61f, 328.196f, nullptr },
-    { 1382.67f, 1380.56f, 332.371f, nullptr },
-    { 1395.17f, 1393.12f, 336.183f, nullptr },
-    { 1409.03f, 1411.5f, 344.626f, nullptr },
-    { 1405.12f, 1438.81f, 346.533f, nullptr },
-    { 1409.95f, 1460.93f, 347.687f, nullptr },
-    { 1430.87f, 1461.08f, 353.992f, nullptr },
-    { 1449.36f, 1459.44f, 358.499f, nullptr },
-    { 1471.4f, 1458.48f, 362.557f, nullptr },
-    { 1488.64f, 1464.01f, 362.454f, nullptr },
-    { 1488.75f, 1474.6f, 358.79f, nullptr },
-    { 1490.44f, 1485.99f, 352.112f, nullptr },
-    { 1502.97f, 1493.87f, 352.199f, nullptr },
-    { 1519.53f, 1481.87f, 352.024f, &WSG_AtAllianceFlag },
+    { 1355.0f, 1398.0f, 325.6f, nullptr },
 };
-// Alliance GY Jump to Horde Flag Room through Side Entrance
-BattleBotPath vPath_WSG_AllianceGYJump_to_HordeFlagRoom =
+// Alliance Flag Room to Alliance Ramp through the side entrance (walked backwards to go up the ramp)
+BattleBotPath vPath_WSG_AllianceFlagRoom_to_AllianceRamp_2 =
+{
+    { 1519.53f, 1481.87f, 352.024f, &WSG_AtAllianceFlag },
+    { 1502.97f, 1493.87f, 352.199f, nullptr },
+    { 1490.44f, 1485.99f, 352.112f, nullptr },
+    { 1488.75f, 1474.6f, 358.79f, nullptr },
+    { 1488.64f, 1464.01f, 362.454f, nullptr },
+    { 1471.4f, 1458.48f, 362.557f, nullptr },
+    { 1449.36f, 1459.44f, 358.499f, nullptr },
+    { 1430.87f, 1461.08f, 353.992f, nullptr },
+    { 1409.95f, 1460.93f, 347.687f, nullptr },
+    { 1405.12f, 1438.81f, 346.533f, nullptr },
+    { 1409.03f, 1411.5f, 344.626f, nullptr },
+    { 1395.17f, 1393.12f, 336.183f, nullptr },
+    { 1382.67f, 1380.56f, 332.371f, nullptr },
+    { 1366.38f, 1385.61f, 328.196f, nullptr },
+    { 1355.0f, 1398.0f, 325.6f, nullptr },
+};
+// Alliance GY Jump to Horde Ramp
+BattleBotPath vPath_WSG_AllianceGYJump_to_HordeRamp =
 {
     { 1387.85f, 1538.06f, 321.855f, nullptr },
     { 1370.13f, 1549.33f, 321.122f, nullptr },
@@ -601,20 +687,25 @@ BattleBotPath vPath_WSG_AllianceGYJump_to_HordeFlagRoom =
     //{ 1102.61f, 1573.98f, 315.804f, nullptr },
     { 1091.28f, 1558.56f, 316.451f, nullptr },
     { 1092.6f, 1547.71f, 316.709f, nullptr },
-    { 1086.22f, 1541.5f, 316.924f, nullptr },
-    { 1071.64f, 1548.25f, 319.88f, nullptr },
-    { 1054.86f, 1544.78f, 328.415f, nullptr },
-    { 1043.08f, 1528.67f, 336.984f, nullptr },
-    { 1043.21f, 1512.43f, 339.099f, nullptr },
-    { 1050.71f, 1485.48f, 342.852f, nullptr },
-    { 1042.67f, 1461.07f, 342.305f, nullptr },
-    { 1023.13f, 1457.49f, 345.535f, nullptr },
-    { 992.797f, 1458.42f, 354.84f, nullptr },
-    { 967.257f, 1458.84f, 356.131f, nullptr },
-    { 964.566f, 1450.29f, 354.865f, nullptr },
-    { 963.586f, 1432.46f, 345.206f, nullptr },
-    { 953.017f, 1423.3f, 345.835f, nullptr },
+    { 1087.2f, 1540.0f, 316.7f, nullptr },
+};
+// Horde Flag Room to Horde Ramp through the side entrance (walked backwards to go up the ramp)
+BattleBotPath vPath_WSG_HordeFlagRoom_to_HordeRamp_2 =
+{
     { 933.331f, 1433.72f, 345.536f, &WSG_AtHordeFlag },
+    { 953.017f, 1423.3f, 345.835f, nullptr },
+    { 963.586f, 1432.46f, 345.206f, nullptr },
+    { 964.566f, 1450.29f, 354.865f, nullptr },
+    { 967.257f, 1458.84f, 356.131f, nullptr },
+    { 992.797f, 1458.42f, 354.84f, nullptr },
+    { 1023.13f, 1457.49f, 345.535f, nullptr },
+    { 1042.67f, 1461.07f, 342.305f, nullptr },
+    { 1050.71f, 1485.48f, 342.852f, nullptr },
+    { 1043.21f, 1512.43f, 339.099f, nullptr },
+    { 1043.08f, 1528.67f, 336.984f, nullptr },
+    { 1054.86f, 1544.78f, 328.415f, nullptr },
+    { 1071.64f, 1548.25f, 319.88f, nullptr },
+    { 1087.2f, 1540.0f, 316.7f, nullptr },
 };
 // Horde Tunnel to Horde Base Roof
 BattleBotPath vPath_WSG_HordeTunnel_to_HordeBaseRoof =
@@ -1667,6 +1758,9 @@ std::vector<BattleBotPath*> const vPaths_WS =
 {
     &vPath_WSG_HordeFlagRoom_to_HordeGraveyard,
     &vPath_WSG_HordeGraveyard_to_HordeTunnel,
+    &vPath_WSG_HordeFlagRoom_to_HordeRamp,
+    &vPath_WSG_HordeRamp_to_HordeTunnel,
+    &vPath_WSG_HordeRamp_to_Center_1,
     &vPath_WSG_HordeTunnel_to_HordeFlagRoom,
     &vPath_WSG_HordeTunnel_to_AllianceTunnel_1,
     &vPath_WSG_HordeTunnel_to_AllianceTunnel_2,
@@ -1674,11 +1768,16 @@ std::vector<BattleBotPath*> const vPaths_WS =
     &vPath_WSG_HordeGYJump_to_AllianceTunnel,
     &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard,
     &vPath_WSG_AllianceGraveyard_to_AllianceTunnel,
+    &vPath_WSG_AllianceFlagRoom_to_AllianceRamp,
+    &vPath_WSG_AllianceRamp_to_AllianceTunnel,
+    &vPath_WSG_AllianceRamp_to_Center_2,
     &vPath_WSG_AllianceTunnel_to_AllianceFlagRoom,
     &vPath_WSG_AllianceGYJump_to_AllianceTunnel,
     &vPath_WSG_AllianceGYJump_to_HordeTunnel,
-    &vPath_WSG_HordeGYJump_to_AllianceFlagRoom,
-    &vPath_WSG_AllianceGYJump_to_HordeFlagRoom,
+    &vPath_WSG_HordeGYJump_to_AllianceRamp,
+    &vPath_WSG_AllianceFlagRoom_to_AllianceRamp_2,
+    &vPath_WSG_AllianceGYJump_to_HordeRamp,
+    &vPath_WSG_HordeFlagRoom_to_HordeRamp_2,
     &vPath_WSG_HordeTunnel_to_HordeBaseRoof,
     &vPath_WSG_AllianceTunnel_to_AllianceBaseRoof,
 };
@@ -1778,8 +1877,6 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_WSG_HordeGYJump_to_AllianceTunnel,
     &vPath_WSG_AllianceGYJump_to_AllianceTunnel,
     &vPath_WSG_AllianceGYJump_to_HordeTunnel,
-    &vPath_WSG_HordeGYJump_to_AllianceFlagRoom,
-    &vPath_WSG_AllianceGYJump_to_HordeFlagRoom,
 };
 
 // The base roof paths are lookout routes: only useful to search for the enemy carrier inside our base.
@@ -2077,27 +2174,37 @@ static float WSG_Distance3D(float x1, float y1, float z1, float x2, float y2, fl
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-// Walks the path graph (paths are linked where one ends and another begins, or through the graveyard jump)
-// and tells if the target can be reached from the end of this path.
-static bool WSG_RouteReachesTarget(BattleBotAI const* pAI, std::vector<BattleBotPath*> const& vPaths, BattleBotPath* pPath,
-                                   bool reverse, Position const& target, std::vector<std::pair<BattleBotPath*, bool>>& visited)
+// Walks the path graph and returns the length of the shortest route that reaches the target, starting at point
+// startPoint of this path (FLT_MAX if there is none). Paths are linked where one ends and another begins, where
+// one ends exactly on a point of another (connectors), or through the graveyard jump.
+static float WSG_RouteLength(BattleBotAI const* pAI, std::vector<BattleBotPath*> const& vPaths, BattleBotPath* pPath, bool reverse,
+                             uint32 startPoint, Position const& target, std::vector<std::pair<BattleBotPath*, bool>>& visited)
 {
     static float const TARGET_RADIUS = 25.0f;
-    static float const LINK_RADIUS = 5.0f;
+    static float const LINK_RADIUS = 5.0f;        // End of a path close to the start (or end, if walked backwards) of another.
+    static float const JOIN_RADIUS = 1.5f;        // End of a path exactly on a point in the middle of another.
     static size_t const MAX_PATHS_IN_ROUTE = 6;
 
-    BattleBotWaypoint const& exit = reverse ? (*pPath)[0] : (*pPath)[pPath->size() - 1];
+    int32 const step = reverse ? -1 : 1;
+    int32 const lastIndex = reverse ? 0 : int32(pPath->size()) - 1;
+
+    float length = 0.0f;
+    for (int32 i = int32(startPoint); i != lastIndex; i += step)
+        length += WSG_Distance3D((*pPath)[i].x, (*pPath)[i].y, (*pPath)[i].z, (*pPath)[i + step].x, (*pPath)[i + step].y, (*pPath)[i + step].z);
+
+    BattleBotWaypoint const& exit = (*pPath)[lastIndex];
     if (WSG_Distance3D(exit.x, exit.y, exit.z, target.x, target.y, target.z) < TARGET_RADIUS)
-        return true;
+        return length;
 
     if (visited.size() >= MAX_PATHS_IN_ROUTE)
-        return false;
+        return FLT_MAX;
 
     std::vector<RecordedMovementPacket> const& jumpPath = pAI->me->GetTeam() == HORDE ? vHordeGraveyardJumpPath : vAllianceGraveyardJumpPath;
     RecordedMovementPacket const& graveyardTop = jumpPath.front();
     RecordedMovementPacket const& landing = jumpPath.back();
     bool const exitAtGraveyardTop = WSG_Distance3D(exit.x, exit.y, exit.z, graveyardTop.position.x, graveyardTop.position.y, graveyardTop.position.z) < LINK_RADIUS;
 
+    float best = FLT_MAX;
     for (BattleBotPath* pNext : vPaths)
     {
         if (!IsPathAllowedForRandomChoice(pAI, pNext))
@@ -2110,22 +2217,47 @@ static bool WSG_RouteReachesTarget(BattleBotAI const* pAI, std::vector<BattleBot
             if (std::find(visited.begin(), visited.end(), std::make_pair(pNext, nextReverse)) != visited.end())
                 continue;
 
-            BattleBotWaypoint const& entry = nextReverse ? (*pNext)[pNext->size() - 1] : (*pNext)[0];
-            bool linked = WSG_Distance3D(exit.x, exit.y, exit.z, entry.x, entry.y, entry.z) < LINK_RADIUS;
-            if (!linked && exitAtGraveyardTop && !nextReverse)
-                linked = WSG_Distance3D(landing.position.x, landing.position.y, landing.position.z, entry.x, entry.y, entry.z) < LINK_RADIUS;
-            if (!linked)
+            int32 const nextFirst = nextReverse ? int32(pNext->size()) - 1 : 0;
+            int32 const nextLast = nextReverse ? 0 : int32(pNext->size()) - 1;
+            int32 entry = -1;
+            float extra = 0.0f;
+
+            BattleBotWaypoint const& startOfNext = (*pNext)[nextFirst];
+            if (WSG_Distance3D(exit.x, exit.y, exit.z, startOfNext.x, startOfNext.y, startOfNext.z) < LINK_RADIUS)
+                entry = nextFirst;
+            else if (exitAtGraveyardTop && !nextReverse &&
+                     WSG_Distance3D(landing.position.x, landing.position.y, landing.position.z, startOfNext.x, startOfNext.y, startOfNext.z) < LINK_RADIUS)
+            {
+                entry = nextFirst;
+                extra = WSG_Distance3D(graveyardTop.position.x, graveyardTop.position.y, graveyardTop.position.z, landing.position.x, landing.position.y, landing.position.z);
+            }
+            else
+            {
+                // Connector ending exactly on a point of the middle of another path.
+                for (int32 k = 0; k < int32(pNext->size()); k++)
+                {
+                    if (k == nextFirst || k == nextLast)
+                        continue;
+                    if (WSG_Distance3D(exit.x, exit.y, exit.z, (*pNext)[k].x, (*pNext)[k].y, (*pNext)[k].z) < JOIN_RADIUS)
+                    {
+                        entry = k;
+                        break;
+                    }
+                }
+            }
+
+            if (entry < 0 || entry == nextLast)
                 continue;
 
             visited.emplace_back(pNext, nextReverse);
-            bool const reaches = WSG_RouteReachesTarget(pAI, vPaths, pNext, nextReverse, target, visited);
+            float const rest = WSG_RouteLength(pAI, vPaths, pNext, nextReverse, uint32(entry), target, visited);
             visited.pop_back();
-            if (reaches)
-                return true;
+            if (rest < FLT_MAX)
+                best = std::min(best, length + extra + rest);
         }
     }
 
-    return false;
+    return best;
 }
 
 bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::vector<BattleBotPath*> const& vPaths)
@@ -2196,6 +2328,7 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
             BattleBotPath* pPath;
             bool reverse;
             uint32 point;
+            float length;
         };
         std::vector<RouteStart> routes;
 
@@ -2227,9 +2360,21 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
                 std::vector<std::pair<BattleBotPath*, bool>> visited;
                 visited.emplace_back(pPath, pathReverse);
-                if (WSG_RouteReachesTarget(this, vPaths, pPath, pathReverse, targetPosition, visited))
-                    routes.push_back({ pPath, pathReverse, uint32(nearestPoint) });
+                float const length = nearest + WSG_RouteLength(this, vPaths, pPath, pathReverse, uint32(nearestPoint), targetPosition, visited);
+                if (length < FLT_MAX)
+                    routes.push_back({ pPath, pathReverse, uint32(nearestPoint), length });
             }
+        }
+
+        // Alternatives are fine, but not absurd detours (e.g. walking a loop the wrong way around).
+        if (!routes.empty())
+        {
+            static float const MAX_ROUTE_LENGTH_FACTOR = 1.6f;
+            float shortest = FLT_MAX;
+            for (RouteStart const& route : routes)
+                shortest = std::min(shortest, route.length);
+            routes.erase(std::remove_if(routes.begin(), routes.end(),
+                [&](RouteStart const& route) { return route.length > shortest * MAX_ROUTE_LENGTH_FACTOR; }), routes.end());
         }
 
         if (!routes.empty())
