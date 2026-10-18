@@ -2358,15 +2358,41 @@ bool BattleBotAI::StartNewPathToObjective()
     return false;
 }
 
+// Chance (in %) of a bot that is not a defender to become a flag capturer.
+// Mobile and sturdy classes are better at surviving the run home, and the higher level bots of the
+// bracket have more health and better spells than their opponents.
+static uint32 GetWSGCapturerChance(Player const* pPlayer, CombatBotRoles role)
+{
+    uint32 chance;
+    switch (pPlayer->GetClass())
+    {
+        case CLASS_ROGUE:   chance = 60; break; // Sprint, Evasion, Vanish.
+        case CLASS_HUNTER:  chance = 55; break; // Aspect of the Cheetah, Deterrence, Frost Trap.
+        case CLASS_WARRIOR: chance = 50; break; // Intercept, Hamstring, high health.
+        case CLASS_DRUID:   chance = role == ROLE_RANGE_DPS ? 20 : 50; break; // Cat / Bear form.
+        case CLASS_SHAMAN:  chance = role == ROLE_RANGE_DPS ? 25 : 40; break; // Ghost Wolf.
+        case CLASS_PALADIN: chance = 40; break; // Blessing of Freedom, Divine Shield.
+        case CLASS_MAGE:    chance = 30; break; // Blink, Frost Nova.
+        case CLASS_PRIEST:  chance = 20; break;
+        case CLASS_WARLOCK: chance = 20; break;
+        default:            chance = 30; break;
+    }
+
+    // Position inside the 10 levels bracket: +0 for the lowest level, up to +20 for the highest.
+    chance += (pPlayer->GetLevel() % 10) * 20 / 9;
+
+    return std::min<uint32>(chance, 80);
+}
+
 void BattleBotAI::RollWSGRole()
 {
     // Roles are rolled once per match. Like human teams, sometimes there are several defenders and sometimes none.
     static uint32 const DEFENDER_CHANCE = 25;
-    static uint32 const CAPTURER_CHANCE = 35; // Of the bots that are not defenders.
 
     if (roll_chance_i(DEFENDER_CHANCE))
         m_wsgRole = WSG_ROLE_DEFENDER;
-    else if (m_role != ROLE_HEALER && roll_chance_i(CAPTURER_CHANCE)) // Healers support the others.
+    else if (m_role != ROLE_HEALER && // Healers support the others.
+             roll_chance_i(GetWSGCapturerChance(me, m_role)))
         m_wsgRole = WSG_ROLE_CAPTURER;
     else
         m_wsgRole = WSG_ROLE_ATTACKER;
