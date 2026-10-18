@@ -1263,6 +1263,13 @@ void BattleBotAI::UpdateFlagCarrierAI()
     {
         case CLASS_PALADIN:
         {
+            if (m_spells.paladin.pBlessingOfFreedom &&
+               (me->HasUnitState(UNIT_STATE_ROOT) || me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)) &&
+                CanTryToCastSpell(me, m_spells.paladin.pBlessingOfFreedom))
+            {
+                me->CastSpell(me, m_spells.paladin.pBlessingOfFreedom, false);
+                return;
+            }
             if (m_spells.paladin.pHolyShock && me->GetHealthPercent() < 90.0f &&
                 CanTryToCastSpell(me, m_spells.paladin.pHolyShock))
             {
@@ -1283,6 +1290,13 @@ void BattleBotAI::UpdateFlagCarrierAI()
         }
         case CLASS_MAGE:
         {
+            if (m_spells.mage.pBlink &&
+               (me->HasUnitState(UNIT_STATE_ROOT) || me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)) &&
+                CanTryToCastSpell(me, m_spells.mage.pBlink))
+            {
+                me->CastSpell(me, m_spells.mage.pBlink, false);
+                return;
+            }
             if (m_spells.mage.pManaShield &&
                 CanTryToCastSpell(me, m_spells.mage.pManaShield))
             {
@@ -1385,6 +1399,33 @@ void BattleBotAI::UpdateFlagCarrierAI()
                     me->RemoveAurasDueToSpellByCancel(m_spells.hunter.pAspectOfTheCheetah->Id);
                     return;
                 }
+                if (m_spells.hunter.pDeterrence && me->GetHealthPercent() < 50.0f &&
+                    CanTryToCastSpell(me, m_spells.hunter.pDeterrence))
+                {
+                    me->CastSpell(me, m_spells.hunter.pDeterrence, false);
+                    return;
+                }
+                if (!pAttacker->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED))
+                {
+                    if (m_spells.hunter.pWingClip && pAttacker->CanReachWithMeleeAutoAttack(me) &&
+                        CanTryToCastSpell(pAttacker, m_spells.hunter.pWingClip))
+                    {
+                        me->CastSpell(pAttacker, m_spells.hunter.pWingClip, false);
+                        return;
+                    }
+                    if (m_spells.hunter.pConcussiveShot &&
+                        CanTryToCastSpell(pAttacker, m_spells.hunter.pConcussiveShot))
+                    {
+                        me->CastSpell(pAttacker, m_spells.hunter.pConcussiveShot, false);
+                        return;
+                    }
+                }
+                if (m_spells.hunter.pFrosTrap && pAttacker->CanReachWithMeleeAutoAttack(me) &&
+                    CanTryToCastSpell(me, m_spells.hunter.pFrosTrap))
+                {
+                    me->CastSpell(me, m_spells.hunter.pFrosTrap, false);
+                    return;
+                }
                 break;
             }
             case CLASS_MAGE:
@@ -1394,6 +1435,20 @@ void BattleBotAI::UpdateFlagCarrierAI()
                     m_spells.mage.pFrostNova->IsTargetInRange(me, pAttacker))
                 {
                     me->CastSpell(me, m_spells.mage.pFrostNova, false);
+                    return;
+                }
+                if (m_spells.mage.pConeofCold && !pAttacker->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) &&
+                    pAttacker->CanReachWithMeleeAutoAttack(me) &&
+                    CanTryToCastSpell(me, m_spells.mage.pConeofCold))
+                {
+                    me->CastSpell(me, m_spells.mage.pConeofCold, false);
+                    return;
+                }
+                if (m_spells.mage.pBlink && me->GetHealthPercent() < 50.0f &&
+                    pAttacker->CanReachWithMeleeAutoAttack(me) &&
+                    CanTryToCastSpell(me, m_spells.mage.pBlink))
+                {
+                    me->CastSpell(me, m_spells.mage.pBlink, false);
                     return;
                 }
                 break;
@@ -1417,6 +1472,18 @@ void BattleBotAI::UpdateFlagCarrierAI()
                     me->CastSpell(pAttacker, m_spells.warlock.pDeathCoil, false);
                     return;
                 }
+                if (m_spells.warlock.pHowlofTerror && pAttacker->CanReachWithMeleeAutoAttack(me) &&
+                    CanTryToCastSpell(me, m_spells.warlock.pHowlofTerror))
+                {
+                    me->CastSpell(me, m_spells.warlock.pHowlofTerror, false);
+                    return;
+                }
+                if (m_spells.warlock.pCurseofExhaustion && !pAttacker->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) &&
+                    CanTryToCastSpell(pAttacker, m_spells.warlock.pCurseofExhaustion))
+                {
+                    me->CastSpell(pAttacker, m_spells.warlock.pCurseofExhaustion, false);
+                    return;
+                }
                 break;
             }
             case CLASS_WARRIOR:
@@ -1427,6 +1494,19 @@ void BattleBotAI::UpdateFlagCarrierAI()
                     me->CastSpell(me, m_spells.warrior.pShieldWall, false);
                     return;
                 }
+                if (m_spells.warrior.pConcussionBlow && pAttacker->CanReachWithMeleeAutoAttack(me) &&
+                    CanTryToCastSpell(pAttacker, m_spells.warrior.pConcussionBlow))
+                {
+                    me->CastSpell(pAttacker, m_spells.warrior.pConcussionBlow, false);
+                    return;
+                }
+                if (m_spells.warrior.pPiercingHowl && !pAttacker->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) &&
+                    me->GetCombatDistance(pAttacker) <= 10.0f &&
+                    CanTryToCastSpell(pAttacker, m_spells.warrior.pPiercingHowl))
+                {
+                    me->CastSpell(me, m_spells.warrior.pPiercingHowl, false);
+                    return;
+                }
                 break;
             }
             case CLASS_ROGUE:
@@ -1435,6 +1515,19 @@ void BattleBotAI::UpdateFlagCarrierAI()
                     CanTryToCastSpell(me, m_spells.rogue.pEvasion))
                 {
                     me->CastSpell(me, m_spells.rogue.pEvasion, false);
+                    return;
+                }
+                if (m_spells.rogue.pBlind && me->GetCombatDistance(pAttacker) <= 8.0f &&
+                    CanTryToCastSpell(pAttacker, m_spells.rogue.pBlind))
+                {
+                    me->CastSpell(pAttacker, m_spells.rogue.pBlind, false);
+                    return;
+                }
+                if (m_spells.rogue.pKidneyShot && me->GetComboPoints() >= 2 &&
+                    pAttacker->CanReachWithMeleeAutoAttack(me) &&
+                    CanTryToCastSpell(pAttacker, m_spells.rogue.pKidneyShot))
+                {
+                    me->CastSpell(pAttacker, m_spells.rogue.pKidneyShot, false);
                     return;
                 }
                 break;
