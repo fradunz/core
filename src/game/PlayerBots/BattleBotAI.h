@@ -161,6 +161,7 @@ public:
     uint32 m_resumePoint = 0;
     uint32 m_resumeTime = 0;
     // Flag capturers: when the current fight started and until when new fights are ignored (ms timestamps).
+    ObjectGuid m_escortFollowGuid;          // Carrier we are following as an escort.
     mutable uint32 m_focusFightStart = 0;
     mutable uint32 m_focusIgnoreUntil = 0;
     uint8 m_waitingSpot = BB_WSG_WAIT_SPOT_SPAWN;

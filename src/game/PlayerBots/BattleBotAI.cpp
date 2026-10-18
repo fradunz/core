@@ -520,7 +520,7 @@ Player* BattleBotAI::SelectShieldTarget() const
 }
 
 // Distance below which a focused bot (flag capturer) still fights back.
-static float const OBJECTIVE_FOCUS_COMBAT_DISTANCE = 25.0f;
+static float const OBJECTIVE_FOCUS_COMBAT_DISTANCE = 30.0f;
 
 bool BattleBotAI::IsObjectiveFocused() const
 {
@@ -532,8 +532,8 @@ bool BattleBotAI::IsObjectiveFocused() const
 // and for a while they do not start new fights.
 bool BattleBotAI::IsFocusFightTooLong() const
 {
-    static uint32 const FOCUS_MAX_FIGHT_TIME = 5 * IN_MILLISECONDS;
-    static uint32 const FOCUS_IGNORE_COMBAT_TIME = 10 * IN_MILLISECONDS;
+    static uint32 const FOCUS_MAX_FIGHT_TIME = 12 * IN_MILLISECONDS;
+    static uint32 const FOCUS_IGNORE_COMBAT_TIME = 5 * IN_MILLISECONDS;
 
     if (!me->IsInCombat())
     {
@@ -837,10 +837,14 @@ void BattleBotAI::UpdateWaypointMovement()
         if (FollowMovementGenerator<Player> const* pMoveGen = dynamic_cast<FollowMovementGenerator<Player> const*>(me->GetMotionMaster()->GetCurrent()))
         {
             Unit* pTarget = pMoveGen->GetTarget();
-            bool const targetCarriesFlag = pTarget && (pTarget->HasAura(AURA_WARSONG_FLAG) || pTarget->HasAura(AURA_SILVERWING_FLAG));
-            if (!pTarget || !pTarget->IsAlive() || !pTarget->IsWithinDist(me, VISIBILITY_DISTANCE_NORMAL) ||
-                (targetCarriesFlag && !GetEscortCarrier()))
+            // Following someone as an escort: stop as soon as that player is not the escorted carrier anymore
+            // (flag captured, dropped, returned), even if he does not carry a flag anymore.
+            bool const staleEscort = pTarget && pTarget->GetObjectGuid() == m_escortFollowGuid && GetEscortCarrier() != pTarget;
+            if (!pTarget || !pTarget->IsAlive() || !pTarget->IsWithinDist(me, VISIBILITY_DISTANCE_NORMAL) || staleEscort)
+            {
+                m_escortFollowGuid.Clear();
                 StopMoving();
+            }
         }
     }
 
@@ -1319,6 +1323,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                     me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
                 {
                     ClearPath();
+                    m_escortFollowGuid = pEscort->GetObjectGuid();
                     me->GetMotionMaster()->MoveFollow(pEscort, frand(3.0f, 5.0f), frand(0.0f, 3.0f));
                 }
                 return;

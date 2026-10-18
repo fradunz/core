@@ -2362,9 +2362,50 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
                 std::vector<std::pair<BattleBotPath*, bool>> visited;
                 visited.emplace_back(pPath, pathReverse);
-                float const length = nearest + WSG_RouteLength(this, vPaths, pPath, pathReverse, uint32(nearestPoint), targetPosition, targetRadius, visited);
-                if (length < FLT_MAX)
-                    routes.push_back({ pPath, pathReverse, uint32(nearestPoint), length });
+                float const lengthFromNearest = WSG_RouteLength(this, vPaths, pPath, pathReverse, uint32(nearestPoint), targetPosition, targetRadius, visited);
+                if (lengthFromNearest >= FLT_MAX)
+                    continue;
+
+                // The nearest point may be behind us (we already passed it), and walking back to it looks silly.
+                // Join the path at the point that minimizes the walk to it plus the rest of the route, so bots
+                // that are in the middle of a path simply cut forward.
+                static float const JOIN_DETOUR_FACTOR = 1.2f; // Straight lines are optimistic, penalize the walk to the joining point.
+                int32 const dir = pathReverse ? -1 : 1;
+                int32 const lastIndex = pathReverse ? 0 : int32(pPath->size()) - 1;
+                int32 bestPoint = nearestPoint;
+                float bestWalk = nearest;
+                float bestRest = lengthFromNearest;
+                float bestCost = nearest * JOIN_DETOUR_FACTOR + lengthFromNearest;
+                for (int32 i = 0; i < int32(pPath->size()); i++)
+                {
+                    if (i == nearestPoint || i == lastIndex)
+                        continue;
+                    float const distance = me->GetDistance((*pPath)[i].x, (*pPath)[i].y, (*pPath)[i].z);
+                    if (distance >= 50.0f)
+                        continue;
+
+                    // Length of the walk between the nearest point and this one, along the path.
+                    float along = 0.0f;
+                    for (int32 k = std::min(i, nearestPoint); k < std::max(i, nearestPoint); k++)
+                        along += WSG_Distance3D((*pPath)[k].x, (*pPath)[k].y, (*pPath)[k].z, (*pPath)[k + 1].x, (*pPath)[k + 1].y, (*pPath)[k + 1].z);
+
+                    bool const ahead = (i - nearestPoint) * dir > 0;
+                    float const rest = ahead ? lengthFromNearest - along : lengthFromNearest + along;
+                    // A point past the place where the route reaches the target is not part of the route.
+                    if (rest < 0.0f)
+                        continue;
+
+                    float const cost = distance * JOIN_DETOUR_FACTOR + rest;
+                    if (cost < bestCost)
+                    {
+                        bestCost = cost;
+                        bestPoint = i;
+                        bestWalk = distance;
+                        bestRest = rest;
+                    }
+                }
+
+                routes.push_back({ pPath, pathReverse, uint32(bestPoint), bestWalk + bestRest });
             }
         }
         }
@@ -2398,9 +2439,10 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
         if (!routes.empty())
         {
-            // Attackers of the same team pick the same route in a given moment, so they travel together.
+            // Attackers pick the route by time, so they travel together; two groups (by guid) take consecutive routes
+            // so the team does not put all its attackers on a single route.
             RouteStart const& chosen = IsWSGAttacker() ?
-                routes[(WorldTimer::getMSTime() / (20 * IN_MILLISECONDS)) % routes.size()] : SelectRandomContainerElement(routes);
+                routes[(WorldTimer::getMSTime() / (20 * IN_MILLISECONDS) + me->GetGUIDLow() % 2) % routes.size()] : SelectRandomContainerElement(routes);
             pClosestPath = chosen.pPath;
             reverse = chosen.reverse;
             closestPoint = chosen.point;
