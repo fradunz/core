@@ -941,6 +941,14 @@ void BattleBotAI::OnPlayerLogin()
 
 void BattleBotAI::UpdateWaypointMovement()
 {
+    // The battleground is over (or gone): nothing left to walk to.
+    BattleGround* pBG = me->GetBattleGround();
+    if (!pBG || pBG->GetStatus() == STATUS_WAIT_LEAVE)
+    {
+        m_decidePending = false;
+        return;
+    }
+
     // We already have a path.
     if (m_currentPath)
     {

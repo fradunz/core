@@ -2222,8 +2222,12 @@ bool BattleBotAI::StartNewPathFromBeginning()
     };
     std::vector<AvailablePath> availablePaths;
 
+    BattleGround* pBattleGround = me->GetBattleGround();
+    if (!pBattleGround)
+        return false;
+
     std::vector<BattleBotPath*> const* vPaths;
-    switch (me->GetBattleGround()->GetTypeID())
+    switch (pBattleGround->GetTypeID())
     {
         case BATTLEGROUND_AB:
         {
@@ -2279,8 +2283,12 @@ void BattleBotAI::StartNewPathFromAnywhere()
     uint32 closestPoint = 0;
     float closestDistance = FLT_MAX;
 
+    BattleGround* pBattleGround = me->GetBattleGround();
+    if (!pBattleGround)
+        return;
+
     std::vector<BattleBotPath*> const* vPaths;
-    switch (me->GetBattleGround()->GetTypeID())
+    switch (pBattleGround->GetTypeID())
     {
         case BATTLEGROUND_AB:
         {
