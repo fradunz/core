@@ -3059,7 +3059,7 @@ static uint32 GetWSGCapturerChance(Player const* pPlayer, CombatBotRoles role)
 void BattleBotAI::RollWSGRole()
 {
     // Roles are rolled once per match. Like human teams, sometimes there are several defenders and sometimes none.
-    static uint32 const DEFENDER_CHANCE = 20;
+    static uint32 const DEFENDER_CHANCE = 15;
 
     if (roll_chance_i(DEFENDER_CHANCE))
         m_wsgRole = WSG_ROLE_DEFENDER;
