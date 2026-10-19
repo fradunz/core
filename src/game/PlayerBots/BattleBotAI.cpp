@@ -528,14 +528,25 @@ bool BattleBotAI::IsObjectiveFocused() const
            !me->HasAura(AURA_SILVERWING_FLAG) && !me->HasAura(AURA_WARSONG_FLAG);
 }
 
-// Capturers do not get stuck in the middle of the map: after a short fight they ignore combat and keep running,
-// and for a while they do not start new fights.
+// Someone is attacking us (not just a fight we started).
+bool BattleBotAI::IsBeingAttacked() const
+{
+    for (Unit* pAttacker : me->GetAttackers())
+    {
+        if (pAttacker && IsValidHostileTarget(pAttacker) && pAttacker->GetVictim() == me)
+            return true;
+    }
+    return false;
+}
+
+// Capturers do not get stuck in the middle of the map: after a short fight that they started they give up and keep running,
+// and for a while they do not start new fights. When someone attacks them they always fight back.
 bool BattleBotAI::IsFocusFightTooLong() const
 {
     static uint32 const FOCUS_MAX_FIGHT_TIME = 12 * IN_MILLISECONDS;
-    static uint32 const FOCUS_IGNORE_COMBAT_TIME = 5 * IN_MILLISECONDS;
+    static uint32 const FOCUS_IGNORE_COMBAT_TIME = 12 * IN_MILLISECONDS;
 
-    if (!me->IsInCombat())
+    if (!me->IsInCombat() || IsBeingAttacked())
     {
         m_focusFightStart = 0;
         return false;
@@ -547,6 +558,8 @@ bool BattleBotAI::IsFocusFightTooLong() const
 
     if (WorldTimer::getMSTimeDiff(m_focusFightStart, now) > FOCUS_MAX_FIGHT_TIME)
     {
+        // Restart the clock so the ignore window really ends (and the fight can resume) after the ignore time.
+        m_focusFightStart = 0;
         m_focusIgnoreUntil = now + FOCUS_IGNORE_COMBAT_TIME;
         return true;
     }
@@ -570,7 +583,7 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     Player* pEscort = GetEscortCarrier();
 
     // A capturer that just left a long fight does not start another one right away.
-    if (focused && int32(m_focusIgnoreUntil - WorldTimer::getMSTime()) > 0)
+    if (focused && int32(m_focusIgnoreUntil - WorldTimer::getMSTime()) > 0 && !IsBeingAttacked())
         return nullptr;
 
     // While escorting only fight what threatens the carrier or us.
@@ -606,7 +619,7 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                 }
 
                 // Focused bots only fight enemies that are very close.
-                if (focused && !me->IsWithinDist(pTarget, OBJECTIVE_FOCUS_COMBAT_DISTANCE))
+                if (focused && !me->IsWithinDist(pTarget, OBJECTIVE_FOCUS_COMBAT_DISTANCE) && pTarget->GetVictim() != me)
                     continue;
 
                 if (!escortAllows(pTarget))

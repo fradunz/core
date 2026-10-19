@@ -133,6 +133,7 @@ public:
     bool IsObjectiveFocused() const;
     bool ShouldKeepMoving() const;
     bool IsFocusFightTooLong() const;
+    bool IsBeingAttacked() const;
     bool HasHostilePlayerNearby(float range) const;
     bool StartNewPathToPosition(Position const& position, std::vector<BattleBotPath*> const& vPaths);
     void ClearPath();
