@@ -1954,18 +1954,18 @@ bool BattleBotAI::IsWSGAttacker() const
            m_wsgRole == WSG_ROLE_NONE && m_role != ROLE_HEALER;
 }
 
-// Attackers do not enter the enemy base one by one: before the last stretch they wait for some company.
+// Attackers (and flag capturers) do not enter the enemy base one by one: before the last stretch they wait for some company.
 bool BattleBotAI::ShouldWaitForGroup()
 {
-    static float const GATHER_MIN_DISTANCE = 40.0f;   // Distance to the enemy flag where the wait ends (enter together).
-    static float const GATHER_MAX_DISTANCE = 80.0f;   // Distance to the enemy flag where the wait starts.
+    static float const GATHER_RADIUS = 12.0f;         // Distance to an entrance of the enemy base where bots gather.
     static float const GROUP_RADIUS = 25.0f;          // Allies this close count as "together".
     static float const SEARCH_RADIUS = 80.0f;         // Allies further than this are not expected to come.
     static uint32 const GROUP_SIZE = 3;               // Allies wanted nearby (fewer if there are fewer around).
     static uint32 const MAX_WAIT_TIME = 25 * IN_MILLISECONDS;
     static uint32 const IGNORE_TIME = 60 * IN_MILLISECONDS;
 
-    if (!IsWSGAttacker() || me->IsInCombat() || me->IsMounted() || !me->IsAlive())
+    // Capturers enter together with the attackers too: the group keeps the defenders busy while they take the flag.
+    if (!(IsWSGAttacker() || (IsWSGCapturer() && m_role != ROLE_HEALER)) || me->IsInCombat() || me->IsMounted() || !me->IsAlive())
         return false;
 
     BattleGround* bg = me->GetBattleGround();
@@ -1979,9 +1979,19 @@ bool BattleBotAI::ShouldWaitForGroup()
         !(isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid()).IsEmpty())
         return false;
 
-    Position const& enemyFlagPos = isHorde ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
-    float const flagDistance = me->GetDistance(enemyFlagPos);
-    if (flagDistance < GATHER_MIN_DISTANCE || flagDistance > GATHER_MAX_DISTANCE)
+    // Gathering points: the entrances (tunnel and ramp) of the enemy base. Every route to the enemy flag ends in one of them.
+    static Position const hordeEntrances[] = { { 1124.37f, 1462.28f, 315.853f, 0.0f }, { 1087.2f, 1540.0f, 316.7f, 0.0f } };
+    static Position const allianceEntrances[] = { { 1348.02f, 1461.06f, 323.167f, 0.0f }, { 1355.0f, 1398.0f, 325.6f, 0.0f } };
+    bool atEntrance = false;
+    for (Position const& entrance : (isHorde ? allianceEntrances : hordeEntrances))
+    {
+        if (me->GetDistance2d(entrance.x, entrance.y) < GATHER_RADIUS && std::abs(me->GetPositionZ() - entrance.z) < 8.0f)
+        {
+            atEntrance = true;
+            break;
+        }
+    }
+    if (!atEntrance)
         return false;
 
     uint32 const now = WorldTimer::getMSTime();
