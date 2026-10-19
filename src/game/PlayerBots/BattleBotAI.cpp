@@ -290,21 +290,27 @@ bool BattleBotAI::DrinkAndEat()
         return false;
     }
 
-    // Escorts do not stop: staying with the carrier comes first.
-    if (GetEscortCarrier())
+    bool const isEating = me->HasAura(BB_SPELL_FOOD);
+    bool const isDrinking = me->HasAura(BB_SPELL_DRINK);
+
+    // Below this level (in %) the bot stops to eat or drink. Once it started, it goes on until 95%.
+    // Warsong Gulch: stopping delays the advance towards the enemy base, so only do it when really needed,
+    // and even less when escorting our flag carrier (staying with him comes first).
+    static float const REST_UNTIL = 95.0f;
+    static float const WSG_START_RESTING = 75.0f;
+    static float const WSG_ESCORT_START_RESTING = 35.0f;
+    float startResting = REST_UNTIL;
+    if (BattleGround* pBG = me->GetBattleGround())
     {
-        if (me->HasAura(BB_SPELL_FOOD))
-            me->RemoveAurasDueToSpell(BB_SPELL_FOOD);
-        if (me->HasAura(BB_SPELL_DRINK))
-            me->RemoveAurasDueToSpell(BB_SPELL_DRINK);
-        if (me->GetStandState() != UNIT_STAND_STATE_STAND)
-            me->SetStandState(UNIT_STAND_STATE_STAND);
-        return false;
+        if (pBG->GetTypeID() == BATTLEGROUND_WS)
+            startResting = GetEscortCarrier() ? WSG_ESCORT_START_RESTING : WSG_START_RESTING;
     }
 
     BattleGround* bg;
-    bool const needToEat = me->GetHealthPercent() < 95.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
-    bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 95.0f);
+    bool const needToEat = me->GetHealthPercent() < (isEating ? REST_UNTIL : startResting) &&
+                           !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
+    bool const needToDrink = (me->GetPowerType() == POWER_MANA) &&
+                             (me->GetPowerPercent(POWER_MANA) < (isDrinking ? REST_UNTIL : startResting));
 
     if (!needToEat && !needToDrink)
         return false;
@@ -313,9 +319,6 @@ bool BattleBotAI::DrinkAndEat()
     if (me->HasAura(AURA_WARSONG_FLAG) ||
         me->HasAura(AURA_SILVERWING_FLAG))
         return false;
-
-    bool const isEating = me->HasAura(BB_SPELL_FOOD);
-    bool const isDrinking = me->HasAura(BB_SPELL_DRINK);
 
     if (!isEating && needToEat)
     {
