@@ -1951,7 +1951,7 @@ void BattleBotAI::MoveToNextPoint()
 bool BattleBotAI::IsWSGAttacker() const
 {
     return me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
-           m_wsgRole == WSG_ROLE_NONE && m_role != ROLE_HEALER;
+           m_wsgRole == WSG_ROLE_ATTACKER && m_role != ROLE_HEALER;
 }
 
 // Attackers (and flag capturers) do not enter the enemy base one by one: before the last stretch they wait for some company.
@@ -2449,10 +2449,8 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
         if (!routes.empty())
         {
-            // Attackers pick the route by time, so they travel together; two groups (by guid) take consecutive routes
-            // so the team does not put all its attackers on a single route.
-            RouteStart const& chosen = IsWSGAttacker() ?
-                routes[(WorldTimer::getMSTime() / (20 * IN_MILLISECONDS) + me->GetGUIDLow() % 2) % routes.size()] : SelectRandomContainerElement(routes);
+            // Random choice: the group forms at the gathering points (entrances of the enemy base), not on the way.
+            RouteStart const& chosen = SelectRandomContainerElement(routes);
             pClosestPath = chosen.pPath;
             reverse = chosen.reverse;
             closestPoint = chosen.point;
@@ -2885,22 +2883,22 @@ static uint32 GetWSGCapturerChance(Player const* pPlayer, CombatBotRoles role)
     uint32 chance;
     switch (pPlayer->GetClass())
     {
-        case CLASS_ROGUE:   chance = 60; break; // Sprint, Evasion, Vanish.
-        case CLASS_HUNTER:  chance = 55; break; // Aspect of the Cheetah, Deterrence, Frost Trap.
-        case CLASS_WARRIOR: chance = 50; break; // Intercept, Hamstring, high health.
-        case CLASS_DRUID:   chance = role == ROLE_RANGE_DPS ? 20 : 50; break; // Cat / Bear form.
-        case CLASS_SHAMAN:  chance = role == ROLE_RANGE_DPS ? 25 : 40; break; // Ghost Wolf.
-        case CLASS_PALADIN: chance = 40; break; // Blessing of Freedom, Divine Shield.
-        case CLASS_MAGE:    chance = 30; break; // Blink, Frost Nova.
-        case CLASS_PRIEST:  chance = 20; break;
-        case CLASS_WARLOCK: chance = 20; break;
-        default:            chance = 30; break;
+        case CLASS_ROGUE:   chance = 40; break; // Sprint, Evasion, Vanish.
+        case CLASS_HUNTER:  chance = 35; break; // Aspect of the Cheetah, Deterrence, Frost Trap.
+        case CLASS_WARRIOR: chance = 30; break; // Intercept, Hamstring, high health.
+        case CLASS_DRUID:   chance = role == ROLE_RANGE_DPS ? 5 : 30; break; // Cat / Bear form.
+        case CLASS_SHAMAN:  chance = role == ROLE_RANGE_DPS ? 5 : 20; break; // Ghost Wolf.
+        case CLASS_PALADIN: chance = 20; break; // Blessing of Freedom, Divine Shield.
+        case CLASS_MAGE:    chance = 10; break; // Blink, Frost Nova.
+        case CLASS_PRIEST:  chance = 5; break;
+        case CLASS_WARLOCK: chance = 5; break;
+        default:            chance = 10; break;
     }
 
     // Position inside the 10 levels bracket: +0 for the lowest level, up to +20 for the highest.
     chance += (pPlayer->GetLevel() % 10) * 20 / 9;
 
-    return std::min<uint32>(chance, 80);
+    return std::min<uint32>(chance, 70);
 }
 
 void BattleBotAI::RollWSGRole()
