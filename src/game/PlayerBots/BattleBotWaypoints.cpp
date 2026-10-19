@@ -1948,6 +1948,117 @@ void BattleBotAI::MoveToNextPoint()
     me->GetMotionMaster()->MovePoint(m_currentPoint, m_moveTargetX, m_moveTargetY, m_moveTargetZ, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
 }
 
+// Walk to a random walkable spot (a point of the WSG paths) within radius of center, from time to time.
+void BattleBotAI::PatrolAround(Position const& center, float radius)
+{
+    uint32 const now = WorldTimer::getMSTime();
+    if (int32(m_wanderNextMove - now) > 0 || me->IsInCombat() || me->IsMounted())
+        return;
+    m_wanderNextMove = now + urand(5, 12) * IN_MILLISECONDS;
+
+    // Spots are sampled along the paths (known to be walkable).
+    struct Spot { float x, y, z; };
+    std::vector<Spot> spots;
+    for (BattleBotPath const* pPath : vPaths_WS)
+    {
+        for (size_t i = 0; i < pPath->size(); i++)
+        {
+            BattleBotWaypoint const& from = (*pPath)[i];
+            BattleBotWaypoint const& to = (*pPath)[std::min(i + 1, pPath->size() - 1)];
+            uint32 const steps = std::max<uint32>(1, uint32(GetDistance3D(from, to) / 4.0f));
+            for (uint32 step = 0; step < steps; step++)
+            {
+                float const t = float(step) / float(steps);
+                Spot const spot = { from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, from.z + (to.z - from.z) * t };
+                if (std::abs(spot.z - center.z) < 8.0f &&
+                    std::sqrt((spot.x - center.x) * (spot.x - center.x) + (spot.y - center.y) * (spot.y - center.y)) <= radius)
+                    spots.push_back(spot);
+            }
+        }
+    }
+
+    if (spots.empty())
+        return;
+
+    Spot const& spot = spots[urand(0, spots.size() - 1)];
+    me->GetMotionMaster()->MovePoint(0, spot.x + frand(-1.5f, 1.5f), spot.y + frand(-1.5f, 1.5f), spot.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+}
+
+// Walk around the waiting spot of the start room while the gates are closed.
+void BattleBotAI::WanderAtStart()
+{
+    uint32 const now = WorldTimer::getMSTime();
+    if (int32(m_wanderNextMove - now) > 0 || me->IsInCombat() || me->IsMounted())
+        return;
+    m_wanderNextMove = now + urand(4, 10) * IN_MILLISECONDS;
+
+    Position const* pCenter;
+    if (m_waitingSpot == BB_WSG_WAIT_SPOT_RIGHT)
+        pCenter = me->GetTeam() == HORDE ? &WS_WAITING_POS_HORDE_1 : &WS_WAITING_POS_ALLIANCE_1;
+    else if (m_waitingSpot == BB_WSG_WAIT_SPOT_LEFT)
+        pCenter = me->GetTeam() == HORDE ? &WS_WAITING_POS_HORDE_2 : &WS_WAITING_POS_ALLIANCE_2;
+    else
+    {
+        static Position const hordeSpawn = { 933.331f, 1433.72f, 345.536f, 0.0f };
+        static Position const allianceSpawn = { 1519.53f, 1481.87f, 352.024f, 0.0f };
+        pCenter = me->GetTeam() == HORDE ? &hordeSpawn : &allianceSpawn;
+    }
+
+    // Short walks, so nobody gets far from the door he is waiting at.
+    float const angle = frand(0.0f, 2 * M_PI_F);
+    float const distance = frand(2.0f, 7.0f);
+    me->GetMotionMaster()->MovePoint(0, pCenter->x + distance * std::cos(angle), pCenter->y + distance * std::sin(angle), pCenter->z,
+                                     MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+}
+
+// Go and help an ally that is fighting, even if we do not see his enemies yet.
+bool BattleBotAI::HelpFightingAlly()
+{
+    static float const HELP_RANGE = 60.0f;          // Allies fighting further than this are not our business.
+    static float const HELP_CLOSE_DISTANCE = 15.0f; // Close enough: our own combat detection takes over.
+    static float const HELP_PATH_DISTANCE = 40.0f;  // Further than this, use the paths instead of walking straight.
+
+    if (me->IsInCombat() || me->IsMounted() || !me->IsAlive())
+        return false;
+
+    Player* pAlly = nullptr;
+    float allyDistance = HELP_RANGE;
+    std::list<Player*> players;
+    me->GetAlivePlayerListInRange(me, players, HELP_RANGE);
+    for (Player* pPlayer : players)
+    {
+        if (pPlayer == me || pPlayer->GetTeam() != me->GetTeam() || pPlayer->IsGameMaster() || !pPlayer->IsInCombat())
+            continue;
+
+        Unit* pAttacker = pPlayer->GetAttackerForHelper();
+        if (!pAttacker || !IsValidHostileTarget(pAttacker))
+            continue;
+
+        float const distance = me->GetDistance(pPlayer);
+        if (distance < allyDistance)
+        {
+            allyDistance = distance;
+            pAlly = pPlayer;
+        }
+    }
+
+    if (!pAlly || allyDistance <= HELP_CLOSE_DISTANCE)
+        return false;
+
+    if (allyDistance >= HELP_PATH_DISTANCE && StartNewPathToPosition(pAlly->GetPosition(), vPaths_WS))
+        return true;
+
+    me->GetMotionMaster()->MovePoint(0, pAlly->GetPositionX(), pAlly->GetPositionY(), pAlly->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+    return true;
+}
+
+// Healers that are not defenders and are not escorting go with the rest of the team.
+bool BattleBotAI::IsWSGHealerOnTheMove() const
+{
+    return me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
+           m_wsgRole == WSG_ROLE_ATTACKER && m_role == ROLE_HEALER;
+}
+
 bool BattleBotAI::IsWSGAttacker() const
 {
     return me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
@@ -1964,8 +2075,8 @@ bool BattleBotAI::ShouldWaitForGroup()
     static uint32 const MAX_WAIT_TIME = 25 * IN_MILLISECONDS;
     static uint32 const IGNORE_TIME = 60 * IN_MILLISECONDS;
 
-    // Capturers enter together with the attackers too: the group keeps the defenders busy while they take the flag.
-    if (!(IsWSGAttacker() || (IsWSGCapturer() && m_role != ROLE_HEALER)) || me->IsInCombat() || me->IsMounted() || !me->IsAlive())
+    // Capturers and healers enter together with the attackers too: the group keeps the defenders busy while they take the flag.
+    if (!(IsWSGAttacker() || IsWSGCapturer() || IsWSGHealerOnTheMove()) || me->IsInCombat() || me->IsMounted() || !me->IsAlive())
         return false;
 
     BattleGround* bg = me->GetBattleGround();
@@ -2335,6 +2446,7 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
             bool reverse;
             uint32 point;
             float length;
+            float walk; // Distance from us to the point where the route is joined.
         };
         std::vector<RouteStart> routes;
 
@@ -2415,9 +2527,21 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
                     }
                 }
 
-                routes.push_back({ pPath, pathReverse, uint32(bestPoint), bestWalk + bestRest });
+                routes.push_back({ pPath, pathReverse, uint32(bestPoint), bestWalk + bestRest, bestWalk });
             }
         }
+        }
+
+        // Stay on the paths that are at hand: do not cross the base to join a route that starts somewhere else
+        // (e.g. waiting at one door of the start room and leaving through the other).
+        if (routes.size() > 1)
+        {
+            static float const MAX_EXTRA_JOIN_WALK = 20.0f;
+            float minWalk = FLT_MAX;
+            for (RouteStart const& route : routes)
+                minWalk = std::min(minWalk, route.walk);
+            routes.erase(std::remove_if(routes.begin(), routes.end(),
+                [&](RouteStart const& route) { return route.walk > minWalk + MAX_EXTRA_JOIN_WALK; }), routes.end());
         }
 
         // Do not start by walking away from the target (e.g. back towards the ramp or the graveyard from the tunnel entrance).
@@ -2774,6 +2898,10 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
             }
 
+            // 2b. Help allies that are fighting nearby, even if their enemies are not visible to us yet.
+            if (!IsWSGCapturer() && HelpFightingAlly())
+                return true;
+
             // 3. Dropped flag: touching it either returns it (own flag) or picks it up (enemy flag).
             {
                 GameObject* pDropped = nullptr;
@@ -2816,8 +2944,14 @@ bool BattleBotAI::StartNewPathToObjective()
             // 5. Defenders stay close to our flag.
             if (isDefender)
             {
-                if (me->GetDistance(ownFlagPos) < 30.0f)
-                    return true; // Stay here, enemies in range are handled by combat AI.
+                static float const DEFENDER_STAY_DISTANCE = 40.0f;
+                if (me->GetDistance(ownFlagPos) < DEFENDER_STAY_DISTANCE)
+                {
+                    // Do not stand still: from time to time walk to a random spot around the flag, far enough to see who comes
+                    // through the tunnel or the ramp. Enemies in range are handled by combat AI.
+                    PatrolAround(ownFlagPos, 30.0f);
+                    return true;
+                }
                 return StartNewPathToPosition(ownFlagPos, vPaths_WS);
             }
 
@@ -2831,36 +2965,6 @@ bool BattleBotAI::StartNewPathToObjective()
             }
             else
             {
-                // 7. Healers stay with the team: go to the nearest non-healer ally and follow it.
-                if (m_role == ROLE_HEALER)
-                {
-                    Player* pBuddy = nullptr;
-                    float buddyDistance = 80.0f;
-                    std::list<Player*> allies;
-                    me->GetAlivePlayerListInRange(me, allies, buddyDistance);
-                    for (Player* pAlly : allies)
-                    {
-                        if (pAlly == me || pAlly->GetTeam() != me->GetTeam() || pAlly->IsGameMaster() ||
-                            IsHealerClass(pAlly->GetClass()) || IsStealthClass(pAlly->GetClass()))
-                            continue;
-
-                        float const distance = me->GetDistance(pAlly);
-                        if (distance < buddyDistance)
-                        {
-                            buddyDistance = distance;
-                            pBuddy = pAlly;
-                        }
-                    }
-
-                    if (pBuddy)
-                    {
-                        if (buddyDistance <= 20.0f)
-                            return true; // Follow logic takes over.
-                        if (StartNewPathToPosition(pBuddy->GetPosition(), vPaths_WS))
-                            return true;
-                    }
-                }
-
                 // 8. Go for the enemy flag.
                 float const distance = me->GetDistance(enemyFlagPos);
                 // No upper distance limit: at the start of the match the enemy base is far away (more than 300 yards)

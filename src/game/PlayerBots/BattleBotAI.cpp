@@ -745,7 +745,8 @@ Unit* BattleBotAI::SelectFollowTarget() const
                 return pTarget;
         }
 
-        if (m_role == ROLE_HEALER &&
+        // In Warsong Gulch healers follow only the carrier: they go with the team using the paths like everybody else.
+        if (m_role == ROLE_HEALER && m_battlegroundId != BATTLEGROUND_QUEUE_WS &&
            !IsHealerClass(pTarget->GetClass()) &&
            !IsStealthClass(pTarget->GetClass()) &&
            (pTarget->IsMounted() == me->IsMounted()) &&
@@ -881,8 +882,15 @@ void BattleBotAI::UpdateWaypointMovement()
     }
 
     if (BattleGround* bg = me->GetBattleGround())
+    {
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
+        {
+            // Do not stand still while the gates are closed.
+            if (bg->GetTypeID() == BATTLEGROUND_WS)
+                WanderAtStart();
             return;
+        }
+    }
 
     // WSG: a flag carrier close to its own base goes straight to the capture point and waits there
     // (own flag may be missing) instead of picking random paths around the base.

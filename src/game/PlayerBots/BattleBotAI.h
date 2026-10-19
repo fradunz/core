@@ -127,6 +127,10 @@ public:
     void SavePathForResume();
     bool FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const;
     bool ResumeSavedPath();
+    bool IsWSGHealerOnTheMove() const;
+    void PatrolAround(Position const& center, float radius);
+    void WanderAtStart();
+    bool HelpFightingAlly();
     bool IsWSGDefender() const { return m_wsgRole == WSG_ROLE_DEFENDER; }
     bool IsWSGCapturer() const { return m_wsgRole == WSG_ROLE_CAPTURER; }
     void RollWSGRole();
@@ -162,6 +166,7 @@ public:
     uint32 m_resumePoint = 0;
     uint32 m_resumeTime = 0;
     // Flag capturers: when the current fight started and until when new fights are ignored (ms timestamps).
+    uint32 m_wanderNextMove = 0;            // Next time an idle bot (defender, bot waiting for the gates) walks around.
     ObjectGuid m_escortFollowGuid;          // Carrier we are following as an escort.
     mutable uint32 m_focusFightStart = 0;
     mutable uint32 m_focusIgnoreUntil = 0;
