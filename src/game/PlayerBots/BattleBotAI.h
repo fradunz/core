@@ -41,6 +41,17 @@ enum WSGRole : uint8
     WSG_ROLE_CAPTURER = 3, // Focused on taking the enemy flag, ignores fights that are not very close.
 };
 
+// What a bot is doing in Warsong Gulch right now. Derived from its role and the state of the flags (GetWSGMode()).
+enum WSGMode : uint8
+{
+    WSG_MODE_GENERAL  = 0, // Goes for the enemy flag together with the team, fights what it finds.
+    WSG_MODE_CARRIER  = 1, // Carries the enemy flag home, ignores fights.
+    WSG_MODE_CAPTURER = 2, // Takes the enemy flag while it is at its base, ignores fights that are not very close.
+    WSG_MODE_DEFENDER = 3, // Defends our flag at the base.
+    WSG_MODE_ESCORT   = 4, // Stays with our carrier.
+    WSG_MODE_CHASER   = 5, // Hunts the enemy carrier to get our flag back.
+};
+
 class BattleBotAI : public CombatBotBaseAI
 {
 public:
@@ -127,7 +138,8 @@ public:
     void SavePathForResume();
     bool FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const;
     bool ResumeSavedPath();
-    bool IsWSGHealerOnTheMove() const;
+    WSGMode GetWSGMode() const;
+    uint8 GetWSGFlagState() const;
     void PatrolAround(Position const& center, float radius);
     void WanderAtStart();
     bool HelpFightingAlly();
@@ -141,11 +153,13 @@ public:
     bool HasHostilePlayerNearby(float range) const;
     bool StartNewPathToPosition(Position const& position, std::vector<BattleBotPath*> const& vPaths);
     void ClearPath();
+    // Chooses what to do when there is no path: objective path, resume, random path.
+    void DecideNextAction();
+    bool m_deciding = false;
     // Moves on to the next waypoint before reaching the current one, so movement looks less robotic.
     void UpdatePathProgress();
     // WSG attackers gather near the enemy base and enter it together.
     bool ShouldWaitForGroup();
-    bool IsWSGAttacker() const;
     bool m_waitingForGroup = false;
     uint32 m_groupWaitStart = 0;
     uint32 m_groupWaitIgnoreUntil = 0;
@@ -158,6 +172,10 @@ public:
     bool m_movingInReverse = false;
     // WSG role, rolled once per battleground.
     uint8 m_wsgRole = WSG_ROLE_NONE;
+    uint8 m_wsgChaseRoll = 0; // 0-99, rolled with the role.
+    // Last mode seen: a change of mode interrupts the current path.
+    uint8 m_wsgMode = WSG_MODE_GENERAL;
+    uint8 m_wsgFlagState = 0; // Last flags situation seen (see GetWSGFlagState()).
     uint32 m_currentPoint = 0;
     BattleBotPath* m_currentPath = nullptr;
     // Path interrupted by a fight, so it can be resumed ahead of where the bot was instead of starting over.

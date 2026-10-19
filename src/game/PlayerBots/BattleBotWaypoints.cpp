@@ -165,27 +165,28 @@ static void WSG_ContinueFromGraveyard(BattleBotAI* pAI, BattleBotPath* pFromFlag
         pAI->MoveToNextPoint();
 }
 
-void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
+// The jump is the way out of the base: always do it for our own graveyard, and for the enemy one when we are
+// leaving the enemy flag room (e.g. the carrier). Bots walking in from the ramp just continue.
+static void WSG_AtGraveyard(BattleBotAI* pAI, Team ownerTeam, BattleBotPath* pFromFlagRoom, BattleBotPath* pToRamp)
 {
-    // The jump is the way out of the base: always do it.
-    if (pAI->me->GetTeam() == ALLIANCE)
+    if (pAI->me->GetTeam() == ownerTeam ||
+        (pAI->m_currentPath == pFromFlagRoom && !pAI->m_movingInReverse && pAI->me->IsAlive()))
     {
         pAI->ClearPath();
         pAI->DoGraveyardJump();
     }
     else
-        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard, &vPath_WSG_AllianceGraveyard_to_AllianceRamp);
+        WSG_ContinueFromGraveyard(pAI, pFromFlagRoom, pToRamp);
+}
+
+void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
+{
+    WSG_AtGraveyard(pAI, ALLIANCE, &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard, &vPath_WSG_AllianceGraveyard_to_AllianceRamp);
 }
 
 void WSG_AtHordeGraveyard(BattleBotAI* pAI)
 {
-    if (pAI->me->GetTeam() == HORDE)
-    {
-        pAI->ClearPath();
-        pAI->DoGraveyardJump();
-    }
-    else
-        WSG_ContinueFromGraveyard(pAI, &vPath_WSG_HordeFlagRoom_to_HordeGraveyard, &vPath_WSG_HordeGraveyard_to_HordeRamp);
+    WSG_AtGraveyard(pAI, HORDE, &vPath_WSG_HordeFlagRoom_to_HordeGraveyard, &vPath_WSG_HordeGraveyard_to_HordeRamp);
 }
 
 #define SPELL_CAPTURE_BANNER 21651
@@ -1910,9 +1911,21 @@ void BattleBotAI::MoveToNextPoint()
         (me->IsInCombat() && !ShouldKeepMoving()) || !me->IsAlive())
     {
         // Path is over or interrupted by a fight.
-        if (m_currentPoint != lastPointInPath && me->IsAlive())
+        bool const finished = m_currentPoint == lastPointInPath;
+        if (!finished && me->IsAlive())
             SavePathForResume();
         ClearPath();
+
+        // Warsong Gulch: choose the next path right now, while still moving, so the bot does not stop to think
+        // between paths (the walking goes on as if it was a single route).
+        if (finished && me->IsAlive() && !me->IsInCombat() && !m_deciding && !m_doingGraveyardJump &&
+            me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
+            me->GetBattleGround()->GetStatus() == STATUS_IN_PROGRESS)
+        {
+            m_deciding = true;
+            DecideNextAction();
+            m_deciding = false;
+        }
         return;
     }
 
@@ -1936,13 +1949,26 @@ void BattleBotAI::MoveToNextPoint()
     BattleBotWaypoint& nextPoint = m_currentPath->at(m_currentPoint);
 
     // Plain waypoints are only a guide: wander a bit around them and turn towards the next one before reaching them.
-    // Waypoints with a callback and the last one of the path must be reached exactly.
+    // Waypoints with a callback must be reached exactly. The last point of a Warsong Gulch path is also left a bit
+    // early, so the next path starts without a stop (see above).
     bool const isLastPoint = (m_currentPoint == lastPointInPath);
+    bool const isWSG = me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS;
     bool const isPlainPoint = !nextPoint.pFunc && !isLastPoint;
-    float const jitter = isPlainPoint ? 3.0f : 1.0f;
-    m_cornerTolerance = isPlainPoint ? frand(3.0f, 5.0f) : 0.0f;
-    m_moveTargetX = nextPoint.x + frand(-jitter, jitter);
-    m_moveTargetY = nextPoint.y + frand(-jitter, jitter);
+    bool const chainsOnArrival = !nextPoint.pFunc && isLastPoint && isWSG;
+    m_cornerTolerance = (isPlainPoint || chainsOnArrival) ? frand(3.0f, 5.0f) : 0.0f;
+    if (isPlainPoint)
+    {
+        m_moveTargetX = nextPoint.x + frand(-3.0f, 3.0f);
+        m_moveTargetY = nextPoint.y + frand(-3.0f, 3.0f);
+    }
+    else
+    {
+        // Every point gets a small random offset (1-2 yards), so bots do not walk in a line.
+        float const angle = frand(0.0f, 2 * M_PI_F);
+        float const offset = frand(1.0f, 2.0f);
+        m_moveTargetX = nextPoint.x + offset * std::cos(angle);
+        m_moveTargetY = nextPoint.y + offset * std::sin(angle);
+    }
     m_moveTargetZ = nextPoint.z;
 
     me->GetMotionMaster()->MovePoint(m_currentPoint, m_moveTargetX, m_moveTargetY, m_moveTargetZ, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
@@ -2052,20 +2078,7 @@ bool BattleBotAI::HelpFightingAlly()
     return true;
 }
 
-// Healers that are not defenders and are not escorting go with the rest of the team.
-bool BattleBotAI::IsWSGHealerOnTheMove() const
-{
-    return me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
-           m_wsgRole == WSG_ROLE_ATTACKER && m_role == ROLE_HEALER;
-}
-
-bool BattleBotAI::IsWSGAttacker() const
-{
-    return me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
-           m_wsgRole == WSG_ROLE_ATTACKER && m_role != ROLE_HEALER;
-}
-
-// Attackers (and flag capturers) do not enter the enemy base one by one: before the last stretch they wait for some company.
+// Bots going for the enemy flag (general and capturer modes) do not enter the enemy base one by one: before the last stretch they wait for some company.
 bool BattleBotAI::ShouldWaitForGroup()
 {
     static float const GATHER_RADIUS = 12.0f;         // Distance to an entrance of the enemy base where bots gather.
@@ -2075,12 +2088,15 @@ bool BattleBotAI::ShouldWaitForGroup()
     static uint32 const MAX_WAIT_TIME = 25 * IN_MILLISECONDS;
     static uint32 const IGNORE_TIME = 60 * IN_MILLISECONDS;
 
-    // Capturers and healers enter together with the attackers too: the group keeps the defenders busy while they take the flag.
-    if (!(IsWSGAttacker() || IsWSGCapturer() || IsWSGHealerOnTheMove()) || me->IsInCombat() || me->IsMounted() || !me->IsAlive())
+    // Capturers enter together with the others: the group keeps the defenders busy while they take the flag.
+    if (me->IsInCombat() || me->IsMounted() || !me->IsAlive())
+        return false;
+    WSGMode const mode = GetWSGMode();
+    if (mode != WSG_MODE_GENERAL && mode != WSG_MODE_CAPTURER)
         return false;
 
     BattleGround* bg = me->GetBattleGround();
-    if (bg->GetStatus() != STATUS_IN_PROGRESS)
+    if (bg->GetTypeID() != BATTLEGROUND_WS || bg->GetStatus() != STATUS_IN_PROGRESS)
         return false;
 
     BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
@@ -2145,6 +2161,30 @@ bool BattleBotAI::ShouldWaitForGroup()
 
 void BattleBotAI::UpdatePathProgress()
 {
+    // A change of situation (flag taken, captured, returned...) changes what the bot should be doing: drop the current path.
+    if (m_battlegroundId == BATTLEGROUND_QUEUE_WS && me->IsAlive())
+    {
+        // New flags situation: roll again who chases, so different bots do it during the match.
+        uint8 const flagState = GetWSGFlagState();
+        if (flagState != m_wsgFlagState)
+        {
+            m_wsgFlagState = flagState;
+            m_wsgChaseRoll = urand(0, 99);
+        }
+
+        uint8 const mode = GetWSGMode();
+        if (mode != m_wsgMode)
+        {
+            m_wsgMode = mode;
+            if (m_currentPath && !m_doingGraveyardJump)
+            {
+                m_resumePath = nullptr;
+                ClearPath();
+                StopMoving();
+            }
+        }
+    }
+
     if (!m_currentPath || !me->IsAlive())
         return;
 
@@ -2316,10 +2356,21 @@ static float WSG_RouteLength(BattleBotAI const* pAI, std::vector<BattleBotPath*>
     if (visited.size() >= MAX_PATHS_IN_ROUTE)
         return FLT_MAX;
 
-    std::vector<RecordedMovementPacket> const& jumpPath = pAI->me->GetTeam() == HORDE ? vHordeGraveyardJumpPath : vAllianceGraveyardJumpPath;
-    RecordedMovementPacket const& graveyardTop = jumpPath.front();
-    RecordedMovementPacket const& landing = jumpPath.back();
-    bool const exitAtGraveyardTop = WSG_Distance3D(exit.x, exit.y, exit.z, graveyardTop.position.x, graveyardTop.position.y, graveyardTop.position.z) < LINK_RADIUS;
+    // The graveyard jump is a place of the map: both teams can use it (e.g. the carrier leaving the enemy base).
+    std::vector<RecordedMovementPacket> const* pJumpPath = &(pAI->me->GetTeam() == HORDE ? vHordeGraveyardJumpPath : vAllianceGraveyardJumpPath);
+    bool exitAtGraveyardTop = false;
+    for (std::vector<RecordedMovementPacket> const* pCandidate : { &vHordeGraveyardJumpPath, &vAllianceGraveyardJumpPath })
+    {
+        RecordedMovementPacket const& top = pCandidate->front();
+        if (WSG_Distance3D(exit.x, exit.y, exit.z, top.position.x, top.position.y, top.position.z) < LINK_RADIUS)
+        {
+            pJumpPath = pCandidate;
+            exitAtGraveyardTop = true;
+            break;
+        }
+    }
+    RecordedMovementPacket const& graveyardTop = pJumpPath->front();
+    RecordedMovementPacket const& landing = pJumpPath->back();
 
     float best = FLT_MAX;
     for (BattleBotPath* pNext : vPaths)
@@ -2603,17 +2654,19 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     if (!reverse && me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
         !me->IsInCombat())
     {
-        std::vector<RecordedMovementPacket> const& jumpPath = me->GetTeam() == HORDE ? vHordeGraveyardJumpPath : vAllianceGraveyardJumpPath;
-        RecordedMovementPacket const& graveyardTop = jumpPath.front();
-        RecordedMovementPacket const& landing = jumpPath.back();
         BattleBotWaypoint const& pathStart = (*pClosestPath)[0];
-        if (std::abs(pathStart.x - landing.position.x) < 3.0f && std::abs(pathStart.y - landing.position.y) < 3.0f &&
-            me->GetDistance2d(graveyardTop.position.x, graveyardTop.position.y) < 25.0f &&
-            me->GetPositionZ() - landing.position.z > 8.0f)
+        for (std::vector<RecordedMovementPacket> const* pJumpPath : { &vHordeGraveyardJumpPath, &vAllianceGraveyardJumpPath })
         {
-            ClearPath();
-            DoGraveyardJump();
-            return true;
+            RecordedMovementPacket const& graveyardTop = pJumpPath->front();
+            RecordedMovementPacket const& landing = pJumpPath->back();
+            if (std::abs(pathStart.x - landing.position.x) < 3.0f && std::abs(pathStart.y - landing.position.y) < 3.0f &&
+                me->GetDistance2d(graveyardTop.position.x, graveyardTop.position.y) < 25.0f &&
+                me->GetPositionZ() - landing.position.z > 8.0f)
+            {
+                ClearPath();
+                DoGraveyardJump();
+                return true;
+            }
         }
     }
 
@@ -2875,36 +2928,23 @@ bool BattleBotAI::StartNewPathToObjective()
             Position const& ownFlagPos = isHorde ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE;
             Position const& enemyFlagPos = isHorde ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
 
-            // 1. Carrier goes home.
-            if (me->HasAura(isHorde ? AURA_SILVERWING_FLAG : AURA_WARSONG_FLAG))
+            WSGMode const mode = GetWSGMode();
+
+            // Carrier goes home.
+            if (mode == WSG_MODE_CARRIER)
                 return StartNewPathToPosition(ownFlagPos, vPaths_WS);
 
-            // 2. Defenders stay at the base. Exceptions: protect our carrier when both flags are taken,
-            //    hunt the enemy carrier when only our flag was taken (step 4), or grab a dropped flag close to them (step 3).
-            ObjectGuid const ownFlagCarrier = isHorde ? pWS->GetHordeFlagPickerGuid() : pWS->GetAllianceFlagPickerGuid();
-            ObjectGuid const enemyFlagCarrier = isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid();
-            bool const isDefender = IsWSGDefender();
-            // Capturers keep going for the enemy flag while it is still at its base.
-            bool const capturerBusy = IsWSGCapturer() && enemyFlagCarrier.IsEmpty();
-            if (isDefender && !ownFlagCarrier.IsEmpty() && !enemyFlagCarrier.IsEmpty())
-            {
-                Player* pCarrier = sObjectAccessor.FindPlayer(enemyFlagCarrier);
-                if (pCarrier && pCarrier->IsAlive())
-                {
-                    if (me->GetDistance(pCarrier) <= 20.0f)
-                        return true; // Stay close, follow logic handles the rest.
-                    if (StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
-                        return true;
-                }
-            }
+            ObjectGuid const enemyCarrierGuid = isHorde ? pWS->GetHordeFlagPickerGuid() : pWS->GetAllianceFlagPickerGuid(); // Has our flag.
+            ObjectGuid const ourCarrierGuid = isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid();   // Has the enemy flag.
 
-            // 2b. Help allies that are fighting nearby, even if their enemies are not visible to us yet.
-            if (!IsWSGCapturer() && HelpFightingAlly())
+            // Help allies that are fighting nearby, even if their enemies are not visible to us yet.
+            if ((mode == WSG_MODE_DEFENDER || mode == WSG_MODE_GENERAL) && HelpFightingAlly())
                 return true;
 
-            // 3. Dropped flag: touching it either returns it (own flag) or picks it up (enemy flag).
+            // Dropped flag: touching it either returns it (own flag) or picks it up (enemy flag).
             {
                 GameObject* pDropped = nullptr;
+                Team droppedTeam = TEAM_NONE;
                 float droppedDistance = FLT_MAX;
                 for (Team team : { ALLIANCE, HORDE })
                 {
@@ -2915,6 +2955,7 @@ bool BattleBotAI::StartNewPathToObjective()
                     if (pGo && pGo->isSpawned() && me->GetDistance(pGo) < droppedDistance)
                     {
                         pDropped = pGo;
+                        droppedTeam = team;
                         droppedDistance = me->GetDistance(pGo);
                     }
                 }
@@ -2926,23 +2967,42 @@ bool BattleBotAI::StartNewPathToObjective()
                         me->GetMotionMaster()->MovePoint(0, pDropped->GetPositionX(), pDropped->GetPositionY(), pDropped->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
                         return true;
                     }
-                    if (!isDefender && !capturerBusy && droppedDistance >= 40.0f && StartNewPathToPosition(pDropped->GetPosition(), vPaths_WS))
+                    // Further away: those who are free to move go for it (capturers only for the enemy flag, to capture it).
+                    bool const free = mode == WSG_MODE_GENERAL || mode == WSG_MODE_CHASER || (mode == WSG_MODE_CAPTURER && droppedTeam != me->GetTeam());
+                    if (free && droppedDistance >= 40.0f && StartNewPathToPosition(pDropped->GetPosition(), vPaths_WS))
                         return true;
                 }
             }
 
-            // 4. Our flag was taken: hunt the enemy carrier.
-            if (!ownFlagCarrier.IsEmpty() && !capturerBusy)
+            switch (mode)
             {
-                if (Player* pCarrier = sObjectAccessor.FindPlayer(ownFlagCarrier))
+                case WSG_MODE_CHASER:
                 {
-                    if (pCarrier->IsAlive() && StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
+                    // Our flag was taken: hunt the enemy carrier.
+                    Player* pCarrier = enemyCarrierGuid.IsEmpty() ? nullptr : sObjectAccessor.FindPlayer(enemyCarrierGuid);
+                    if (pCarrier && pCarrier->IsAlive() && StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
                         return true;
+                    break;
                 }
+                case WSG_MODE_ESCORT:
+                {
+                    // Our team has the enemy flag: go meet the carrier, the follow logic takes over when close.
+                    Player* pCarrier = ourCarrierGuid.IsEmpty() ? nullptr : sObjectAccessor.FindPlayer(ourCarrierGuid);
+                    if (pCarrier && pCarrier->IsAlive())
+                    {
+                        if (me->GetDistance(pCarrier) <= 20.0f)
+                            return true;
+                        if (StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
+                            return true;
+                    }
+                    break;
+                }
+                default:
+                    break;
             }
 
-            // 5. Defenders stay close to our flag.
-            if (isDefender)
+            // Defenders (also those with nothing else to do) stay close to our flag.
+            if (IsWSGDefender())
             {
                 static float const DEFENDER_STAY_DISTANCE = 40.0f;
                 if (me->GetDistance(ownFlagPos) < DEFENDER_STAY_DISTANCE)
@@ -2955,17 +3015,8 @@ bool BattleBotAI::StartNewPathToObjective()
                 return StartNewPathToPosition(ownFlagPos, vPaths_WS);
             }
 
-            // 6. Our team has the enemy flag: go meet the carrier.
-            if (!enemyFlagCarrier.IsEmpty())
+            // Everybody else goes for the enemy flag.
             {
-                Player* pCarrier = sObjectAccessor.FindPlayer(enemyFlagCarrier);
-                if (pCarrier && pCarrier->IsAlive() && me->GetDistance(pCarrier) > 20.0f &&
-                    StartNewPathToPosition(pCarrier->GetPosition(), vPaths_WS))
-                    return true;
-            }
-            else
-            {
-                // 8. Go for the enemy flag.
                 float const distance = me->GetDistance(enemyFlagPos);
                 // No upper distance limit: at the start of the match the enemy base is far away (more than 300 yards)
                 // and bots must head there right away instead of waiting for a random path.
@@ -3017,6 +3068,9 @@ void BattleBotAI::RollWSGRole()
         m_wsgRole = WSG_ROLE_CAPTURER;
     else
         m_wsgRole = WSG_ROLE_ATTACKER;
+
+    // Decides who goes after the enemy carrier when a flag is taken (rolled again at every change, see UpdatePathProgress()).
+    m_wsgChaseRoll = urand(0, 99);
 }
 
 void BattleBotAI::ClearPath()

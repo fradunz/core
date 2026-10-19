@@ -290,6 +290,18 @@ bool BattleBotAI::DrinkAndEat()
         return false;
     }
 
+    // Escorts do not stop: staying with the carrier comes first.
+    if (GetEscortCarrier())
+    {
+        if (me->HasAura(BB_SPELL_FOOD))
+            me->RemoveAurasDueToSpell(BB_SPELL_FOOD);
+        if (me->HasAura(BB_SPELL_DRINK))
+            me->RemoveAurasDueToSpell(BB_SPELL_DRINK);
+        if (me->GetStandState() != UNIT_STAND_STATE_STAND)
+            me->SetStandState(UNIT_STAND_STATE_STAND);
+        return false;
+    }
+
     BattleGround* bg;
     bool const needToEat = me->GetHealthPercent() < 95.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
     bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 95.0f);
@@ -369,7 +381,12 @@ bool BattleBotAI::ShouldIgnoreCombat() const
 {
     if (m_battlegroundId == BATTLEGROUND_QUEUE_WS && !me->IsRooted() &&
        (me->HasAura(AURA_SILVERWING_FLAG) || me->HasAura(AURA_WARSONG_FLAG)))
-        return true;
+    {
+        // A carrier waiting at the capture point for our flag to come back defends itself.
+        static float const CARRIER_WAIT_DISTANCE = 10.0f;
+        Position const& capturePos = me->GetTeam() == HORDE ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE;
+        return !me->IsWithinDist3d(capturePos.x, capturePos.y, capturePos.z, CARRIER_WAIT_DISTANCE);
+    }
     return false;
 }
 
@@ -385,9 +402,79 @@ static float const ESCORT_THREAT_RADIUS = 20.0f;        // Enemies this close to
 static float const ESCORT_SELF_DEFENSE_DISTANCE = 8.0f; // Enemies this close to us are fought anywhere.
 static float const ESCORT_CLOSE_DISTANCE = 8.0f;        // Escorts try to stay this close to the carrier.
 
-// Carrier of our team that this bot has to stay close to, if any.
-// Bots that are not defenders escort while our own flag is safe. Defenders stay at the base,
-// except when both flags are taken: then they protect our carrier.
+// Distance to the enemy carrier under which a defender goes after him instead of protecting our carrier.
+static float const DEFENDER_CHASE_DISTANCE = 40.0f;
+
+// Share (in %) of the general bots that go after the enemy carrier when our flag is taken. The rest of them
+// escorts our carrier if we have one, or keeps going for the enemy flag. The dice are rolled again at every
+// change of the flags situation (m_wsgChaseRoll), so different bots do each thing during the match.
+static uint32 const CHASER_SHARE = 60;
+
+// What the bot should be doing in Warsong Gulch now, from its role and the state of the flags:
+//
+//                  nothing taken | only our carrier | only our flag taken       | both taken
+//   capturer       CAPTURER      | ESCORT           | CAPTURER (never changes)   | CHASER
+//   general        GENERAL       | ESCORT           | CHASER (60%) / GENERAL     | CHASER (60%) / ESCORT
+//   defender       DEFENDER      | DEFENDER         | CHASER                     | CHASER if the enemy carrier is close, else ESCORT
+//
+// A carrier is always in CARRIER mode. Capturers keep going for the flag when only the enemy captured one,
+// otherwise there would never be a moment with both flags taken.
+WSGMode BattleBotAI::GetWSGMode() const
+{
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_WS)
+        return WSG_MODE_GENERAL;
+
+    if (me->HasAura(AURA_WARSONG_FLAG) || me->HasAura(AURA_SILVERWING_FLAG))
+        return WSG_MODE_CARRIER;
+
+    BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
+    bool const isHorde = me->GetTeam() == HORDE;
+    // The enemy carries our flag / our carrier carries the enemy flag.
+    ObjectGuid const enemyCarrierGuid = isHorde ? pWS->GetHordeFlagPickerGuid() : pWS->GetAllianceFlagPickerGuid();
+    ObjectGuid const ourCarrierGuid = isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid();
+    bool const ownFlagStolen = !enemyCarrierGuid.IsEmpty();
+
+    Player* pOurCarrier = ourCarrierGuid.IsEmpty() ? nullptr : sObjectAccessor.FindPlayer(ourCarrierGuid);
+    bool const ourCarrierAlive = pOurCarrier && pOurCarrier->IsAlive() && pOurCarrier->GetMapId() == me->GetMapId();
+
+    if (IsWSGDefender())
+    {
+        if (!ownFlagStolen)
+            return WSG_MODE_DEFENDER;
+        if (!ourCarrierAlive)
+            return WSG_MODE_CHASER;
+
+        Player* pEnemyCarrier = sObjectAccessor.FindPlayer(enemyCarrierGuid);
+        if (pEnemyCarrier && pEnemyCarrier->IsAlive() && me->IsWithinDist(pEnemyCarrier, DEFENDER_CHASE_DISTANCE))
+            return WSG_MODE_CHASER;
+        return WSG_MODE_ESCORT;
+    }
+
+    if (IsWSGCapturer())
+        return (ownFlagStolen && ourCarrierAlive) ? WSG_MODE_CHASER :
+               (!ownFlagStolen && ourCarrierAlive) ? WSG_MODE_ESCORT : WSG_MODE_CAPTURER;
+
+    if (ownFlagStolen && m_wsgChaseRoll < CHASER_SHARE)
+        return WSG_MODE_CHASER;
+
+    return ourCarrierAlive ? WSG_MODE_ESCORT : WSG_MODE_GENERAL;
+}
+
+// Who carries which flag: bit 0 = the enemy has our flag, bit 1 = we have the enemy flag.
+uint8 BattleBotAI::GetWSGFlagState() const
+{
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_WS)
+        return 0;
+
+    BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
+    bool const isHorde = me->GetTeam() == HORDE;
+    return (!(isHorde ? pWS->GetHordeFlagPickerGuid() : pWS->GetAllianceFlagPickerGuid()).IsEmpty() ? 1 : 0) |
+           (!(isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid()).IsEmpty() ? 2 : 0);
+}
+
+// Carrier of our team that this bot has to stay close to, if it is escorting (see GetWSGMode()).
 Player* BattleBotAI::GetEscortCarrier() const
 {
     if (m_battlegroundId != BATTLEGROUND_QUEUE_WS)
@@ -397,15 +484,11 @@ Player* BattleBotAI::GetEscortCarrier() const
     if (!bg || bg->GetTypeID() != BATTLEGROUND_WS || bg->GetStatus() != STATUS_IN_PROGRESS)
         return nullptr;
 
-    if (me->HasAura(AURA_WARSONG_FLAG) || me->HasAura(AURA_SILVERWING_FLAG))
+    if (GetWSGMode() != WSG_MODE_ESCORT)
         return nullptr;
 
     BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
     bool const isHorde = me->GetTeam() == HORDE;
-    bool const ownFlagStolen = !(isHorde ? pWS->GetHordeFlagPickerGuid() : pWS->GetAllianceFlagPickerGuid()).IsEmpty();
-    if (IsWSGDefender() != ownFlagStolen)
-        return nullptr;
-
     ObjectGuid const carrierGuid = isHorde ? pWS->GetAllianceFlagPickerGuid() : pWS->GetHordeFlagPickerGuid();
     if (carrierGuid.IsEmpty())
         return nullptr;
@@ -524,8 +607,7 @@ static float const OBJECTIVE_FOCUS_COMBAT_DISTANCE = 30.0f;
 
 bool BattleBotAI::IsObjectiveFocused() const
 {
-    return m_battlegroundId == BATTLEGROUND_QUEUE_WS && IsWSGCapturer() &&
-           !me->HasAura(AURA_SILVERWING_FLAG) && !me->HasAura(AURA_WARSONG_FLAG);
+    return m_battlegroundId == BATTLEGROUND_QUEUE_WS && GetWSGMode() == WSG_MODE_CAPTURER;
 }
 
 // Someone is attacking us (not just a fight we started).
@@ -546,7 +628,10 @@ bool BattleBotAI::IsFocusFightTooLong() const
     static uint32 const FOCUS_MAX_FIGHT_TIME = 12 * IN_MILLISECONDS;
     static uint32 const FOCUS_IGNORE_COMBAT_TIME = 12 * IN_MILLISECONDS;
 
-    if (!me->IsInCombat() || IsBeingAttacked())
+    // Fights against the enemy carrier or against those who attack us are never abandoned.
+    Unit* pVictim = me->GetVictim();
+    if (!me->IsInCombat() || IsBeingAttacked() ||
+        (pVictim && pVictim->HasAura(me->GetTeam() == HORDE ? AURA_WARSONG_FLAG : AURA_SILVERWING_FLAG)))
     {
         m_focusFightStart = 0;
         return false;
@@ -582,9 +667,19 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     bool const focused = IsObjectiveFocused();
     Player* pEscort = GetEscortCarrier();
 
-    // A capturer that just left a long fight does not start another one right away.
+    // A capturer that just left a long fight does not start another one right away (except against the enemy carrier).
     if (focused && int32(m_focusIgnoreUntil - WorldTimer::getMSTime()) > 0 && !IsBeingAttacked())
+    {
+        std::list<Player*> nearPlayers;
+        me->GetAlivePlayerListInRange(me, nearPlayers, VISIBILITY_DISTANCE_NORMAL);
+        for (Player* pPlayer : nearPlayers)
+        {
+            if (pPlayer != pExcept && IsValidHostileTarget(pPlayer) &&
+                pPlayer->HasAura(me->GetTeam() == HORDE ? AURA_WARSONG_FLAG : AURA_SILVERWING_FLAG))
+                return pPlayer;
+        }
         return nullptr;
+    }
 
     // While escorting only fight what threatens the carrier or us.
     auto const escortAllows = [&](Unit* pTarget)
@@ -766,7 +861,12 @@ void BattleBotAI::DoGraveyardJump()
 
     m_doingGraveyardJump = true;
     uint32 timeOffset = 0;
+    // Our own graveyard, unless we are standing at the other one (leaving the enemy base).
     std::vector<RecordedMovementPacket>* pPath = me->GetTeam() == HORDE ? &vHordeGraveyardJumpPath : &vAllianceGraveyardJumpPath;
+    std::vector<RecordedMovementPacket>* pOtherPath = me->GetTeam() == HORDE ? &vAllianceGraveyardJumpPath : &vHordeGraveyardJumpPath;
+    if (me->GetDistance2d(pOtherPath->front().position.x, pOtherPath->front().position.y) <
+        me->GetDistance2d(pPath->front().position.x, pPath->front().position.y))
+        pPath = pOtherPath;
     for (uint32 i = 0; i < (*pPath).size(); i++)
     {
         RecordedMovementPacket* point = &((*pPath)[i]);
@@ -892,6 +992,11 @@ void BattleBotAI::UpdateWaypointMovement()
         }
     }
 
+    DecideNextAction();
+}
+
+void BattleBotAI::DecideNextAction()
+{
     // WSG: a flag carrier close to its own base goes straight to the capture point and waits there
     // (own flag may be missing) instead of picking random paths around the base.
     if (me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS)
@@ -943,6 +1048,8 @@ void BattleBotAI::OnJustRevived()
 void BattleBotAI::OnEnterBattleGround()
 {
     m_wsgRole = WSG_ROLE_NONE;
+    m_wsgMode = WSG_MODE_GENERAL;
+    m_wsgFlagState = 0;
     m_resumePath = nullptr;
     m_waitingForGroup = false;
     m_groupWaitStart = 0;
