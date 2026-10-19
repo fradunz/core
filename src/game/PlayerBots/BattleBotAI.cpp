@@ -1032,6 +1032,7 @@ void BattleBotAI::DecideNextAction()
 
 void BattleBotAI::OnJustDied()
 {
+    m_decidePending = false;
     m_resumePath = nullptr;
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())

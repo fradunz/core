@@ -1870,6 +1870,9 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_WSG_HordeGYJump_to_AllianceTunnel,
     &vPath_WSG_AllianceGYJump_to_AllianceTunnel,
     &vPath_WSG_AllianceGYJump_to_HordeTunnel,
+    // Same for the long jump-to-ramp routes of both sides: nobody can climb up to the graveyard.
+    &vPath_WSG_HordeGYJump_to_AllianceRamp,
+    &vPath_WSG_AllianceGYJump_to_HordeRamp,
 };
 
 // The base roof paths are lookout routes: only useful to search for the enemy carrier inside our base.
@@ -1891,7 +1894,8 @@ void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
 {
     if (movementType == POINT_MOTION_TYPE)
     {
-        if (m_currentPath && m_currentPath->at(data).pFunc)
+        // The path may have been replaced since this point was sent, so the index is not always valid.
+        if (m_currentPath && data < m_currentPath->size() && m_currentPath->at(data).pFunc)
             (*m_currentPath->at(data).pFunc)(this);
         else
             MoveToNextPoint();
@@ -1916,16 +1920,10 @@ void BattleBotAI::MoveToNextPoint()
             SavePathForResume();
         ClearPath();
 
-        // Warsong Gulch: choose the next path right now, while still moving, so the bot does not stop to think
-        // between paths (the walking goes on as if it was a single route).
-        if (finished && me->IsAlive() && !me->IsInCombat() && !m_deciding && !m_doingGraveyardJump &&
-            me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
-            me->GetBattleGround()->GetStatus() == STATUS_IN_PROGRESS)
-        {
-            m_deciding = true;
-            DecideNextAction();
-            m_deciding = false;
-        }
+        // Warsong Gulch: choose the next path right away, while still moving, so the bot does not stop to think
+        // between paths. Done on the next update (UpdatePathProgress), never from inside a movement callback.
+        if (finished && me->IsAlive())
+            m_decidePending = true;
         return;
     }
 
@@ -2183,6 +2181,15 @@ void BattleBotAI::UpdatePathProgress()
                 StopMoving();
             }
         }
+    }
+
+    if (m_decidePending)
+    {
+        m_decidePending = false;
+        if (!m_currentPath && me->IsAlive() && !me->IsInCombat() && !m_doingGraveyardJump &&
+            me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
+            me->GetBattleGround()->GetStatus() == STATUS_IN_PROGRESS)
+            DecideNextAction();
     }
 
     if (!m_currentPath || !me->IsAlive())

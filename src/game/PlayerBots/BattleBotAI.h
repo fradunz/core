@@ -155,7 +155,8 @@ public:
     void ClearPath();
     // Chooses what to do when there is no path: objective path, resume, random path.
     void DecideNextAction();
-    bool m_deciding = false;
+    // A path just ended: choose the next one at the next update.
+    bool m_decidePending = false;
     // Moves on to the next waypoint before reaching the current one, so movement looks less robotic.
     void UpdatePathProgress();
     // WSG attackers gather near the enemy base and enter it together.
