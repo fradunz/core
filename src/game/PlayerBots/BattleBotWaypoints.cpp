@@ -406,7 +406,6 @@ BattleBotPath vPath_WSG_HordeTunnel_to_HordeFlagRoom =
     { 1051.09f, 1459.89f, 323.126f, nullptr },
     { 1030.1f, 1459.58f, 330.204f, nullptr },
     { 1010.76f, 1457.49f, 334.896f, nullptr },
-    { 1005.47f, 1448.19f, 335.864f, nullptr },
     { 999.974f, 1458.49f, 335.632f, nullptr },
     { 982.632f, 1459.18f, 336.127f, nullptr },
     { 965.049f, 1459.15f, 338.076f, nullptr },
@@ -569,7 +568,6 @@ BattleBotPath vPath_WSG_AllianceTunnel_to_AllianceFlagRoom =
     { 1406.57f, 1460.48f, 330.615f, nullptr },
     { 1424.04f, 1459.57f, 336.029f, nullptr },
     { 1442.5f, 1459.7f, 342.024f, nullptr },
-    { 1449.59f, 1469.14f, 342.65f, nullptr },
     { 1458.03f, 1458.43f, 342.746f, nullptr },
     { 1469.4f, 1458.14f, 342.794f, nullptr },
     { 1489.06f, 1457.86f, 342.794f, nullptr },
@@ -1904,6 +1902,45 @@ void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
     }
 }
 
+
+// Movement id of the detour to a power up (outside of the range of waypoint indexes, see MovementInform()).
+static uint32 const BUFF_DETOUR_MOVE_ID = 0xFFFF;
+
+// A battleground power up (speed, restoration, berserking) spawned close to the next waypoint, if any.
+GameObject* BattleBotAI::FindBuffNearPoint(BattleBotWaypoint const& point) const
+{
+    static float const MAX_DISTANCE_FROM_POINT = 15.0f; // The power up must be close to the way.
+    static float const MAX_DISTANCE_FROM_BOT = 30.0f;
+    static float const MAX_HEIGHT_DIFFERENCE = 8.0f;    // Not on another level (roofs).
+    static uint32 const IGNORE_TIME = 30 * IN_MILLISECONDS;
+
+    GameObject* pBest = nullptr;
+    float bestDistance = MAX_DISTANCE_FROM_BOT;
+    for (uint32 entry : g_buffEntries)
+    {
+        std::list<GameObject*> buffs;
+        me->GetGameObjectListWithEntryInGrid(buffs, entry, MAX_DISTANCE_FROM_BOT);
+        for (GameObject* pBuff : buffs)
+        {
+            if (!pBuff || !pBuff->isSpawned())
+                continue;
+            // Just taken (or tried): do not go back for it.
+            if (pBuff->GetObjectGuid() == m_lastBuffGuid && WorldTimer::getMSTimeDiffToNow(m_lastBuffTime) < IGNORE_TIME)
+                continue;
+            if (pBuff->GetDistance2d(point.x, point.y) > MAX_DISTANCE_FROM_POINT ||
+                std::abs(pBuff->GetPositionZ() - point.z) > MAX_HEIGHT_DIFFERENCE)
+                continue;
+            float const distance = me->GetDistance(pBuff);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                pBest = pBuff;
+            }
+        }
+    }
+    return pBest;
+}
+
 void BattleBotAI::MoveToNextPoint()
 {
     if (!m_currentPath)
@@ -1945,6 +1982,27 @@ void BattleBotAI::MoveToNextPoint()
         m_currentPoint++;
 
     BattleBotWaypoint& nextPoint = m_currentPath->at(m_currentPoint);
+
+    // Warsong Gulch: take a power up that is close to the way. The path is not cancelled: after the detour
+    // MovementInform() calls this function again, and it goes on to the very same waypoint.
+    if (me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS && !me->IsInCombat())
+    {
+        if (GameObject* pBuff = FindBuffNearPoint(nextPoint))
+        {
+            m_lastBuffGuid = pBuff->GetObjectGuid();
+            m_lastBuffTime = WorldTimer::getMSTime();
+            if (m_movingInReverse)
+                m_currentPoint++;
+            else
+                m_currentPoint--;
+            m_cornerTolerance = 0.0f;
+            m_moveTargetX = pBuff->GetPositionX();
+            m_moveTargetY = pBuff->GetPositionY();
+            m_moveTargetZ = pBuff->GetPositionZ();
+            me->GetMotionMaster()->MovePoint(BUFF_DETOUR_MOVE_ID, m_moveTargetX, m_moveTargetY, m_moveTargetZ, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+            return;
+        }
+    }
 
     // Plain waypoints are only a guide: wander a bit around them and turn towards the next one before reaching them.
     // Waypoints with a callback must be reached exactly. The last point of a Warsong Gulch path is also left a bit

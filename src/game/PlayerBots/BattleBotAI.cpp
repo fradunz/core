@@ -1062,6 +1062,7 @@ void BattleBotAI::OnEnterBattleGround()
     m_wsgRole = WSG_ROLE_NONE;
     m_wsgMode = WSG_MODE_GENERAL;
     m_wsgFlagState = 0;
+    m_lastBuffGuid.Clear();
     m_resumePath = nullptr;
     m_waitingForGroup = false;
     m_groupWaitStart = 0;

@@ -159,6 +159,7 @@ public:
     bool m_decidePending = false;
     // Moves on to the next waypoint before reaching the current one, so movement looks less robotic.
     void UpdatePathProgress();
+    GameObject* FindBuffNearPoint(BattleBotWaypoint const& point) const;
     // WSG attackers gather near the enemy base and enter it together.
     bool ShouldWaitForGroup();
     bool m_waitingForGroup = false;
@@ -187,6 +188,8 @@ public:
     // Flag capturers: when the current fight started and until when new fights are ignored (ms timestamps).
     uint32 m_wanderNextMove = 0;            // Next time an idle bot (defender, bot waiting for the gates) walks around.
     ObjectGuid m_escortFollowGuid;          // Carrier we are following as an escort.
+    ObjectGuid m_lastBuffGuid;              // Last power up we went for (not repeated right away).
+    uint32 m_lastBuffTime = 0;
     mutable uint32 m_focusFightStart = 0;
     mutable uint32 m_focusIgnoreUntil = 0;
     uint8 m_waitingSpot = BB_WSG_WAIT_SPOT_SPAWN;
