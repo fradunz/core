@@ -1977,6 +1977,7 @@ void BattleBotAI::MoveToNextPoint()
     }
     m_waitingForGroup = false;
 
+    uint32 const previousPoint = m_currentPoint;
     if (m_movingInReverse)
         m_currentPoint--;
     else
@@ -1992,10 +1993,7 @@ void BattleBotAI::MoveToNextPoint()
         {
             m_lastBuffGuid = pBuff->GetObjectGuid();
             m_lastBuffTime = WorldTimer::getMSTime();
-            if (m_movingInReverse)
-                m_currentPoint++;
-            else
-                m_currentPoint--;
+            m_currentPoint = previousPoint;
             m_cornerTolerance = 0.0f;
             m_moveTargetX = pBuff->GetPositionX();
             m_moveTargetY = pBuff->GetPositionY();
@@ -2027,6 +2025,15 @@ void BattleBotAI::MoveToNextPoint()
         m_moveTargetY = nextPoint.y + offset * std::sin(angle);
     }
     m_moveTargetZ = nextPoint.z;
+
+    // Warsong Gulch: smoother routes. A plain point counts as reached at half of the way to it (at most 12 yards before it),
+    // so the bot starts turning to the next point early and cuts the corner, instead of walking to the exact corner.
+    if (isWSG && isPlainPoint)
+    {
+        static float const MAX_EARLY_TURN = 12.0f;
+        float const legLength = me->GetDistance2d(m_moveTargetX, m_moveTargetY);
+        m_cornerTolerance = std::min(MAX_EARLY_TURN, std::max(m_cornerTolerance, 0.5f * legLength));
+    }
 
     me->GetMotionMaster()->MovePoint(m_currentPoint, m_moveTargetX, m_moveTargetY, m_moveTargetZ, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
 }
@@ -2287,7 +2294,7 @@ void BattleBotAI::UpdatePathProgress()
     if (m_cornerTolerance <= 0.0f)
         return;
 
-    if (me->GetDistance2d(m_moveTargetX, m_moveTargetY) < m_cornerTolerance && std::abs(me->GetPositionZ() - m_moveTargetZ) < 3.0f)
+    if (me->GetDistance2d(m_moveTargetX, m_moveTargetY) < m_cornerTolerance && std::abs(me->GetPositionZ() - m_moveTargetZ) < 6.0f)
     {
         m_cornerTolerance = 0.0f;
         MoveToNextPoint();
