@@ -71,6 +71,7 @@ public:
     void MovementInform(uint32 MovementType, uint32 Data = 0) final;
 
     bool ShouldIgnoreCombat() const;
+    bool HasCarrierEscapeAbility(Unit const* pAttacker) const;
     bool DrinkAndEat();
     bool UseMount();
     uint32 GetMountSpellId() const;

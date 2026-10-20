@@ -388,9 +388,67 @@ bool BattleBotAI::ShouldIgnoreCombat() const
         // A carrier waiting at the capture point for our flag to come back defends itself.
         static float const CARRIER_WAIT_DISTANCE = 10.0f;
         Position const& capturePos = me->GetTeam() == HORDE ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE;
-        return !me->IsWithinDist3d(capturePos.x, capturePos.y, capturePos.z, CARRIER_WAIT_DISTANCE);
+        if (me->IsWithinDist3d(capturePos.x, capturePos.y, capturePos.z, CARRIER_WAIT_DISTANCE))
+            return false;
+
+        // A carrier with no ally close by cannot rely on anybody: when an enemy catches it, it stops and fights back,
+        // unless it still has an ability to slow, stun or escape from the attacker (used by UpdateFlagCarrierAI).
+        static float const CARRIER_ALLY_DISTANCE = 40.0f;
+        static float const CARRIER_CATCH_DISTANCE = 15.0f;
+        BattleGround* bg = me->GetBattleGround();
+        if (!bg)
+            return true;
+
+        for (auto const& itr : bg->GetPlayers())
+        {
+            if (itr.first == me->GetObjectGuid())
+                continue;
+            Player* pAlly = sObjectAccessor.FindPlayer(itr.first);
+            if (pAlly && pAlly->IsAlive() && pAlly->GetTeam() == me->GetTeam() &&
+                pAlly->GetMapId() == me->GetMapId() && me->IsWithinDist(pAlly, CARRIER_ALLY_DISTANCE))
+                return true;
+        }
+
+        // Alone: keep running while nobody is close, the fight starts only when an enemy catches the carrier.
+        Unit* pAttacker = me->GetAttackerForHelper();
+        if (!pAttacker || me->GetCombatDistance(pAttacker) > CARRIER_CATCH_DISTANCE)
+            return true;
+
+        return HasCarrierEscapeAbility(pAttacker);
     }
     return false;
+}
+
+bool BattleBotAI::HasCarrierEscapeAbility(Unit const* pAttacker) const
+{
+    auto const ready = [&](Unit const* pTarget, SpellEntry const* pSpell)
+    {
+        return pSpell && CanTryToCastSpell(pTarget, pSpell);
+    };
+
+    switch (me->GetClass())
+    {
+        case CLASS_PALADIN:
+            return ready(pAttacker, m_spells.paladin.pHammerOfJustice);
+        case CLASS_SHAMAN:
+            return ready(pAttacker, m_spells.shaman.pFrostShock);
+        case CLASS_HUNTER:
+            return ready(pAttacker, m_spells.hunter.pWingClip) || ready(pAttacker, m_spells.hunter.pConcussiveShot) ||
+                   ready(me, m_spells.hunter.pFrosTrap) || ready(me, m_spells.hunter.pDeterrence);
+        case CLASS_MAGE:
+            return ready(me, m_spells.mage.pFrostNova) || ready(me, m_spells.mage.pConeofCold) || ready(me, m_spells.mage.pBlink);
+        case CLASS_PRIEST:
+            return ready(me, m_spells.priest.pPsychicScream);
+        case CLASS_WARLOCK:
+            return ready(pAttacker, m_spells.warlock.pDeathCoil) || ready(me, m_spells.warlock.pHowlofTerror) ||
+                   ready(pAttacker, m_spells.warlock.pCurseofExhaustion);
+        case CLASS_WARRIOR:
+            return ready(pAttacker, m_spells.warrior.pConcussionBlow) || ready(pAttacker, m_spells.warrior.pPiercingHowl);
+        case CLASS_ROGUE:
+            return ready(me, m_spells.rogue.pSprint);
+        default:
+            return false;
+    }
 }
 
 // Flag carrier of our team (carries the flag of the enemy team).
@@ -1859,6 +1917,42 @@ void BattleBotAI::UpdateFlagCarrierAI()
                     return;
                 }
                 break;
+            }
+        }
+
+        // Nothing to slow or stop the attacker with: keep running and apply instant damage over time on it.
+        std::vector<SpellEntry const*> dots;
+        switch (me->GetClass())
+        {
+            case CLASS_WARLOCK:
+                dots = { m_spells.warlock.pCurseofAgony, m_spells.warlock.pCorruption, m_spells.warlock.pSiphonLife };
+                break;
+            case CLASS_PRIEST:
+                dots = { m_spells.priest.pShadowWordPain };
+                break;
+            case CLASS_HUNTER:
+                dots = { m_spells.hunter.pSerpentSting };
+                break;
+            case CLASS_DRUID:
+                dots = { m_spells.druid.pMoonfire };
+                break;
+            case CLASS_SHAMAN:
+                dots = { m_spells.shaman.pFlameShock };
+                break;
+            case CLASS_WARRIOR:
+                if (pAttacker->CanReachWithMeleeAutoAttack(me))
+                    dots = { m_spells.warrior.pRend };
+                break;
+            default:
+                break;
+        }
+        for (SpellEntry const* pDot : dots)
+        {
+            // Only instant spells: a cast time would stop the carrier.
+            if (pDot && pDot->GetCastTime(me) == 0 && IsSpellReady(pDot) && CanTryToCastSpell(pAttacker, pDot))
+            {
+                me->CastSpell(pAttacker, pDot, false);
+                return;
             }
         }
     }
