@@ -2094,7 +2094,7 @@ bool BattleBotAI::ShouldWaitForGroup()
         return false;
 
     BattleGround* bg = me->GetBattleGround();
-    if (bg->GetTypeID() != BATTLEGROUND_WS || bg->GetStatus() != STATUS_IN_PROGRESS)
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_WS || bg->GetStatus() != STATUS_IN_PROGRESS)
         return false;
 
     BattleGroundWS* pWS = static_cast<BattleGroundWS*>(bg);
