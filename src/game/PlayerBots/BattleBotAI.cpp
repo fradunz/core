@@ -3587,10 +3587,21 @@ void BattleBotAI::UpdateOutOfCombatAI_Rogue()
             return;
     }
 
-    if (m_spells.rogue.pStealth &&
-        CanTryToCastSpell(me, m_spells.rogue.pStealth) &&
-       !me->HasAura(AURA_WARSONG_FLAG) &&
-       !me->HasAura(AURA_SILVERWING_FLAG))
+    // Stealth slows the rogue down a lot, so only use it when an enemy is around: enter with an enemy
+    // within 80 yards and leave it when there is none within 100 (the gap avoids toggling at the limit).
+    static float const STEALTH_ENTER_DISTANCE = 80.0f;
+    static float const STEALTH_LEAVE_DISTANCE = 100.0f;
+    bool const stealthed = me->HasAuraType(SPELL_AURA_MOD_STEALTH);
+    if (stealthed)
+    {
+        if (!me->GetVictim() && !HasHostilePlayerNearby(STEALTH_LEAVE_DISTANCE))
+            me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
+    }
+    else if (m_spells.rogue.pStealth &&
+             CanTryToCastSpell(me, m_spells.rogue.pStealth) &&
+            !me->HasAura(AURA_WARSONG_FLAG) &&
+            !me->HasAura(AURA_SILVERWING_FLAG) &&
+             HasHostilePlayerNearby(STEALTH_ENTER_DISTANCE))
     {
         if (DoCastSpell(me, m_spells.rogue.pStealth) == SPELL_CAST_OK)
             return;
