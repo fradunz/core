@@ -21,6 +21,7 @@
 #include "Player.h"
 #include "GameObject.h"
 #include "MotionMaster.h"
+#include "PathFinder.h"
 #include "Spell.h"
 #include "Battlegrounds/BattleGround.h"
 #include "BattleGroundAV.h"
@@ -2086,11 +2087,34 @@ void BattleBotAI::WanderAtStart()
         pCenter = me->GetTeam() == HORDE ? &hordeSpawn : &allianceSpawn;
     }
 
-    // Short walks, so nobody gets far from the door he is waiting at.
-    float const angle = frand(0.0f, 2 * M_PI_F);
-    float const distance = frand(2.0f, 7.0f);
-    me->GetMotionMaster()->MovePoint(0, pCenter->x + distance * std::cos(angle), pCenter->y + distance * std::sin(angle), pCenter->z,
-                                     MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+    // Short walks, so nobody gets far from the door he is waiting at. A spot is only used when the navmesh really
+    // leads there without crossing a closed gate (otherwise the bot would walk straight through it, or under the floor).
+    for (uint32 attempt = 0; attempt < 6; attempt++)
+    {
+        float const angle = frand(0.0f, 2 * M_PI_F);
+        float const distance = frand(2.0f, 7.0f);
+        float const x = pCenter->x + distance * std::cos(angle);
+        float const y = pCenter->y + distance * std::sin(angle);
+
+        PathFinder path(me);
+        path.ExcludeSteepSlopes();
+        path.calculate(x, y, pCenter->z, false);
+        if (path.getPathType() != PATHFIND_NORMAL)
+            continue;
+
+        // Not through doors or other dynamic objects (the gate is not part of the navmesh).
+        Vector3 const end = path.getActualEndPosition();
+        path.CutPathWithDynamicLoS();
+        if (path.getPath().size() < 2 || (path.getPath().back() - end).length() > 1.0f)
+            continue;
+
+        // A path much longer than the straight line goes around something: not a short walk.
+        if (path.Length() > 2.0f * me->GetDistance(end.x, end.y, end.z) + 3.0f)
+            continue;
+
+        me->GetMotionMaster()->MovePoint(0, end.x, end.y, end.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+        return;
+    }
 }
 
 // Go and help an ally that is fighting, even if we do not see his enemies yet.
