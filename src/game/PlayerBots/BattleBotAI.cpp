@@ -1914,8 +1914,126 @@ void BattleBotAI::UpdateOutOfCombatAI()
     }
 }
 
+// A caster (or healer) with a melee enemy on top of him: if there is a way to immobilize that enemy, use it and
+// then get away from him. Without such a spell nothing is done (running from a melee class does not help).
+bool BattleBotAI::TryImmobilizeMeleeAndRun()
+{
+    static float const MELEE_THREAT_DISTANCE = 8.0f; // The enemy is this close to us.
+    static float const RUN_DISTANCE = 25.0f;
+
+    if (!me->IsAlive() || (m_role != ROLE_RANGE_DPS && m_role != ROLE_HEALER))
+        return false;
+
+    switch (me->GetClass())
+    {
+        case CLASS_MAGE:
+        case CLASS_PRIEST:
+        case CLASS_WARLOCK:
+            break;
+        case CLASS_PALADIN:
+        case CLASS_DRUID:
+            // Only in the caster form (feral and tank druids / ret and protection paladins have other roles).
+            if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
+                return false;
+            break;
+        default:
+            return false;
+    }
+
+    // Already running away: let it finish.
+    if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == DISTANCING_MOTION_TYPE)
+        return true;
+
+    // Cannot act at all.
+    if (me->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL))
+        return false;
+
+    // The closest melee enemy that is hitting us.
+    Unit* pMelee = nullptr;
+    float closest = MELEE_THREAT_DISTANCE;
+    for (Unit* pAttacker : me->GetAttackers())
+    {
+        if (!pAttacker || !pAttacker->IsPlayer() || !IsValidHostileTarget(pAttacker) ||
+            !IsMeleeDamageClass(pAttacker->GetClass()))
+            continue;
+        float const distance = me->GetCombatDistance(pAttacker);
+        if (distance < closest)
+        {
+            closest = distance;
+            pMelee = pAttacker;
+        }
+    }
+    if (!pMelee)
+        return false;
+
+    // He cannot follow us right now (immobilized by us or by someone else): this is the moment to get away.
+    if (pMelee->HasUnitState(UNIT_STATE_ROOT) || pMelee->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL))
+    {
+        if (!me->HasUnitState(UNIT_STATE_CAN_NOT_MOVE) && me->GetMotionMaster()->MoveDistance(pMelee, RUN_DISTANCE))
+            return true;
+        return false;
+    }
+
+    // Try to immobilize him. Self cast area spells need him in range.
+    switch (me->GetClass())
+    {
+        case CLASS_MAGE:
+        {
+            if (m_spells.mage.pFrostNova &&
+                CanTryToCastSpell(me, m_spells.mage.pFrostNova) &&
+                m_spells.mage.pFrostNova->IsTargetInRange(me, pMelee))
+                return DoCastSpell(me, m_spells.mage.pFrostNova) == SPELL_CAST_OK;
+            break;
+        }
+        case CLASS_PRIEST:
+        {
+            if (m_spells.priest.pPsychicScream &&
+                CanTryToCastSpell(me, m_spells.priest.pPsychicScream) &&
+                m_spells.priest.pPsychicScream->IsTargetInRange(me, pMelee))
+                return DoCastSpell(me, m_spells.priest.pPsychicScream) == SPELL_CAST_OK;
+            break;
+        }
+        case CLASS_WARLOCK:
+        {
+            if (m_spells.warlock.pDeathCoil &&
+                CanTryToCastSpell(pMelee, m_spells.warlock.pDeathCoil) &&
+                DoCastSpell(pMelee, m_spells.warlock.pDeathCoil) == SPELL_CAST_OK)
+                return true;
+            if (m_spells.warlock.pHowlofTerror &&
+                CanTryToCastSpell(me, m_spells.warlock.pHowlofTerror) &&
+                m_spells.warlock.pHowlofTerror->IsTargetInRange(me, pMelee) &&
+                DoCastSpell(me, m_spells.warlock.pHowlofTerror) == SPELL_CAST_OK)
+                return true;
+            if (m_spells.warlock.pFear &&
+                CanTryToCastSpell(pMelee, m_spells.warlock.pFear))
+                return DoCastSpell(pMelee, m_spells.warlock.pFear) == SPELL_CAST_OK;
+            break;
+        }
+        case CLASS_DRUID:
+        {
+            if (m_spells.druid.pEntanglingRoots &&
+                CanTryToCastSpell(pMelee, m_spells.druid.pEntanglingRoots))
+                return DoCastSpell(pMelee, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK;
+            break;
+        }
+        case CLASS_PALADIN:
+        {
+            if (m_spells.paladin.pHammerOfJustice &&
+                CanTryToCastSpell(pMelee, m_spells.paladin.pHammerOfJustice))
+                return DoCastSpell(pMelee, m_spells.paladin.pHammerOfJustice) == SPELL_CAST_OK;
+            break;
+        }
+    }
+
+    // Nothing to immobilize him with: stay and fight.
+    return false;
+}
+
 void BattleBotAI::UpdateInCombatAI()
 {
+    if (TryImmobilizeMeleeAndRun())
+        return;
+
     switch (me->GetClass())
     {
         case CLASS_PALADIN:

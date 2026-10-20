@@ -159,6 +159,7 @@ public:
     bool m_decidePending = false;
     // Moves on to the next waypoint before reaching the current one, so movement looks less robotic.
     void UpdatePathProgress();
+    bool TryImmobilizeMeleeAndRun();
     GameObject* FindBuffNearPoint(BattleBotWaypoint const& point) const;
     // WSG attackers gather near the enemy base and enter it together.
     bool ShouldWaitForGroup();
