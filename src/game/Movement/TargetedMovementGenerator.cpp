@@ -181,6 +181,9 @@ void ChaseMovementGenerator<T>::_setTargetLocation(T &owner)
     Movement::MoveSplineInit init(owner, "ChaseMovementGenerator<T>::_setTargetLocation");
     PathFinder path(&owner);
     path.SetTransport(transport);
+    // Bots do not climb steep slopes while chasing (a human can't either, the navmesh just allows it).
+    if (owner.IsPlayer() && static_cast<Player&>(static_cast<Unit&>(owner)).IsBot())
+        path.ExcludeSteepSlopes();
     path.calculate(x, y, z, false);
 
     PathType pathType = path.getPathType();
@@ -642,6 +645,9 @@ void FollowMovementGenerator<T>::_setTargetLocation(T &owner)
     // allow pets following their master to cheat while generating paths
     Movement::MoveSplineInit init(owner, "FollowMovementGenerator<T>::_setTargetLocation");
     path.SetTransport(transport);
+    // Bots do not climb steep slopes while following either.
+    if (owner.IsPlayer() && static_cast<Player&>(static_cast<Unit&>(owner)).IsBot())
+        path.ExcludeSteepSlopes();
     path.calculate(x, y, z, true);
 
     PathType pathType = path.getPathType();
