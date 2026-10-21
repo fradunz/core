@@ -11,6 +11,7 @@
 #include "Group.h"
 #include "PlayerBotAI.h"
 #include "PartyBotAI.h"
+#include <algorithm>
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
 #include "BattleGroundMgr.h"
@@ -361,6 +362,12 @@ void PlayerBotMgr::Update(uint32 diff)
                 }
             }
         }
+    }
+
+    if (m_confBattleBotAutoJoin && m_lastBattleBotFillUpdate < sWorld.GetGameTime())
+    {
+        m_lastBattleBotFillUpdate = sWorld.GetGameTime();
+        FillBattleGroundsWithBots();
     }
 
     if (m_confEnableRandomBots)
@@ -728,6 +735,71 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
         {
             sWorld.SendWorldTextToBGAndQueue(LANG_HORDE_BATTLEBOT_ADDED, botLevel, queueType, botLevel, queueType);
             sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u horde battlebot to bg queue %u.", botLevel, queueType);
+        }
+    }
+}
+
+// While a battleground is getting ready, bots join it gradually so that every team is full 15 seconds before it starts.
+// Called once per second: the number of missing bots is spread over the time left, and the fractional part is rolled.
+void PlayerBotMgr::FillBattleGroundsWithBots()
+{
+    static int32 const FULL_BEFORE_START = 15 * IN_MILLISECONDS;
+    static time_t const PENDING_TIME = 6; // Seconds a new bot needs to reach the queue and get invited.
+
+    time_t const now = sWorld.GetGameTime();
+    for (uint32 queueType = BATTLEGROUND_QUEUE_AV; queueType < MAX_BATTLEGROUND_QUEUE_TYPES; ++queueType)
+    {
+        BattleGroundTypeId const bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
+        for (auto itr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); itr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++itr)
+        {
+            BattleGround* pBG = itr->second;
+            if (!pBG || pBG->GetStatus() != STATUS_WAIT_JOIN)
+                continue;
+
+            bool hasRealPlayer = false;
+            for (auto const& playerItr : pBG->GetPlayers())
+            {
+                Player* pPlayer = sObjectAccessor.FindPlayer(playerItr.first);
+                if (pPlayer && !pPlayer->IsBot())
+                {
+                    hasRealPlayer = true;
+                    break;
+                }
+            }
+            if (!hasRealPlayer)
+                continue;
+
+            int32 const timeLeft = pBG->GetStartDelayTime();
+            float const fillSeconds = std::max(1, timeLeft - FULL_BEFORE_START) / float(IN_MILLISECONDS);
+
+            for (Team team : { ALLIANCE, HORDE })
+            {
+                std::vector<time_t>& pending = m_battleBotFillPending[std::make_pair(pBG->GetInstanceID(), uint32(team))];
+                pending.erase(std::remove_if(pending.begin(), pending.end(), [now](time_t t) { return now - t >= PENDING_TIME; }), pending.end());
+
+                int32 const missing = int32(pBG->GetFreeSlotsForTeam(team)) - int32(pending.size());
+                if (missing <= 0)
+                    continue;
+
+                uint32 count;
+                if (timeLeft <= FULL_BEFORE_START)
+                    count = missing;
+                else
+                {
+                    float const rate = missing / fillSeconds;
+                    count = uint32(rate);
+                    if (frand(0.0f, 1.0f) < rate - float(count))
+                        ++count;
+                    count = std::min<uint32>(count, missing);
+                }
+
+                for (uint32 i = 0; i < count; ++i)
+                {
+                    uint32 const botLevel = urand(pBG->GetMinLevel(), std::min<uint32>(pBG->GetMaxLevel(), PLAYER_MAX_LEVEL));
+                    AddBattleBot(BattleGroundQueueTypeId(queueType), team, botLevel, true);
+                    pending.push_back(now);
+                }
+            }
         }
     }
 }

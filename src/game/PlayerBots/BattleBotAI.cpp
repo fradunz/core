@@ -971,8 +971,10 @@ void BattleBotAI::OnPacketReceived(WorldPacket const* packet)
             uint8 ended = *((uint8*)(*packet).contents());
             if (ended)
             {
-                // Temporary battlebots are removed after bg ends.
-                if (m_temporary)
+                // Temporary battlebots are removed after bg ends. Half of the others give up too,
+                // so the bots in the battlegrounds change between matches.
+                static uint32 const GIVE_UP_CHANCE = 50;
+                if (m_temporary || urand(0, 99) < GIVE_UP_CHANCE)
                     botEntry->requestRemoval = true;
                 else
                 {

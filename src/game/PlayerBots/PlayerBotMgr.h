@@ -91,6 +91,7 @@ class PlayerBotMgr
 
         void AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam, uint32 botLevel, bool temporary);
         void DeleteBattleBots();
+        void FillBattleGroundsWithBots();
 
         void DeleteAll();
         void AddAllBots();
@@ -120,6 +121,9 @@ class PlayerBotMgr
         uint32 m_totalChance;
         uint32 m_maxAccountId;
         time_t m_lastBattleBotQueueUpdate;
+        time_t m_lastBattleBotFillUpdate = 0;
+        // Bots added to a starting battleground that are not invited yet: (instance id, team) -> creation times.
+        std::map<std::pair<uint32, uint32>, std::vector<time_t>> m_battleBotFillPending;
 
         std::map<uint64 /*pl guid*/, std::shared_ptr<PlayerBotEntry>> m_bots;
         std::map<uint32 /*account*/, uint32> m_tempBots;
