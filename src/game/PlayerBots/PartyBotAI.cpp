@@ -399,6 +399,10 @@ void PartyBotAI::ReportBuildToLeader() const
     if (!pLeader || pLeader == me)
         return;
 
+    // Debug information, only GMs see it.
+    if (pLeader->GetSession()->GetSecurity() <= SEC_PLAYER)
+        return;
+
     std::ostringstream ss;
     ss << me->GetName() << " (" << GetRoleName(m_role) << ") - Talents: ";
     for (uint8 page = 0; page < 3; ++page)
