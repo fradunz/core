@@ -128,6 +128,9 @@ public:
     bool m_temporary = false;
     bool m_wasDead = false;
     bool m_wasInBG = false;
+    // After the battleground ends: when this bot leaves it, and if it is removed or queues again.
+    uint32 m_endActionTime = 0;
+    bool m_endActionRemove = false;
 
     // Movement System
     void UpdateWaypointMovement();

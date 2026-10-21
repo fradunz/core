@@ -972,17 +972,15 @@ void BattleBotAI::OnPacketReceived(WorldPacket const* packet)
             if (ended)
             {
                 // Temporary battlebots are removed after bg ends. Half of the others give up too,
-                // so the bots in the battlegrounds change between matches.
+                // so the bots in the battlegrounds change between matches. Each bot leaves a few seconds after
+                // the end, at a random moment, so the battleground does not empty at once.
                 static uint32 const GIVE_UP_CHANCE = 50;
-                if (m_temporary || urand(0, 99) < GIVE_UP_CHANCE)
-                    botEntry->requestRemoval = true;
-                else
+                static uint32 const MIN_LEAVE_DELAY = 5 * IN_MILLISECONDS;
+                static uint32 const MAX_LEAVE_DELAY = 45 * IN_MILLISECONDS;
+                if (!m_endActionTime)
                 {
-                    auto data = std::make_unique<WorldPackets::Battleground::LeaveBattlefield>();
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
-                    data->mapId = me->GetMapId();
-#endif
-                    me->GetSession()->QueuePacket(std::move(data));
+                    m_endActionRemove = m_temporary || urand(0, 99) < GIVE_UP_CHANCE;
+                    m_endActionTime = WorldTimer::getMSTime() + urand(MIN_LEAVE_DELAY, MAX_LEAVE_DELAY);
                 }
             }
             return;
@@ -1119,6 +1117,7 @@ void BattleBotAI::OnJustRevived()
 
 void BattleBotAI::OnEnterBattleGround()
 {
+    m_endActionTime = 0;
     m_wsgRole = WSG_ROLE_NONE;
     m_wsgMode = WSG_MODE_GENERAL;
     m_wsgFlagState = 0;
@@ -1274,6 +1273,23 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         me->UpdateZone(newzone, newarea);
 
         m_initialized = true;
+        return;
+    }
+
+    // The battleground ended and this bot's random leaving time came.
+    if (m_endActionTime && int32(m_endActionTime - WorldTimer::getMSTime()) <= 0)
+    {
+        m_endActionTime = 0;
+        if (m_endActionRemove)
+            botEntry->requestRemoval = true;
+        else if (me->InBattleGround()) // Already out (kicked at the end): the normal queue logic goes on.
+        {
+            auto data = std::make_unique<WorldPackets::Battleground::LeaveBattlefield>();
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+            data->mapId = me->GetMapId();
+#endif
+            me->GetSession()->QueuePacket(std::move(data));
+        }
         return;
     }
 
