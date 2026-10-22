@@ -1784,8 +1784,11 @@ bool WorldObject::IsWithinHeightInMap(WorldObject const* obj) const
         float height = IsUnit() ? ToUnit()->GetCollisionHeight() : 2.f;
         float targetHeight = obj->IsUnit() ? obj->ToUnit()->GetCollisionHeight() : 2.f;
 
+        // The difference is measured between the eyes, so tall creatures need more: the second limit grows with their size.
+        // Instances have the smaller fixed limit (different floors), the open world a larger one (hills).
+        float const tolerance = GetMap()->IsDungeon() ? 6.0f : 9.0f;
         float heightDiff = std::abs((GetPositionZ() + height) - (oz + targetHeight));
-        return heightDiff < 6.0f || heightDiff < (3 * height);
+        return heightDiff < tolerance || heightDiff < (3 * height);
     }
     return true;
 }
