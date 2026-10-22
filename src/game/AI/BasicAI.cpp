@@ -58,15 +58,17 @@ void BasicAI::MoveInLineOfSight(Unit* pWho)
     if (!canInitiateAttack && !canSummonGuard)
         return;
 
-    if (!m_creature->CanFly() && m_creature->GetDistanceZ(pWho) > CREATURE_Z_ATTACK_RANGE)
-        return;
+    // MyBranch: the height limit is only used inside instances, to avoid aggro through different floors. It grows with the
+    // size of the creature (see IsWithinHeightInMap), so a big boss standing a little higher still detects the players.
+    // In the open world creatures detect targets on hills like before.
+    bool const checkHeight = m_creature->GetMap()->IsDungeon();
 
     float const maxDistance = canInitiateAttack ? m_creature->GetAttackDistance(pWho) : m_creature->GetDetectionRange();
 
     if (m_creature->IsWithinDistInMap(pWho, maxDistance, true, SizeFactor::None) &&
         pWho->IsTargetableBy(m_creature) && m_creature->IsHostileTo(pWho) &&
         m_creature->IsWithinLOSInMap(pWho) && pWho->IsInAccessablePlaceFor(m_creature) &&
-        m_creature->IsWithinHeightInMap(pWho)) // MyBranch: ignore targets on very different floors
+        (!checkHeight || m_creature->IsWithinHeightInMap(pWho)))
     {
         if (canInitiateAttack)
             m_creature->EnterCombatWithTarget(pWho);
