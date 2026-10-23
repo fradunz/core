@@ -974,6 +974,85 @@ Unit* PartyBotAI::SelectAttackTarget() const
     return nullptr;
 }
 
+// A group member that is under attack by creatures, preferably the one pEnemy is attacking.
+Player* PartyBotAI::SelectAllyUnderAttack(Unit* pEnemy) const
+{
+    static float const MAX_ALLY_DISTANCE = 80.0f;   // Allies further than this are not our business.
+
+    Group* pGroup = me->GetGroup();
+    if (!pGroup)
+        return nullptr;
+
+    if (pEnemy)
+    {
+        if (Unit* pTarget = pEnemy->GetVictim())
+        {
+            Player* pPlayer = pTarget->ToPlayer();
+            if (pPlayer && pPlayer != me && pPlayer->IsAlive() && pPlayer->GetGroup() == pGroup &&
+                me->IsWithinDist(pPlayer, MAX_ALLY_DISTANCE))
+                return pPlayer;
+        }
+    }
+
+    Player* pBest = nullptr;
+    float bestDistance = MAX_ALLY_DISTANCE;
+    for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+    {
+        Player* pMember = itr->getSource();
+        if (!pMember || pMember == me || !pMember->IsAlive() || pMember->GetMapId() != me->GetMapId())
+            continue;
+
+        float const distance = me->GetDistance(pMember);
+        if (distance >= bestDistance)
+            continue;
+
+        for (const auto pAttacker : pMember->GetAttackers())
+        {
+            if (!pAttacker->IsPlayer() && IsValidHostileTarget(pAttacker))
+            {
+                pBest = pMember;
+                bestDistance = distance;
+                break;
+            }
+        }
+    }
+
+    return pBest;
+}
+
+// Out of sight of the enemy we are fighting: walk once to the group member who is under attack (world and dungeons, not raids).
+bool PartyBotAI::MoveToAllyUnderAttack()
+{
+    if (m_role == ROLE_HEALER || me->IsMounted() || me->GetMap()->IsRaid())
+        return false;
+
+    Unit* pVictim = me->GetVictim();
+    if (!pVictim || me->IsWithinLOSInMap(pVictim))
+    {
+        m_helpAllyGuid = ObjectGuid();
+        return false;
+    }
+
+    // Someone is attacking us: that is a valid target, do not leave the fight.
+    for (const auto pAttacker : me->GetAttackers())
+    {
+        if (IsValidHostileTarget(pAttacker))
+            return false;
+    }
+
+    Player* pAlly = SelectAllyUnderAttack(pVictim);
+    if (!pAlly)
+        return false;
+
+    // Already went there for this ally: let the normal combat logic take over once we arrive.
+    if (m_helpAllyGuid == pAlly->GetObjectGuid())
+        return me->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE;
+
+    m_helpAllyGuid = pAlly->GetObjectGuid();
+    MoveToTarget(pAlly, 6.0f);
+    return true;
+}
+
 Unit* PartyBotAI::SelectPartyAttackTarget() const
 {
     std::vector<Unit*> vAttackers;
@@ -1350,9 +1429,42 @@ void PartyBotAI::UpdateAI(uint32 const diff)
     Player* pLeader = GetPartyLeader();
     if (!pLeader)
     {
+        // The leader is still in the group but offline (connection lost): wait for him to come back before leaving.
+        static uint32 const LEADER_OFFLINE_TOLERANCE = 5 * MINUTE * IN_MILLISECONDS;
+        Group const* pGroup = me->GetGroup();
+        if (pGroup && pGroup->IsMember(m_leaderGuid) && m_leaderOfflineTime < LEADER_OFFLINE_TOLERANCE)
+        {
+            m_leaderOfflineTime += diff;
+
+            // Keep fighting while waiting for him (no following, no out of combat actions).
+            if (me->IsAlive() && !me->IsNonMeleeSpellCasted(false, false, true))
+            {
+                Unit* pEnemy = me->GetVictim();
+                if (m_role != ROLE_HEALER)
+                {
+                    if (!pEnemy || pEnemy->IsDead() || pEnemy->HasBreakableByDamageCrowdControlAura() || !IsValidHostileTarget(pEnemy))
+                    {
+                        if (Unit* pNewEnemy = SelectAttackTarget())
+                        {
+                            AttackStart(pNewEnemy);
+                            return;
+                        }
+                    }
+                }
+                else
+                    pEnemy = SelectAttackTarget();
+
+                if (pEnemy || me->IsInCombat())
+                    UpdateInCombatAI();
+            }
+            return;
+        }
+
         botEntry->requestRemoval = true;
         return;
     }
+
+    m_leaderOfflineTime = 0;
 
     if (!pLeader->IsInWorld())
         return;
@@ -1692,6 +1804,10 @@ void PartyBotAI::UpdateInCombatAI()
 
     // Check if combat engagement is ready
     if (!pCombatEngagementReady)
+        return;
+
+    // Cannot see the enemy: walk to the group member under attack instead of standing out of range.
+    if (MoveToAllyUnderAttack())
         return;
 
     // If role is Tank, try to find and defend party members.

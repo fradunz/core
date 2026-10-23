@@ -115,6 +115,8 @@ public:
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget() const;
     Unit* SelectPartyAttackTarget() const;
+    Player* SelectAllyUnderAttack(Unit* pEnemy) const;
+    bool MoveToAllyUnderAttack();
     Unit* SelectSpellTargetDifferentFrom(SpellEntry const* pSpellEntry, Unit* pVictim, float distance = 10.0f) const;
     Player* SelectResurrectionTarget() const;
     Player* SelectShieldTarget() const;
@@ -173,6 +175,7 @@ public:
     ObjectGuid m_leaderGuid;
     ObjectGuid m_cloneGuid;
     ObjectGuid m_distObjGuid;
+    ObjectGuid m_helpAllyGuid;
     SpellEntry const* m_potionSpell = nullptr;
     SpellEntry const* m_elixirSpell = nullptr;
     SpellEntry const* m_flaskSpell = nullptr;
@@ -184,6 +187,7 @@ public:
     uint32 m_mapId = 0;
     uint32 m_instanceId = 0;
     uint32 m_ressTimer = 0;
+    uint32 m_leaderOfflineTime = 0;
     uint32 m_aoeSpellTimer = 0;
     uint32 m_spellTimer1 = 0;
     uint32 m_dispelTimer = 0;          // restarted by any dispel, limits low priority dispels
