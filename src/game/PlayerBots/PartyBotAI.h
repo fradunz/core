@@ -117,6 +117,9 @@ public:
     Unit* SelectPartyAttackTarget() const;
     Player* SelectAllyUnderAttack(Unit* pEnemy) const;
     bool MoveToAllyUnderAttack();
+    bool UpdateTimeLimit(Player* pLeader);
+    bool IsTimeLimitSpokesman() const;
+    void SayInParty(char const* text);
     Unit* SelectSpellTargetDifferentFrom(SpellEntry const* pSpellEntry, Unit* pVictim, float distance = 10.0f) const;
     Player* SelectResurrectionTarget() const;
     Player* SelectShieldTarget() const;
@@ -188,6 +191,13 @@ public:
     uint32 m_instanceId = 0;
     uint32 m_ressTimer = 0;
     uint32 m_leaderOfflineTime = 0;
+public:
+    // Bots recruited at the meeting stone leave after a while: 20 minutes to reach an instance, 5 minutes after leaving one.
+    bool m_timeLimited = false;
+private:
+    time_t m_limitPhaseStart = 0;
+    bool m_limitSeenInstance = false;
+    uint8 m_limitWarnings = 0;
     uint32 m_aoeSpellTimer = 0;
     uint32 m_spellTimer1 = 0;
     uint32 m_dispelTimer = 0;          // restarted by any dispel, limits low priority dispels

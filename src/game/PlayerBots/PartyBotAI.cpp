@@ -1020,6 +1020,96 @@ Player* PartyBotAI::SelectAllyUnderAttack(Unit* pEnemy) const
     return pBest;
 }
 
+void PartyBotAI::SayInParty(char const* text)
+{
+    Group* pGroup = me->GetGroup();
+    if (!pGroup)
+        return;
+
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_PARTY, text, me->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH, me->GetChatTag(), me->GetObjectGuid(), me->GetName());
+    pGroup->BroadcastPacket(&data, false);
+}
+
+// Only one of the time limited bots of the group speaks, the one with the lowest guid.
+bool PartyBotAI::IsTimeLimitSpokesman() const
+{
+    Group* pGroup = me->GetGroup();
+    if (!pGroup)
+        return false;
+
+    for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+    {
+        Player const* pMember = itr->getSource();
+        if (!pMember || pMember == me || !pMember->IsBot() || pMember->GetGUIDLow() > me->GetGUIDLow())
+            continue;
+
+        PlayerBotEntry const* pEntry = pMember->GetSession()->GetBot();
+        PartyBotAI const* pAI = pEntry ? dynamic_cast<PartyBotAI const*>(pEntry->ai.get()) : nullptr;
+        if (pAI && pAI->m_timeLimited)
+            return false;
+    }
+    return true;
+}
+
+// Time limited bots leave 20 minutes after being recruited unless the leader enters an instance (or battleground); after leaving it they stay 5 more minutes.
+// Returns true if the bot was asked to leave.
+bool PartyBotAI::UpdateTimeLimit(Player* pLeader)
+{
+    static uint32 const TRAVEL_TIME = 20 * MINUTE;          // Seconds to reach an instance.
+    static uint32 const AFTER_INSTANCE_TIME = 5 * MINUTE;   // Seconds to stay after leaving an instance.
+    static uint32 const FIRST_WARNING = 5 * MINUTE;
+    static uint32 const LAST_WARNING = MINUTE;
+
+    if (!m_timeLimited)
+        return false;
+
+    time_t const now = time(nullptr);
+
+    Map const* pMap = pLeader->GetMap();
+    if (pLeader->InBattleGround() || (pMap && pMap->IsDungeon()))
+    {
+        m_limitSeenInstance = true;
+        m_limitPhaseStart = now;
+        m_limitWarnings = 0;
+        return false;
+    }
+
+    if (!m_limitPhaseStart)
+        m_limitPhaseStart = now;
+
+    uint32 const limit = m_limitSeenInstance ? AFTER_INSTANCE_TIME : TRAVEL_TIME;
+    uint32 const elapsed = uint32(now - m_limitPhaseStart);
+    uint32 const remaining = elapsed >= limit ? 0 : limit - elapsed;
+
+    if (!remaining)
+    {
+        if (IsTimeLimitSpokesman())
+            SayInParty("Our time together is over. Farewell, and good luck!");
+        botEntry->requestRemoval = true;
+        return true;
+    }
+
+    if (remaining <= LAST_WARNING)
+    {
+        if (!(m_limitWarnings & 2))
+        {
+            m_limitWarnings |= 3;
+            if (IsTimeLimitSpokesman())
+                SayInParty("Only one minute left before we part ways.");
+        }
+    }
+    else if (remaining <= FIRST_WARNING && !(m_limitWarnings & 1))
+    {
+        m_limitWarnings |= 1;
+        if (IsTimeLimitSpokesman())
+            SayInParty(m_limitSeenInstance ? "Our adventure is nearly over. We part ways in 5 minutes." :
+                                             "We can only stay with you for 5 more minutes. Find a dungeon, adventurer!");
+    }
+
+    return false;
+}
+
 // Out of sight of the enemy we are fighting: walk once to the group member who is under attack (world and dungeons, not raids).
 bool PartyBotAI::MoveToAllyUnderAttack()
 {
@@ -1467,6 +1557,9 @@ void PartyBotAI::UpdateAI(uint32 const diff)
     m_leaderOfflineTime = 0;
 
     if (!pLeader->IsInWorld())
+        return;
+
+    if (UpdateTimeLimit(pLeader))
         return;
 
     if (pLeader->InBattleGround() &&

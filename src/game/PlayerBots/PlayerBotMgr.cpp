@@ -535,7 +535,7 @@ bool PlayerBotMgr::DeleteBot(std::map<uint64, std::shared_ptr<PlayerBotEntry>>::
     return true;
 }
 
-bool PlayerBotMgr::AddPartyBot(Player* pPlayer, std::string option, uint32 forceLevel)
+bool PlayerBotMgr::AddPartyBot(Player* pPlayer, std::string option, uint32 forceLevel, bool timeLimited)
 {
     if (!pPlayer)
         return false;
@@ -625,6 +625,7 @@ bool PlayerBotMgr::AddPartyBot(Player* pPlayer, std::string option, uint32 force
     pPlayer->GetNearPoint(pPlayer, x, y, z, 0, 5.0f, frand(0.0f, 6.0f));
 
     PartyBotAI* ai = new PartyBotAI(pPlayer, nullptr, botRole, botRace, botClass, botLevel, pPlayer->GetMapId(), pPlayer->GetMap()->GetInstanceId(), x, y, z, pPlayer->GetOrientation());
+    ai->m_timeLimited = timeLimited;
     AddBot(ai);
 
     return true;
@@ -1146,7 +1147,8 @@ bool ChatHandler::PartyBotMenuAdd(Player* pPlayer, char const* option)
     ChatHandler handler(pPlayer->GetSession());
     if (!handler.PartyBotAddRequirementCheck(pPlayer, nullptr))
         return false;
-    return sPlayerBotMgr.AddPartyBot(pPlayer, option, 0);
+    // Bots recruited at the meeting stone only stay for a limited time outside of instances.
+    return sPlayerBotMgr.AddPartyBot(pPlayer, option, 0, true);
 }
 
 bool ChatHandler::HandlePartyBotAddCommand(char* args)
