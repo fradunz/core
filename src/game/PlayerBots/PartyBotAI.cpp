@@ -546,6 +546,10 @@ void PartyBotAI::LearnPremadeSpecForClass()
         m_buildTalentSource += " +" + std::to_string(bonusPoints) + " bonus";
     }
 
+    // The gear depends on the role (shield for tanks), so decide it now that the talents are known.
+    if (m_role == ROLE_INVALID)
+        AutoAssignRole();
+
     if (!gearApplied)
     {
         if (gearMode == PLAYER_BOT_AUTO_EQUIP_STARTING_GEAR)
@@ -2873,9 +2877,11 @@ void PartyBotAI::UpdateInCombatAI_Mage()
             }
         }
 
-        if (GetAttackersInRangeCount(10.0f) > 1)
+        uint32 const attackersInRange = GetAttackersInRangeCount(10.0f);
+        if (attackersInRange > 0)
         {
             if (m_spells.mage.pManaShield &&
+                attackersInRange > 1 &&
                (me->GetPowerPercent(POWER_MANA) > 20.0f) &&
                 CanTryToCastSpell(me, m_spells.mage.pManaShield))
             {
@@ -2886,6 +2892,7 @@ void PartyBotAI::UpdateInCombatAI_Mage()
             if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != DISTANCING_MOTION_TYPE)
             {
                 if (m_spells.mage.pBlink &&
+                    attackersInRange > 1 &&
                     (me->HasUnitState(UNIT_STATE_CAN_NOT_MOVE) ||
                         me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)) &&
                     CanTryToCastSpell(me, m_spells.mage.pBlink))
@@ -3034,16 +3041,18 @@ void PartyBotAI::UpdateInCombatAI_Mage()
         if (TryWand(pVictim))
             return;
 
+        // Fire Blast is an instant cast: use it whenever it is ready and there is mana to spare.
+        if (m_spells.mage.pFireBlast &&
+            me->GetPowerPercent(POWER_MANA) > 25.0f &&
+            CanTryToCastSpell(pVictim, m_spells.mage.pFireBlast))
+        {
+            if (DoCastSpell(pVictim, m_spells.mage.pFireBlast) == SPELL_CAST_OK)
+                return;
+        }
+
         // If has improved fireball, try fire spells
         if (m_spells.mage.pImprovedFireball)
         {
-            if (m_spells.mage.pFireBlast &&
-                CanTryToCastSpell(pVictim, m_spells.mage.pFireBlast))
-            {
-                if (DoCastSpell(pVictim, m_spells.mage.pFireBlast) == SPELL_CAST_OK)
-                    return;
-            }
-
             if (m_spells.mage.pScorch &&
                 CanTryToCastSpell(pVictim, m_spells.mage.pScorch))
             {
@@ -3078,6 +3087,17 @@ void PartyBotAI::UpdateInCombatAI_Mage()
             CanTryToCastSpell(pVictim, m_spells.mage.pArcaneMissiles,2))
         {
             if (DoCastSpell(pVictim, m_spells.mage.pArcaneMissiles) == SPELL_CAST_OK)
+                return;
+        }
+
+        // Frost mages stay with Frostbolt. The others cast Fireball, then Frostbolt while the Fireball DoT is running on the target,
+        // and Fireball again when it ends.
+        if (m_spells.mage.pFireball &&
+            !m_spells.mage.pImprovedFrostbolt &&
+            !pVictim->GetSpellAuraHolder(m_spells.mage.pFireball->Id, me->GetObjectGuid()) &&
+            CanTryToCastSpell(pVictim, m_spells.mage.pFireball, 2))
+        {
+            if (DoCastSpell(pVictim, m_spells.mage.pFireball) == SPELL_CAST_OK)
                 return;
         }
 

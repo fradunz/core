@@ -461,6 +461,7 @@ public:
             SpellEntry const* pImprovedArcaneExplosion;
             SpellEntry const* pImprovedFlamestrike;
             SpellEntry const* pImprovedFireball;
+            SpellEntry const* pImprovedFrostbolt;
             SpellEntry const* pImprovedScorch;
             SpellEntry const* pImprovedArcaneMissiles;
         } mage;

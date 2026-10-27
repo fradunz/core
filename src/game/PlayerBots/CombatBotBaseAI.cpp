@@ -220,6 +220,11 @@ void CombatBotBaseAI::PopulateSpellData()
                         if (IsHigherRankSpell(m_spells.mage.pImprovedFireball))
                             m_spells.mage.pImprovedFireball = pSpellEntry;
                     }
+                    else if (pSpellEntry->SpellName[0].find("Improved Frostbolt") != std::string::npos)
+                    {
+                        if (IsHigherRankSpell(m_spells.mage.pImprovedFrostbolt))
+                            m_spells.mage.pImprovedFrostbolt = pSpellEntry;
+                    }
                     else if (pSpellEntry->SpellName[0].find("Improved Scorch") != std::string::npos)
                     {
                         if (IsHigherRankSpell(m_spells.mage.pImprovedScorch))
@@ -3009,6 +3014,10 @@ void CombatBotBaseAI::EquipRandomGearInEmptySlots()
         if (pProto->InventoryType == INVTYPE_TABARD || pProto->InventoryType == INVTYPE_BODY)
             continue;
 
+        // Warriors do not use staves
+        if (me->GetClass() == CLASS_WARRIOR && pProto->Class == ITEM_CLASS_WEAPON && pProto->SubClass == ITEM_SUBCLASS_WEAPON_STAFF)
+            continue;
+
         if (pProto->SourceQuestRaces && !(pProto->SourceQuestRaces & me->GetRaceMask()))
             continue;
 
@@ -3071,6 +3080,12 @@ void CombatBotBaseAI::EquipRandomGearInEmptySlots()
             if (slot >= EQUIPMENT_SLOT_START && slot < EQUIPMENT_SLOT_END &&
                 !me->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
             {
+                // Tanks that use a shield need a one handed weapon
+                if (slot == EQUIPMENT_SLOT_MAINHAND &&
+                    pProto->InventoryType == INVTYPE_2HWEAPON &&
+                    m_role == ROLE_TANK && IsShieldClass(me->GetClass()))
+                    continue;
+
                 // Offhand checks
                 if (slot == EQUIPMENT_SLOT_OFFHAND)
                 {
