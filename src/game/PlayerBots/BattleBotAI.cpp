@@ -1408,6 +1408,28 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         }
     }
 
+    // The battleground is over: stop fighting and moving, and wait for the leave time.
+    if (BattleGround* pEndedBG = me->GetBattleGround())
+    {
+        if (pEndedBG->GetStatus() == STATUS_WAIT_LEAVE)
+        {
+            if (me->GetVictim() || me->IsNonMeleeSpellCasted(false))
+            {
+                me->AttackStop();
+                me->InterruptNonMeleeSpells(false);
+                me->ClearTarget();
+            }
+            if (me->IsMoving())
+            {
+                me->StopMoving();
+                me->GetMotionMaster()->Clear();
+                me->GetMotionMaster()->MoveIdle();
+            }
+            m_decidePending = false;
+            return;
+        }
+    }
+
     if (me->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL))
     {
         BreakCrowdControlEffects();
