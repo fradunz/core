@@ -192,6 +192,7 @@ set (game_SRCS
     PlayerBots/PartyBotAI.cpp
     PlayerBots/CombatBotBaseAI.cpp
     PlayerBots/BattleBotAI.cpp
+    PlayerBots/BattleBotABGraph.cpp
     PlayerBots/BattleBotWaypoints.cpp
     PlayerBots/PlayerBotAI.cpp
     PlayerBots/PlayerBotMgr.cpp
@@ -445,6 +446,7 @@ set (game_SRCS
     PlayerBots/CombatBotBaseAI.h
     PlayerBots/PartyBotAI.h
     PlayerBots/BattleBotAI.h
+    PlayerBots/BattleBotABGraph.h
     PlayerBots/BattleBotWaypoints.h
     PlayerBots/PlayerBotAI.h
     PlayerBots/PlayerBotMgr.h

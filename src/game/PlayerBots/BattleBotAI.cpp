@@ -1086,6 +1086,11 @@ void BattleBotAI::DecideNextAction()
         }
     }
 
+    // Arathi Basin: an interrupted leg is finished first, decisions are only taken at hubs.
+    BattleGround* pBG = me->GetBattleGround();
+    if (pBG && pBG->GetTypeID() == BATTLEGROUND_AB && ResumeSavedPath())
+        return;
+
     if (StartNewPathToObjective())
         return;
 

@@ -139,6 +139,9 @@ public:
     bool StartNewPathFromBeginning();
     void StartNewPathFromAnywhere();
     bool StartNewPathToObjective();
+    // Arathi Basin: decisions are taken at the hubs of the route graph (see BattleBotABGraph.h).
+    bool StartNewPathToObjectiveAB();
+    bool ABCaptureFlag();
     void SavePathForResume();
     bool FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const;
     bool ResumeSavedPath();
