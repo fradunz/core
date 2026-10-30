@@ -149,6 +149,8 @@ public:
     uint8 GetWSGFlagState() const;
     void PatrolAround(Position const& center, float radius);
     void WanderAtStart();
+    void WanderAround(Position const& center, float minDistance, float maxDistance);
+    void WanderAroundHub(uint8 hub);
     bool HelpFightingAlly();
     bool IsWSGDefender() const { return m_wsgRole == WSG_ROLE_DEFENDER; }
     bool IsWSGCapturer() const { return m_wsgRole == WSG_ROLE_CAPTURER; }

@@ -6,6 +6,7 @@
 #include "Database/DatabaseEnv.h"
 #include "PlayerBotAI.h"
 #include "BattleGroundDefines.h"
+#include "ABCoordinator.h"
 
 #include <vector>
 #include <memory>
@@ -113,6 +114,7 @@ class PlayerBotMgr
         uint32 GenBotAccountId() { return ++m_maxAccountId; }
         PlayerBotStats& GetStats(){ return m_stats; }
         void Start() { m_confEnableRandomBots = true; }
+        ABCoordinator& GetABCoordinator() { return m_abCoordinator; }
     protected:
         // How long since last update?
         uint32 m_elapsedTime;
@@ -128,6 +130,7 @@ class PlayerBotMgr
         std::map<uint64 /*pl guid*/, std::shared_ptr<PlayerBotEntry>> m_bots;
         std::map<uint32 /*account*/, uint32> m_tempBots;
         PlayerBotStats m_stats;
+        ABCoordinator m_abCoordinator;
 
         uint32 m_confMinRandomBots;
         uint32 m_confMaxRandomBots;

@@ -17,6 +17,8 @@
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
 #include "BattleBotABGraph.h"
+#include "ABCoordinator.h"
+#include "PlayerBotMgr.h"
 #include "WorldPacket.h"
 #include "Opcodes.h"
 #include "Player.h"
@@ -1810,18 +1812,24 @@ void BattleBotAI::WanderAtStart()
         pCenter = me->GetTeam() == HORDE ? &hordeSpawn : &allianceSpawn;
     }
 
-    // Short walks, so nobody gets far from the door he is waiting at. A spot is only used when the navmesh really
-    // leads there without crossing a closed gate (otherwise the bot would walk straight through it, or under the floor).
+    // Short walks, so nobody gets far from the door he is waiting at.
+    WanderAround(*pCenter, 0.0f, 7.0f);
+}
+
+// Walks to a random spot around a center. A spot is only used when the navmesh really leads there without crossing a closed
+// gate (otherwise the bot would walk straight through it, or under the floor).
+void BattleBotAI::WanderAround(Position const& center, float minDistance, float maxDistance)
+{
     for (uint32 attempt = 0; attempt < 6; attempt++)
     {
         float const angle = frand(0.0f, 2 * M_PI_F);
-        float const distance = frand(2.0f, 7.0f);
-        float const x = pCenter->x + distance * std::cos(angle);
-        float const y = pCenter->y + distance * std::sin(angle);
+        float const distance = frand(minDistance, maxDistance);
+        float const x = center.x + distance * std::cos(angle);
+        float const y = center.y + distance * std::sin(angle);
 
         PathFinder path(me);
         path.ExcludeSteepSlopes();
-        path.calculate(x, y, pCenter->z, false);
+        path.calculate(x, y, center.z, false);
         if (path.getPathType() != PATHFIND_NORMAL)
             continue;
 
@@ -1838,6 +1846,20 @@ void BattleBotAI::WanderAtStart()
         me->GetMotionMaster()->MovePoint(0, end.x, end.y, end.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
         return;
     }
+}
+
+// Arathi Basin defenders hold their flag walking around its hub from time to time.
+void BattleBotAI::WanderAroundHub(uint8 hub)
+{
+    static float const WANDER_RADIUS = 15.0f;
+
+    uint32 const now = WorldTimer::getMSTime();
+    if (int32(m_wanderNextMove - now) > 0 || me->IsInCombat() || me->IsMounted())
+        return;
+    m_wanderNextMove = now + urand(5, 12) * IN_MILLISECONDS;
+
+    ABGraph::Hub const& hubData = ABGraph::GetHub(hub);
+    WanderAround(Position(hubData.x, hubData.y, hubData.z, 0.0f), 0.0f, WANDER_RADIUS);
 }
 
 // Go and help an ally that is fighting, even if we do not see his enemies yet.
@@ -2574,26 +2596,7 @@ bool BattleBotAI::ResumeSavedPath()
     return true;
 }
 
-// Arathi Basin: state of a flag node (0 neutral, 1/2 contested by Alliance/Horde, 3/4 occupied by Alliance/Horde).
-static uint8 const AB_NODE_STATE_INVALID = 0xFF;
 static float const AB_HUB_RADIUS = 25.0f; // A bot this close to a hub without a path is considered to be at it.
-
-static uint8 GetABNodeState(BattleGround const* pBG, uint8 node)
-{
-    for (uint8 state = 0; state <= BG_AB_NODE_STATUS_HORDE_OCCUPIED; state++)
-    {
-        if (pBG->IsActiveEvent(node, state))
-            return state;
-    }
-    return AB_NODE_STATE_INVALID;
-}
-
-// A flag can be captured by a team when it is neutral or belongs (even if contested) to the other team.
-// Odd states are Alliance (team index 0 is 'even'), see BattleGroundAB::EventPlayerClickedOnFlag().
-static bool CanCaptureABNode(uint8 state, uint8 teamIndex)
-{
-    return state != AB_NODE_STATE_INVALID && (state == BG_AB_NODE_TYPE_NEUTRAL || (state % 2) == teamIndex);
-}
 
 // Standing at the hub of the flag: capture it.
 bool BattleBotAI::ABCaptureFlag()
@@ -2646,8 +2649,8 @@ bool BattleBotAI::ABCaptureFlag()
     return true;
 }
 
-// Arathi Basin: decisions are taken at hubs only. The bot goes for the closest flag it can capture
-// (provisional objective, until the shared coordinator hands out objectives).
+// Arathi Basin: decisions are taken at hubs only. The shared coordinator hands out the objective (a flag to capture or
+// to hold, see ABCoordinator); the shortest route to it is walked one leg at a time.
 bool BattleBotAI::StartNewPathToObjectiveAB()
 {
     BattleGround* bg = me->GetBattleGround();
@@ -2658,49 +2661,22 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
     if (hub == ABGraph::HUB_NONE)
         return false;
 
-    uint8 const teamIndex = me->GetTeam() == HORDE ? 1 : 0;
+    ABObjective const objective = sPlayerBotMgr.GetABCoordinator().GetObjective(bg, me);
+    if (objective.node == 0xFF)
+        return false;
 
-    // Closest flag that can be captured, by walking distance from this hub.
-    uint8 targetHub = ABGraph::HUB_NONE;
-    float targetLength = FLT_MAX;
-    uint32 ties = 0;
-    for (uint8 node = 0; node < BG_AB_NODES_MAX; node++)
-    {
-        if (!CanCaptureABNode(GetABNodeState(bg, node), teamIndex))
-            continue;
-
-        uint8 const flagHub = ABGraph::GetFlagHub(node);
-        float const length = ABGraph::GetRouteLength(hub, flagHub);
-        if (length == FLT_MAX)
-            continue;
-
-        if (length < targetLength)
-        {
-            targetLength = length;
-            targetHub = flagHub;
-            ties = 1;
-        }
-        else if (length == targetLength && !urand(0, ties++))
-            targetHub = flagHub;
-    }
-
-    // Nothing to capture: walk to another flag.
+    uint8 const targetHub = ABGraph::GetFlagHub(objective.node);
     if (targetHub == ABGraph::HUB_NONE)
-    {
-        std::vector<uint8> others;
-        for (uint8 node = 0; node < BG_AB_NODES_MAX; node++)
-        {
-            uint8 const flagHub = ABGraph::GetFlagHub(node);
-            if (flagHub != hub && ABGraph::GetRouteLength(hub, flagHub) != FLT_MAX)
-                others.push_back(flagHub);
-        }
-        if (others.empty())
-            return false;
-        targetHub = SelectRandomContainerElement(others);
-    }
+        return false;
 
     if (targetHub == hub)
-        return ABCaptureFlag();
+    {
+        // Capture it, or hold it.
+        if (objective.mode == AB_MODE_ATTACK)
+            return ABCaptureFlag();
+        WanderAroundHub(hub);
+        return true;
+    }
 
     BattleBotPath* pLeg = nullptr;
     bool reverse = false;

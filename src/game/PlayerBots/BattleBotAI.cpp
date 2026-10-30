@@ -1119,6 +1119,7 @@ void BattleBotAI::DecideNextAction()
 
 void BattleBotAI::OnJustDied()
 {
+    sPlayerBotMgr.GetABCoordinator().OnDeath(me->GetObjectGuid());
     m_decidePending = false;
     m_resumePath = nullptr;
     ClearPath();
@@ -1191,6 +1192,7 @@ void BattleBotAI::OnEnterBattleGround()
 
 void BattleBotAI::OnLeaveBattleGround()
 {
+    sPlayerBotMgr.GetABCoordinator().Unregister(me->GetObjectGuid());
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
