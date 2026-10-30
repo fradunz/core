@@ -19,6 +19,7 @@
 #include "BattleGround.h"
 #include "BattleGroundWS.h"
 #include "Player.h"
+#include "BattleBotABGraph.h"
 #include "Group.h"
 #include "CreatureAI.h"
 #include "Log.h"
@@ -716,7 +717,19 @@ bool BattleBotAI::IsFocusFightTooLong() const
 bool BattleBotAI::ShouldKeepMoving() const
 {
     return ShouldIgnoreCombat() ||
-           (IsObjectiveFocused() && (IsFocusFightTooLong() || !SelectAttackTarget(nullptr)));
+           (IsObjectiveFocused() && (IsFocusFightTooLong() || !SelectAttackTarget(nullptr))) ||
+           IsCombatFlagStale();
+}
+
+// The combat flag takes a few seconds to expire after the last enemy is gone. In Arathi Basin the bot does not wait for it:
+// with nobody attacking it and no enemy to attack, it goes back to its route right away.
+bool BattleBotAI::IsCombatFlagStale() const
+{
+    BattleGround const* pBG = me->GetBattleGround();
+    if (!pBG || pBG->GetTypeID() != BATTLEGROUND_AB || !me->IsInCombat() || !me->IsAlive())
+        return false;
+
+    return !me->GetVictim() && !me->IsNonMeleeSpellCasted(false) && !IsBeingAttacked() && !SelectAttackTarget(nullptr);
 }
 
 Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
@@ -1055,7 +1068,7 @@ void BattleBotAI::UpdateWaypointMovement()
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
         {
             // Do not stand still while the gates are closed.
-            if (bg->GetTypeID() == BATTLEGROUND_WS)
+            if (bg->GetTypeID() == BATTLEGROUND_WS || bg->GetTypeID() == BATTLEGROUND_AB)
                 WanderAtStart();
             return;
         }
@@ -1163,10 +1176,9 @@ void BattleBotAI::OnEnterBattleGround()
     }
     else if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
-        if (me->GetTeam() == HORDE)
-            me->GetMotionMaster()->MovePoint(0, AB_WAITING_POS_HORDE.x + frand(-2.0f, 2.0f), AB_WAITING_POS_HORDE.y + frand(-2.0f, 2.0f), AB_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, AB_WAITING_POS_HORDE.o);
-        else
-            me->GetMotionMaster()->MovePoint(0, AB_WAITING_POS_ALLIANCE.x + frand(-2.0f, 2.0f), AB_WAITING_POS_ALLIANCE.y + frand(-2.0f, 2.0f), AB_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, AB_WAITING_POS_ALLIANCE.o);
+        // Wait at the base hub, with room to walk around until the gates open (see WanderAtStart()).
+        ABGraph::Hub const& hub = ABGraph::GetHub(me->GetTeam() == HORDE ? ABGraph::HUB_HS : ABGraph::HUB_AS);
+        me->GetMotionMaster()->MovePoint(0, hub.x + frand(-2.0f, 2.0f), hub.y + frand(-2.0f, 2.0f), hub.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
     }
     else if (bg->GetTypeID() == BATTLEGROUND_AV)
     {
@@ -1230,7 +1242,15 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     if (m_updateTimer.Passed())
         m_updateTimer.Reset(BB_UPDATE_INTERVAL);
     else
+    {
+        // Arathi Basin: follow the route between the slow updates. Checked only once per second, a bot running at mount speed
+        // would pass the arrival radius of hubs and stop there until the next update.
+        if (m_initialized && m_battlegroundId == BATTLEGROUND_QUEUE_AB && me->IsInWorld() && !me->IsBeingTeleported() &&
+            !m_doingGraveyardJump && me->GetBattleGround() && me->GetBattleGround()->GetStatus() == STATUS_IN_PROGRESS &&
+            !me->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL))
+            UpdatePathProgress();
         return;
+    }
 
     if (!me->IsInWorld() || me->IsBeingTeleported() || m_doingGraveyardJump)
         return;
@@ -1584,6 +1604,13 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
                 StopMoving();
         }
+        UpdateWaypointMovement();
+        return;
+    }
+
+    // Arathi Basin: the fight is over, go back to the route.
+    if (IsCombatFlagStale())
+    {
         UpdateWaypointMovement();
         return;
     }

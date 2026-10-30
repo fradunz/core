@@ -155,6 +155,8 @@ public:
     void RollWSGRole();
     bool IsObjectiveFocused() const;
     bool ShouldKeepMoving() const;
+    // Arathi Basin: still flagged as in combat, but nobody is fighting us and there is nobody to fight.
+    bool IsCombatFlagStale() const;
     bool IsFocusFightTooLong() const;
     bool IsBeingAttacked() const;
     bool HasHostilePlayerNearby(float range) const;

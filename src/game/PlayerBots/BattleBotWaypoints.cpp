@@ -1712,6 +1712,12 @@ void BattleBotAI::MoveToNextPoint()
     // Arathi Basin legs end at hubs, where the next leg is chosen without a stop.
     bool const chainsOnArrival = !nextPoint.pFunc && isLastPoint && (isWSG || isAB);
     m_cornerTolerance = (isPlainPoint || chainsOnArrival) ? frand(3.0f, 5.0f) : 0.0f;
+    // Arathi Basin: a wider arrival radius. Hubs must stay below the distance between the two closest ones (SGY and SH2, 11.7 yards),
+    // or a bot spawning at one of them would be at the end of the leg to the other without moving.
+    if (isAB && isPlainPoint)
+        m_cornerTolerance = frand(6.0f, 9.0f);
+    else if (isAB && chainsOnArrival)
+        m_cornerTolerance = frand(6.0f, 8.0f);
     if (isPlainPoint)
     {
         m_moveTargetX = nextPoint.x + frand(-3.0f, 3.0f);
@@ -1783,8 +1789,17 @@ void BattleBotAI::WanderAtStart()
         return;
     m_wanderNextMove = now + urand(4, 10) * IN_MILLISECONDS;
 
+    // Arathi Basin: around the base hub (the spot picked for the room the bots have to move in).
+    Position abCenter;
     Position const* pCenter;
-    if (m_waitingSpot == BB_WSG_WAIT_SPOT_RIGHT)
+    BattleGround const* pBG = me->GetBattleGround();
+    if (pBG && pBG->GetTypeID() == BATTLEGROUND_AB)
+    {
+        ABGraph::Hub const& hub = ABGraph::GetHub(me->GetTeam() == HORDE ? ABGraph::HUB_HS : ABGraph::HUB_AS);
+        abCenter = Position(hub.x, hub.y, hub.z, 0.0f);
+        pCenter = &abCenter;
+    }
+    else if (m_waitingSpot == BB_WSG_WAIT_SPOT_RIGHT)
         pCenter = me->GetTeam() == HORDE ? &WS_WAITING_POS_HORDE_1 : &WS_WAITING_POS_ALLIANCE_1;
     else if (m_waitingSpot == BB_WSG_WAIT_SPOT_LEFT)
         pCenter = me->GetTeam() == HORDE ? &WS_WAITING_POS_HORDE_2 : &WS_WAITING_POS_ALLIANCE_2;
@@ -1973,11 +1988,15 @@ void BattleBotAI::UpdatePathProgress()
         }
     }
 
+    // Arathi Basin: the fight is over, resume the route right away instead of waiting for the combat flag to expire.
+    if (!m_currentPath && IsCombatFlagStale())
+        m_decidePending = true;
+
     if (m_decidePending)
     {
         m_decidePending = false;
         BattleGround* pBG = me->GetBattleGround();
-        if (!m_currentPath && me->IsAlive() && !me->IsInCombat() && !m_doingGraveyardJump &&
+        if (!m_currentPath && me->IsAlive() && (!me->IsInCombat() || IsCombatFlagStale()) && !m_doingGraveyardJump &&
             pBG && (pBG->GetTypeID() == BATTLEGROUND_WS || pBG->GetTypeID() == BATTLEGROUND_AB) &&
             pBG->GetStatus() == STATUS_IN_PROGRESS)
             DecideNextAction();
