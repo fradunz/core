@@ -19,6 +19,7 @@
 #include "BattleGroundAB.h"
 #include "Player.h"
 #include "Utilities/Random.h"
+#include <algorithm>
 #include <vector>
 
 namespace
@@ -29,6 +30,8 @@ namespace
     uint32 const PURGE_INTERVAL = 30 * IN_MILLISECONDS;
     // Share of the team (in %) for each role.
     uint32 const ROLE_SHARE[AB_ROLE_COUNT] = { 30, 30, 40 };
+    // How far below the best one (in bots) a role can be and still be picked.
+    float const ROLE_TOLERANCE = 1.0f;
 }
 
 uint8 GetABNodeState(BattleGround const* pBG, uint8 node)
@@ -56,21 +59,23 @@ uint8 ABCoordinator::PickRole(std::map<ObjectGuid, Assignment> const& bots)
         counts[entry.second.role]++;
 
     float const size = float(bots.size() + 1);
+    float deficits[AB_ROLE_COUNT];
     float bestDeficit = -FLT_MAX;
-    std::vector<uint8> best;
     for (uint8 role = 0; role < AB_ROLE_COUNT; role++)
     {
-        float const deficit = ROLE_SHARE[role] * size / 100.0f - float(counts[role]);
-        if (deficit > bestDeficit + 0.001f)
-        {
-            bestDeficit = deficit;
-            best.clear();
-            best.push_back(role);
-        }
-        else if (deficit > bestDeficit - 0.001f)
-            best.push_back(role);
+        deficits[role] = ROLE_SHARE[role] * size / 100.0f - float(counts[role]);
+        bestDeficit = std::max(bestDeficit, deficits[role]);
     }
-    return best[urand(0, best.size() - 1)];
+
+    // Any role that is not more than ROLE_TOLERANCE below the best one can be picked, so the roles of a team can be up to
+    // about 2 bots away from their shares.
+    std::vector<uint8> candidates;
+    for (uint8 role = 0; role < AB_ROLE_COUNT; role++)
+    {
+        if (deficits[role] >= bestDeficit - ROLE_TOLERANCE - 0.001f)
+            candidates.push_back(role);
+    }
+    return candidates[urand(0, candidates.size() - 1)];
 }
 
 uint32 ABCoordinator::CountHeld(Match const& match, uint8 teamIndex)
