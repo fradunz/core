@@ -309,6 +309,7 @@ class ChatHandler
         bool HandleBattleBotRemoveAllCommand(char* args);
         bool HandleBattleBotShowPathCommand(char* args);
         bool HandleBattleBotShowAllPathsCommand(char* args);
+        bool HandleBattleBotABStatusCommand(char* args);
 
         // spell_disabled
         bool HandleReloadSpellDisabledCommand(char *args);

@@ -321,3 +321,36 @@ void ABCoordinator::OnDeath(ObjectGuid guid)
         }
     }
 }
+
+bool ABCoordinator::GetSnapshot(uint32 instanceId, Snapshot& snapshot)
+{
+    std::lock_guard<std::mutex> guard(m_lock);
+    auto itr = m_matches.find(instanceId);
+    if (itr == m_matches.end())
+        return false;
+
+    Match const& match = itr->second;
+    snapshot = Snapshot();
+    snapshot.epoch = match.epoch;
+    snapshot.captureSlots = CAPTURE_SLOTS_PER_NODE;
+    for (uint32 node = 0; node < NODE_COUNT; node++)
+        snapshot.nodeStates[node] = match.nodeStates[node];
+
+    for (uint8 team = 0; team < 2; team++)
+    {
+        snapshot.held[team] = CountHeld(match, team);
+        snapshot.defenseWeight[team] = GetDefenseWeight(match, team);
+        snapshot.defenseSlots[team] = GetDefenseSlots(snapshot.defenseWeight[team]);
+        for (auto const& entry : match.bots[team])
+        {
+            SnapshotBot bot;
+            bot.guid = entry.first;
+            bot.role = entry.second.role;
+            bot.node = entry.second.node;
+            bot.mode = entry.second.mode;
+            bot.since = entry.second.since;
+            snapshot.bots[team].push_back(bot);
+        }
+    }
+    return true;
+}

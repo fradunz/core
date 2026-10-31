@@ -14,6 +14,7 @@
 #include <algorithm>
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
+#include "BattleBotABGraph.h"
 #include "BattleGroundMgr.h"
 #include "MapManager.h"
 #include "Language.h"
@@ -2332,5 +2333,138 @@ bool ChatHandler::HandleBattleBotShowAllPathsCommand(char* args)
     }
 
     PSendSysMessage("Showing %u paths for battleground.", id);
+    return true;
+}
+
+// Debug command: what the Arathi Basin coordinator has decided for the match the GM is in.
+bool ChatHandler::HandleBattleBotABStatusCommand(char* args)
+{
+    Player* pPlayer = m_session->GetPlayer();
+    BattleGround* pBG = pPlayer->GetBattleGround();
+    if (!pBG || pBG->GetTypeID() != BATTLEGROUND_AB)
+    {
+        SendSysMessage("You are not in an Arathi Basin battleground.");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    ABCoordinator::Snapshot snapshot;
+    if (!sPlayerBotMgr.GetABCoordinator().GetSnapshot(pBG->GetInstanceID(), snapshot))
+    {
+        SendSysMessage("The coordinator has no bots in this match yet.");
+        return true;
+    }
+
+    bool const verbose = args && strcmp(args, "verbose") == 0;
+
+    static char const* const nodeNames[5] = { "Stables", "Blacksmith", "Farm", "Lumber Mill", "Gold Mine" };
+    static char const* const stateNames[5] = { "neutral", "Alliance contested", "Horde contested", "Alliance held", "Horde held" };
+    static char const* const roleNames[AB_ROLE_COUNT] = { "Defender", "Capturer", "General" };
+    static char const* const classNames[12] = { "?", "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage", "Warlock", "?", "Druid", "?" };
+    static float const HUB_MAX_DISTANCE = 25.0f;
+    static size_t const MAX_LINE_LENGTH = 180;
+
+    PSendSysMessage("AB instance %u | epoch %u", pBG->GetInstanceID(), snapshot.epoch);
+    std::string flags;
+    for (uint32 node = 0; node < 5; node++)
+    {
+        if (node)
+            flags += " | ";
+        flags += nodeNames[node];
+        flags += "=";
+        flags += snapshot.nodeStates[node] < 5 ? stateNames[snapshot.nodeStates[node]] : "?";
+    }
+    PSendSysMessage("Flags: %s", flags.c_str());
+
+    for (uint8 team = 0; team < 2; team++)
+    {
+        std::vector<ABCoordinator::SnapshotBot> const& bots = snapshot.bots[team];
+
+        uint32 roleCount[AB_ROLE_COUNT] = { 0, 0, 0 };
+        uint32 defenders = 0;
+        for (ABCoordinator::SnapshotBot const& bot : bots)
+        {
+            if (bot.role < AB_ROLE_COUNT)
+                roleCount[bot.role]++;
+            if (bot.mode == AB_MODE_DEFEND)
+                defenders++;
+        }
+
+        PSendSysMessage("|cff%s== %s (%u bots) | flags held %u | defense %u%% (%u/%u slots) / attack %u%% ==|r",
+            team == 0 ? "0070dd" : "c41f3b", team == 0 ? "Alliance" : "Horde", uint32(bots.size()), snapshot.held[team],
+            snapshot.defenseWeight[team], defenders, snapshot.defenseSlots[team], 100 - snapshot.defenseWeight[team]);
+        PSendSysMessage("Roles: Defender %u | Capturer %u | General %u", roleCount[AB_ROLE_DEFENDER], roleCount[AB_ROLE_CAPTURER], roleCount[AB_ROLE_GENERAL]);
+
+        auto describe = [&](ABCoordinator::SnapshotBot const& bot) -> std::string
+        {
+            Player* pBot = sObjectAccessor.FindPlayer(bot.guid);
+            std::string text = pBot ? pBot->GetName() : "?";
+            text += " (";
+            text += pBot && pBot->GetClass() < 12 ? classNames[pBot->GetClass()] : "?";
+            text += ", ";
+            text += bot.role < AB_ROLE_COUNT ? roleNames[bot.role] : "?";
+            text += ") ";
+            if (!pBot || !pBot->IsInWorld() || pBot->GetBattleGround() != pBG)
+                text += "gone";
+            else if (!pBot->IsAlive())
+                text += "dead";
+            else
+            {
+                uint8 const hub = ABGraph::FindNearestHub(pBot->GetPositionX(), pBot->GetPositionY(), pBot->GetPositionZ(), HUB_MAX_DISTANCE);
+                text += hub != ABGraph::HUB_NONE ? std::string("@") + ABGraph::GetHub(hub).name : "in transit";
+            }
+            if (verbose)
+                text += " #" + std::to_string(bot.since);
+            return text;
+        };
+
+        // Prints "title | bot, bot, ..." splitting the line when it gets too long for the chat.
+        auto printLine = [&](std::string const& title, std::vector<ABCoordinator::SnapshotBot const*> const& list)
+        {
+            std::string line = title;
+            std::string separator = " ";
+            for (ABCoordinator::SnapshotBot const* pBot : list)
+            {
+                std::string const text = describe(*pBot);
+                if (separator != " " && separator != "" && line.size() + text.size() > MAX_LINE_LENGTH)
+                {
+                    SendSysMessage(line.c_str());
+                    line = "    ";
+                    separator = "";
+                }
+                line += separator + text;
+                separator = ", ";
+            }
+            SendSysMessage(line.c_str());
+        };
+
+        for (uint8 node = 0; node < 5; node++)
+        {
+            for (uint8 mode : { uint8(AB_MODE_DEFEND), uint8(AB_MODE_ATTACK) })
+            {
+                std::vector<ABCoordinator::SnapshotBot const*> list;
+                for (ABCoordinator::SnapshotBot const& bot : bots)
+                    if (bot.node == node && bot.mode == mode)
+                        list.push_back(&bot);
+                if (list.empty())
+                    continue;
+
+                std::string title = std::string("  ") + nodeNames[node] + (mode == AB_MODE_DEFEND ? " DEFEND " : " ATTACK ");
+                if (mode == AB_MODE_ATTACK)
+                    title += std::to_string(list.size()) + "/" + std::to_string(snapshot.captureSlots) + " |";
+                else
+                    title += std::to_string(list.size()) + " |";
+                printLine(title, list);
+            }
+        }
+
+        std::vector<ABCoordinator::SnapshotBot const*> idle;
+        for (ABCoordinator::SnapshotBot const& bot : bots)
+            if (bot.node >= 5 || bot.mode == AB_MODE_NONE)
+                idle.push_back(&bot);
+        if (!idle.empty())
+            printLine("  No objective |", idle);
+    }
+
     return true;
 }

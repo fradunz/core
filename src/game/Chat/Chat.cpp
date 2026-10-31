@@ -131,6 +131,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "removeall",    SEC_ADMINISTRATOR,    true,  &ChatHandler::HandleBattleBotRemoveAllCommand,    "", nullptr },
         { "showpath",     SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotShowPathCommand,     "", nullptr },
         { "showallpaths", SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotShowAllPathsCommand, "", nullptr },
+        { "abstatus",     SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotABStatusCommand,    "", nullptr },
         { nullptr,        0,                    false, nullptr,                                          "", nullptr },
     };
 

@@ -20,6 +20,7 @@
 #include "Common.h"
 #include "ObjectGuid.h"
 #include <map>
+#include <vector>
 #include <mutex>
 
 class BattleGround;
@@ -64,6 +65,30 @@ public:
     void Unregister(ObjectGuid guid);
     // The bot died: it chooses its objective again when it is back.
     void OnDeath(ObjectGuid guid);
+
+    // Copy of what the coordinator knows about a match, for the debug command (see HandleBattleBotABStatusCommand()).
+    struct SnapshotBot
+    {
+        ObjectGuid guid;
+        uint8 role = AB_ROLE_GENERAL;
+        uint8 node = 0xFF;
+        uint8 mode = AB_MODE_NONE;
+        uint32 since = 0;
+    };
+
+    struct Snapshot
+    {
+        uint8 nodeStates[5] = { 0, 0, 0, 0, 0 }; // As last seen by the coordinator.
+        uint32 epoch = 0;
+        std::vector<SnapshotBot> bots[2];        // Per team index (0 Alliance, 1 Horde).
+        uint32 held[2] = { 0, 0 };
+        uint32 defenseWeight[2] = { 0, 0 };      // In %, the attack weight is the rest.
+        uint32 defenseSlots[2] = { 0, 0 };       // Defenders the team has room for in total (not per flag).
+        uint32 captureSlots = 0;                  // Capturers each flag has room for.
+    };
+
+    // False if there is no match with this battleground instance id.
+    bool GetSnapshot(uint32 instanceId, Snapshot& snapshot);
 
 private:
     struct Assignment
