@@ -1121,6 +1121,8 @@ void BattleBotAI::DecideNextAction()
 void BattleBotAI::OnJustDied()
 {
     sPlayerBotMgr.GetABCoordinator().OnDeath(me->GetObjectGuid());
+    m_abObjective = ABObjective();
+    m_abLastHub = 0xFF;
     m_decidePending = false;
     m_resumePath = nullptr;
     ClearPath();
@@ -1259,6 +1261,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         return;
 
     UpdatePathProgress();
+    ABUpdateDefense();
 
     if (!m_initialized)
     {

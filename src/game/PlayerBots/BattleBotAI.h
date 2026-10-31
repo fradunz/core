@@ -19,6 +19,7 @@
 
 #include "CombatBotBaseAI.h"
 #include "BattleBotWaypoints.h"
+#include "ABCoordinator.h"
 
 enum BattleBotWsgWaitSpot
 {
@@ -141,6 +142,8 @@ public:
     bool StartNewPathToObjective();
     // Arathi Basin: decisions are taken at the hubs of the route graph (see BattleBotABGraph.h).
     bool StartNewPathToObjectiveAB();
+    // Defenders watch their flag: two or more enemies close to it (or an enemy capturing it) ask the team for support.
+    void ABUpdateDefense();
     bool ABCaptureFlag();
     void SavePathForResume();
     bool FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const;
@@ -192,6 +195,10 @@ public:
     uint8 m_wsgFlagState = 0; // Last flags situation seen (see GetWSGFlagState()).
     uint32 m_currentPoint = 0;
     BattleBotPath* m_currentPath = nullptr;
+    // Arathi Basin: the last objective the coordinator gave this bot, and the hub where it last looked for requests of support
+    // (a bot looks only when it arrives at a hub).
+    ABObjective m_abObjective;
+    uint8 m_abLastHub = 0xFF;
     // Path interrupted by a fight, so it can be resumed ahead of where the bot was instead of starting over.
     BattleBotPath* m_resumePath = nullptr;
     bool m_resumeReverse = false;

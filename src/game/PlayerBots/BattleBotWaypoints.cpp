@@ -2661,13 +2661,45 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
     if (hub == ABGraph::HUB_NONE)
         return false;
 
-    ABObjective const objective = sPlayerBotMgr.GetABCoordinator().GetObjective(bg, me);
+    ABCoordinator& coordinator = sPlayerBotMgr.GetABCoordinator();
+    ABObjective objective = coordinator.GetObjective(bg, me);
+    m_abObjective = objective;
     if (objective.node == 0xFF)
         return false;
 
-    uint8 const targetHub = ABGraph::GetFlagHub(objective.node);
+    // Just arrived at this hub: the bot may answer a request for support.
+    bool const arrivedAtHub = hub != m_abLastHub;
+    m_abLastHub = hub;
+    if (arrivedAtHub && coordinator.TryAcceptSupport(bg, me, hub))
+    {
+        objective = coordinator.GetObjective(bg, me);
+        m_abObjective = objective;
+    }
+
+    uint8 targetHub = ABGraph::GetFlagHub(objective.node);
     if (targetHub == ABGraph::HUB_NONE)
         return false;
+
+    // A supporter that got to its flag chooses again (a defender can take a normal slot).
+    if (objective.support && targetHub == hub)
+    {
+        coordinator.OnSupportArrived(bg, me);
+        objective = coordinator.GetObjective(bg, me);
+        m_abObjective = objective;
+        if (objective.node == 0xFF)
+            return false;
+        targetHub = ABGraph::GetFlagHub(objective.node);
+        if (targetHub == ABGraph::HUB_NONE)
+            return false;
+    }
+
+    // Last hub before a flag that is far from it: ask for support at the flag, so the help can come from any side.
+    static float const ATTACK_REQUEST_MIN_DISTANCE = 100.0f;
+    // A neutral flag has nobody defending it, so there is nobody to ask for help against.
+    if (arrivedAtHub && objective.mode == AB_MODE_ATTACK && !objective.support && targetHub != hub &&
+        GetABNodeState(bg, objective.node) != BG_AB_NODE_TYPE_NEUTRAL &&
+        ABGraph::GetRouteLegCount(hub, targetHub) == 1 && ABGraph::GetRouteLength(hub, targetHub) > ATTACK_REQUEST_MIN_DISTANCE)
+        coordinator.RequestSupport(bg, me, AB_SUPPORT_ATTACK, objective.node, targetHub, true, true);
 
     if (targetHub == hub)
     {
@@ -2686,8 +2718,52 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
     m_currentPath = pLeg;
     m_movingInReverse = reverse;
     m_currentPoint = reverse ? pLeg->size() - 1 : 0;
+    m_abLastHub = ABGraph::HUB_NONE;
     MoveToNextPoint();
     return true;
+}
+
+void BattleBotAI::ABUpdateDefense()
+{
+    // Enemies this close to the hub of the flag count as attacking it, and the defender has to be around to see them.
+    static float const ENEMY_RADIUS = 40.0f;
+    static float const WATCH_RADIUS = 60.0f;
+
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB || bg->GetStatus() != STATUS_IN_PROGRESS || !me->IsAlive())
+        return;
+
+    if (m_abObjective.mode != AB_MODE_DEFEND || m_abObjective.node == 0xFF)
+        return;
+
+    uint8 const hub = ABGraph::GetFlagHub(m_abObjective.node);
+    if (hub == ABGraph::HUB_NONE)
+        return;
+
+    ABGraph::Hub const& hubData = ABGraph::GetHub(hub);
+    if (!me->IsWithinDist3d(hubData.x, hubData.y, hubData.z, WATCH_RADIUS))
+        return;
+
+    uint32 enemies = 0;
+    bool capturing = false;
+    std::list<Player*> players;
+    me->GetAlivePlayerListInRange(me, players, WATCH_RADIUS);
+    for (Player* pPlayer : players)
+    {
+        if (pPlayer == me || pPlayer->IsGameMaster() || !me->IsHostileTo(pPlayer) || !pPlayer->IsVisibleForOrDetect(me, me, false) ||
+           !pPlayer->IsWithinDist3d(hubData.x, hubData.y, hubData.z, ENEMY_RADIUS))
+            continue;
+
+        enemies++;
+        Spell const* pSpell = pPlayer->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (pSpell && pSpell->m_spellInfo->Id == SPELL_CAPTURE_BANNER)
+            capturing = true;
+    }
+
+    // One enemy alone is not worth a request, two are. The request is renewed while there are two or more enemies
+    // near the hub or somebody is capturing.
+    if (enemies >= 2 || capturing)
+        sPlayerBotMgr.GetABCoordinator().RequestSupport(bg, me, AB_SUPPORT_DEFENSE, m_abObjective.node, hub, enemies >= 2, true);
 }
 
 static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =

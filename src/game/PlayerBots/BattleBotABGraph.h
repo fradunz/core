@@ -85,6 +85,8 @@ namespace ABGraph
     bool GetNextLeg(uint8 from, uint8 to, BattleBotPath*& pPath, bool& reverse);
     // Hub where a leg ends when it is walked in the given direction.
     bool GetLegEnd(BattleBotPath const* pPath, bool reverse, uint8& hub);
+    // Number of legs of the shortest route between two hubs, UINT32_MAX if there is none.
+    uint32 GetRouteLegCount(uint8 from, uint8 to);
     bool IsOneWayLeg(BattleBotPath const* pPath);
 }
 

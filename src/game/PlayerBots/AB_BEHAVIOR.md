@@ -93,6 +93,9 @@ Flag nodes (`BG_AB_Nodes`): Stables=0, Blacksmith=1, Farm=2, Lumber=3, GoldMine=
 - Capture: up to 5 per flag (`CAPTURE_SLOTS_PER_NODE`), flag chosen uniformly at random, no distance weighting.
   **[decided] [done]**. The owner will test the hypothesis that, once support requests exist, few bots actually reach
   the farthest flag.
+- Home flag: the capturable flag closest to the base of the team (shortest route from AS or HS: Stables for the Alliance, Farm for
+  the Horde) is never left without attackers. A bot that is about to attack picks it instead of its random choice while it has
+  fewer than `HOME_FLAG_MIN_ATTACKERS` = 1 attacker (supporters do not count). **[decided] [done]**
 - Defending our flag: the Defender has priority; the General stays with a chance equal to the defense weight; the
   Capturer only defends if the weight is 100%. **[decided] [done]**
 - Capturing a neutral/enemy flag: the Defender only captures if there is no defense slot; the General rolls against the
@@ -105,12 +108,14 @@ Flag nodes (`BG_AB_Nodes`): Stables=0, Blacksmith=1, Farm=2, Lumber=3, GoldMine=
   (`WanderAroundHub`). It does **not** patrol graph legs. **[decided] [done]**
 - Wander destinations are validated on the navmesh (no crossing doors, path ≤ 2× straight line + 3 yd).
 
-## 5. Support requests (defense and attack) — **[todo: phase 2b]**
+## 5. Support requests (defense and attack) — **[done: phase 2b, untested]**
 
+Rules **[decided]**:
 - 3 slots in addition to the requester, in total, for the whole life of the request.
 - 15 s deadline; a renewal only extends the deadline and never reopens slots.
-- One request per hub, per type and per team.
-- Defense renews with no interval while a capture is in progress; attack has a 10 s interval per hub.
+- One request per hub, per type and per team. The hub of a request is the **flag hub** (the destination), not the hub where the
+  bot was, so the help can come from any side. A team has **only one live attack request** at a time, for any flag.
+- Defense renews with no interval while two or more enemies are near the hub or a capture is in progress; attack has a 10 s interval per hub.
 - Chance of answering, capped at 100%:
   - defense: Defender 2× defense weight, General 1×, Capturer 0.5×;
   - attack: Defender 0.5× attack weight, General 1×, Capturer 2×.
@@ -120,6 +125,27 @@ Flag nodes (`BG_AB_Nodes`): Stables=0, Blacksmith=1, Farm=2, Lumber=3, GoldMine=
   out of combat; it may take a defense slot.
 - Worst case at one point: 5 capturers + 3 support = 8 attackers.
 
+Triggers **[decided]**:
+- **Attack:** a bot arrives at the last hub before a flag (the next leg of its route ends at the flag hub) and that leg is
+  longer than 100 yd. The request is for that flag (its hub is the flag hub). Last legs of 100 yd or less (SH1→S 23,
+  SH2→S 54, BH1→B 72, FH2→F 31, ...) never ask. A neutral flag never gets a request (nobody defends it). If the team already has a live attack request, nothing is opened.
+- **Defense:** a defender near its flag hub (within 60 yd) sees two or more enemy players within 40 yd of the hub. One
+  enemy alone does not open a request. While two or more enemies are near the hub, or one is casting the capture spell
+  (21651), the request is renewed with no interval. The request is made at the flag hub.
+
+Implementation (`ABCoordinator::RequestSupport / TryAcceptSupport / OnSupportArrived`, `BattleBotAI::ABUpdateDefense`):
+- A bot looks for requests only when it reaches a hub it was not at before (`m_abLastHub`), at its next decision.
+- Chance and distance: "within 2 legs **or** 150 yd" of the flag hub is read as either condition being enough **[assumption]**;
+  legs are counted along the shortest route between hubs (`GetRouteLegCount`), yards are straight line from the bot to the hub.
+- A bot that already has the requested flag as its objective (any mode) does not roll, and the requester never answers itself.
+- An answered request becomes the bot's objective with a `support` flag: it does not use the normal slots (so up to 8 attackers at
+  a flag), it is not re-evaluated by a change of the flags on its way, and it keeps its flag after arriving unless the objective
+  becomes invalid. A supporting defender that arrives takes a normal defense slot if one is free.
+- The 10 s attack interval is counted from the last time the request of that hub was opened or renewed, and it applies to
+  opening a new one and to renewing **[assumption]**.
+- Radii (60 yd to watch, 40 yd for enemies) are not in the rules **[assumption]**.
+- `.battlebot abstatus` lists the live requests of each team (`Support requests: ATTACK Farm 1/3, 9s`) and marks supporters with `[support]`.
+
 ## 6. Capture and combat
 
 Already implemented (`ABCaptureFlag`) **[done]**:
@@ -128,11 +154,11 @@ Already implemented (`ABCaptureFlag`) **[done]**:
 - Waits for a cast in progress; waits for an ally casting within 5 yd; takes the nearest banner within 30 yd; walks to it
   if farther than 5 yd (`INTERACTION_DISTANCE`); dismounts; `CastSpell(21651)` (`SPELL_CAPTURE_BANNER`).
 
+Detecting an enemy capture (an enemy casting 21651 near the hub) is done in phase 2b, only to renew defense requests.
+
 Still **[todo: phase 2c]**:
-- A defender with a slot prevents the capture at all costs, ignores "under attack" and fires the defense request (damage
-  interrupts the cast).
+- A defender with a slot prevents the capture at all costs and ignores "under attack" (damage interrupts the cast).
 - An attacker/capturer prioritizes the banner over combat, unless very close to an enemy or under attack.
-- Detecting an enemy capture: an enemy casting 21651 near the banner; `EventPlayerClickedOnFlag` marks it completed.
 
 ## 7. Constants (ABCoordinator.cpp / BattleBotWaypoints.cpp)
 
@@ -165,7 +191,7 @@ Still **[todo: phase 2c]**:
 |---|---|---|
 | 1 | Hub graph, routes, wander, radius, post-combat | done and tested |
 | 2a | Coordinator: roles, objectives, slots | done, being tested |
-| 2b | Support requests | todo |
+| 2b | Support requests | done, untested |
 | 2c | Active defense (switch target, defense request, attacker prioritizes the banner) | todo |
 | 2d | Waiting for an ally on the last leg of an attack | todo |
 

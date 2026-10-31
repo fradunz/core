@@ -552,6 +552,23 @@ bool GetLegEnd(BattleBotPath const* pPath, bool reverse, uint8& hub)
     return false;
 }
 
+uint32 GetRouteLegCount(uint8 from, uint8 to)
+{
+    uint32 count = 0;
+    uint8 current = from;
+    while (current != to)
+    {
+        BattleBotPath* pLeg = nullptr;
+        bool reverse = false;
+        uint8 next = HUB_NONE;
+        if (count > HUB_COUNT || !GetNextLeg(current, to, pLeg, reverse) || !GetLegEnd(pLeg, reverse, next))
+            return UINT32_MAX;
+        current = next;
+        count++;
+    }
+    return count;
+}
+
 bool IsOneWayLeg(BattleBotPath const* pPath)
 {
     for (uint32 e = 0; e < EDGE_COUNT; e++)

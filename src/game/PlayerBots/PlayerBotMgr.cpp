@@ -2437,6 +2437,18 @@ bool ChatHandler::HandleBattleBotABStatusCommand(char* args)
             team == 0 ? "0070dd" : "c41f3b", team == 0 ? "Alliance" : "Horde", uint32(bots.size()), snapshot.held[team],
             snapshot.defenseWeight[team], snapshot.defenseSlots[team], 100 - snapshot.defenseWeight[team]);
         PSendSysMessage("Roles: Defender %u | Capturer %u | General %u", roleCount[AB_ROLE_DEFENDER], roleCount[AB_ROLE_CAPTURER], roleCount[AB_ROLE_GENERAL]);
+        if (!snapshot.requests[team].empty())
+        {
+            std::string requests = "Support requests:";
+            for (ABCoordinator::SnapshotRequest const& request : snapshot.requests[team])
+            {
+                requests += request.type == AB_SUPPORT_DEFENSE ? " DEFENSE " : " ATTACK ";
+                requests += request.node < 5 ? nodeNames[request.node] : "?";
+                requests += std::string(" ") + std::to_string(request.slotsUsed) + "/3, " +
+                            std::to_string(std::max(0, request.msLeft) / 1000) + "s |";
+            }
+            SendSysMessage(requests.c_str());
+        }
 
         auto describe = [&](ABCoordinator::SnapshotBot const& bot) -> std::string
         {
@@ -2456,6 +2468,8 @@ bool ChatHandler::HandleBattleBotABStatusCommand(char* args)
                 uint8 const hub = ABGraph::FindNearestHub(pBot->GetPositionX(), pBot->GetPositionY(), pBot->GetPositionZ(), HUB_MAX_DISTANCE);
                 text += hub != ABGraph::HUB_NONE ? std::string("@") + ABGraph::GetHub(hub).name : "in transit";
             }
+            if (bot.support)
+                text += " [support]";
             if (verbose)
                 text += " #" + std::to_string(bot.since);
             return text;
