@@ -354,12 +354,12 @@ void PlayerBotMgr::Update(uint32 diff)
                 for (uint32 i = queuedAllianceCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
                 {
                     uint32 const botLevel = urand(minLevel, maxLevel);
-                    AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, true);
+                    AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, false);
                 }
                 for (uint32 i = queuedHordeCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
                 {
                     uint32 const botLevel = urand(minLevel, maxLevel);
-                    AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, botLevel, true);
+                    AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, botLevel, false);
                 }
             }
         }
@@ -743,19 +743,36 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
 
 // While a battleground is getting ready, bots join it gradually so that every team is full 15 seconds before it starts.
 // Called once per second: the number of missing bots is spread over the time left, and the fractional part is rolled.
+// Once it has started, a team with free slots gets one more bot every 20-30 seconds while a real player is inside.
 void PlayerBotMgr::FillBattleGroundsWithBots()
 {
     static int32 const FULL_BEFORE_START = 15 * IN_MILLISECONDS;
     static time_t const PENDING_TIME = 6; // Seconds a new bot needs to reach the queue and get invited.
+    static uint32 const MIN_JOIN_INTERVAL = 20; // Seconds between the bots that join a battleground in progress.
+    static uint32 const MAX_JOIN_INTERVAL = 30;
 
     time_t const now = sWorld.GetGameTime();
+
+    // Forget the timers of battlegrounds that are over or that did not need bots for a while.
+    for (auto itr = m_battleBotNextJoin.begin(); itr != m_battleBotNextJoin.end();)
+    {
+        if (now - itr->second > 600)
+            itr = m_battleBotNextJoin.erase(itr);
+        else
+            ++itr;
+    }
+
     for (uint32 queueType = BATTLEGROUND_QUEUE_AV; queueType < MAX_BATTLEGROUND_QUEUE_TYPES; ++queueType)
     {
         BattleGroundTypeId const bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
         for (auto itr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); itr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++itr)
         {
             BattleGround* pBG = itr->second;
-            if (!pBG || pBG->GetStatus() != STATUS_WAIT_JOIN)
+            if (!pBG)
+                continue;
+
+            bool const inProgress = pBG->GetStatus() == STATUS_IN_PROGRESS;
+            if (!inProgress && pBG->GetStatus() != STATUS_WAIT_JOIN)
                 continue;
 
             bool hasRealPlayer = false;
@@ -770,6 +787,35 @@ void PlayerBotMgr::FillBattleGroundsWithBots()
             }
             if (!hasRealPlayer)
                 continue;
+
+            if (inProgress)
+            {
+                for (Team team : { ALLIANCE, HORDE })
+                {
+                    auto const key = std::make_pair(pBG->GetInstanceID(), uint32(team));
+                    std::vector<time_t>& pending = m_battleBotFillPending[key];
+                    pending.erase(std::remove_if(pending.begin(), pending.end(), [now](time_t t) { return now - t >= PENDING_TIME; }), pending.end());
+
+                    if (int32(pBG->GetFreeSlotsForTeam(team)) - int32(pending.size()) <= 0)
+                        continue;
+
+                    // The first bot comes one interval after the team is seen with room, the next ones one interval after each other.
+                    auto timer = m_battleBotNextJoin.find(key);
+                    if (timer == m_battleBotNextJoin.end())
+                    {
+                        m_battleBotNextJoin[key] = now + urand(MIN_JOIN_INTERVAL, MAX_JOIN_INTERVAL);
+                        continue;
+                    }
+                    if (now < timer->second)
+                        continue;
+
+                    uint32 const botLevel = urand(pBG->GetMinLevel(), std::min<uint32>(pBG->GetMaxLevel(), PLAYER_MAX_LEVEL));
+                    AddBattleBot(BattleGroundQueueTypeId(queueType), team, botLevel, false);
+                    pending.push_back(now);
+                    timer->second = now + urand(MIN_JOIN_INTERVAL, MAX_JOIN_INTERVAL);
+                }
+                continue;
+            }
 
             int32 const timeLeft = pBG->GetStartDelayTime();
             float const fillSeconds = std::max(1, timeLeft - FULL_BEFORE_START) / float(IN_MILLISECONDS);
@@ -798,7 +844,7 @@ void PlayerBotMgr::FillBattleGroundsWithBots()
                 for (uint32 i = 0; i < count; ++i)
                 {
                     uint32 const botLevel = urand(pBG->GetMinLevel(), std::min<uint32>(pBG->GetMaxLevel(), PLAYER_MAX_LEVEL));
-                    AddBattleBot(BattleGroundQueueTypeId(queueType), team, botLevel, true);
+                    AddBattleBot(BattleGroundQueueTypeId(queueType), team, botLevel, false);
                     pending.push_back(now);
                 }
             }

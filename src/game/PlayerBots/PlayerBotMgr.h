@@ -126,6 +126,8 @@ class PlayerBotMgr
         time_t m_lastBattleBotFillUpdate = 0;
         // Bots added to a starting battleground that are not invited yet: (instance id, team) -> creation times.
         std::map<std::pair<uint32, uint32>, std::vector<time_t>> m_battleBotFillPending;
+        // Battleground in progress: (instance id, team) -> when the next bot may join.
+        std::map<std::pair<uint32, uint32>, time_t> m_battleBotNextJoin;
 
         std::map<uint64 /*pl guid*/, std::shared_ptr<PlayerBotEntry>> m_bots;
         std::map<uint32 /*account*/, uint32> m_tempBots;
