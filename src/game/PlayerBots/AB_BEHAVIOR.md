@@ -87,8 +87,9 @@ Flag nodes (`BG_AB_Nodes`): Stables=0, Blacksmith=1, Farm=2, Lumber=3, GoldMine=
 
 ### Slots
 
-- Defense slots = `5 × defense_weight / 100`, **truncated** (not rounded); it is a team total, not one per flag,
-  spread over our flags (`DEFENSE_SLOTS_AT_FULL_WEIGHT` = 5). **[decided] [done]** (`GetDefenseSlots`)
+- Defense slots = `5 × defense_weight / 100`, **truncated** (not rounded), **per flag**: every flag the team holds has that many
+  defender slots (`DEFENSE_SLOTS_AT_FULL_WEIGHT` = 5). With 3 flags (60%) that is 3 defenders on each of them, 9 in total.
+  **[decided] [done]** (`GetDefenseSlots`)
 - Capture: up to 5 per flag (`CAPTURE_SLOTS_PER_NODE`), flag chosen uniformly at random, no distance weighting.
   **[decided] [done]**. The owner will test the hypothesis that, once support requests exist, few bots actually reach
   the farthest flag.

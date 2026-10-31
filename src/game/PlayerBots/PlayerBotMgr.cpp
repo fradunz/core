@@ -2406,7 +2406,7 @@ bool ChatHandler::HandleBattleBotABStatusCommand(char* args)
     static char const* const nodeNames[5] = { "Stables", "Blacksmith", "Farm", "Lumber Mill", "Gold Mine" };
     static char const* const stateNames[5] = { "neutral", "Alliance contested", "Horde contested", "Alliance held", "Horde held" };
     static char const* const roleNames[AB_ROLE_COUNT] = { "Defender", "Capturer", "General" };
-    static char const* const classNames[12] = { "?", "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage", "Warlock", "?", "Druid", "?" };
+    static char const* const classNames[12] = { "?", "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "?", "Shaman", "Mage", "Warlock", "?", "Druid" };
     static float const HUB_MAX_DISTANCE = 25.0f;
     static size_t const MAX_LINE_LENGTH = 180;
 
@@ -2427,18 +2427,15 @@ bool ChatHandler::HandleBattleBotABStatusCommand(char* args)
         std::vector<ABCoordinator::SnapshotBot> const& bots = snapshot.bots[team];
 
         uint32 roleCount[AB_ROLE_COUNT] = { 0, 0, 0 };
-        uint32 defenders = 0;
         for (ABCoordinator::SnapshotBot const& bot : bots)
         {
             if (bot.role < AB_ROLE_COUNT)
                 roleCount[bot.role]++;
-            if (bot.mode == AB_MODE_DEFEND)
-                defenders++;
         }
 
-        PSendSysMessage("|cff%s== %s (%u bots) | flags held %u | defense %u%% (%u/%u slots) / attack %u%% ==|r",
+        PSendSysMessage("|cff%s== %s (%u bots) | flags held %u | defense %u%% (%u defenders per flag) / attack %u%% ==|r",
             team == 0 ? "0070dd" : "c41f3b", team == 0 ? "Alliance" : "Horde", uint32(bots.size()), snapshot.held[team],
-            snapshot.defenseWeight[team], defenders, snapshot.defenseSlots[team], 100 - snapshot.defenseWeight[team]);
+            snapshot.defenseWeight[team], snapshot.defenseSlots[team], 100 - snapshot.defenseWeight[team]);
         PSendSysMessage("Roles: Defender %u | Capturer %u | General %u", roleCount[AB_ROLE_DEFENDER], roleCount[AB_ROLE_CAPTURER], roleCount[AB_ROLE_GENERAL]);
 
         auto describe = [&](ABCoordinator::SnapshotBot const& bot) -> std::string
@@ -2496,10 +2493,9 @@ bool ChatHandler::HandleBattleBotABStatusCommand(char* args)
                     continue;
 
                 std::string title = std::string("  ") + nodeNames[node] + (mode == AB_MODE_DEFEND ? " DEFEND " : " ATTACK ");
-                if (mode == AB_MODE_ATTACK)
-                    title += std::to_string(list.size()) + "/" + std::to_string(snapshot.captureSlots) + " |";
-                else
-                    title += std::to_string(list.size()) + " |";
+                // Both kinds of slots are per flag.
+                uint32 const slots = mode == AB_MODE_ATTACK ? snapshot.captureSlots : snapshot.defenseSlots[team];
+                title += std::to_string(list.size()) + "/" + std::to_string(slots) + " |";
                 printLine(title, list);
             }
         }

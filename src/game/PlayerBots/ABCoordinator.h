@@ -83,7 +83,7 @@ public:
         std::vector<SnapshotBot> bots[2];        // Per team index (0 Alliance, 1 Horde).
         uint32 held[2] = { 0, 0 };
         uint32 defenseWeight[2] = { 0, 0 };      // In %, the attack weight is the rest.
-        uint32 defenseSlots[2] = { 0, 0 };       // Defenders the team has room for in total (not per flag).
+        uint32 defenseSlots[2] = { 0, 0 };       // Defenders each held flag has room for.
         uint32 captureSlots = 0;                  // Capturers each flag has room for.
     };
 
