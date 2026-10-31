@@ -743,13 +743,13 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
 
 // While a battleground is getting ready, bots join it gradually so that every team is full 15 seconds before it starts.
 // Called once per second: the number of missing bots is spread over the time left, and the fractional part is rolled.
-// Once it has started, a team with free slots gets one more bot every 20-30 seconds while a real player is inside.
+// Once it has started, a team with free slots gets one more bot every 5-25 seconds while a real player is inside.
 void PlayerBotMgr::FillBattleGroundsWithBots()
 {
     static int32 const FULL_BEFORE_START = 15 * IN_MILLISECONDS;
     static time_t const PENDING_TIME = 6; // Seconds a new bot needs to reach the queue and get invited.
-    static uint32 const MIN_JOIN_INTERVAL = 20; // Seconds between the bots that join a battleground in progress.
-    static uint32 const MAX_JOIN_INTERVAL = 30;
+    static uint32 const MIN_JOIN_INTERVAL = 5;  // Seconds between the bots that join a battleground in progress.
+    static uint32 const MAX_JOIN_INTERVAL = 25;
 
     time_t const now = sWorld.GetGameTime();
 
