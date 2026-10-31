@@ -163,7 +163,8 @@ enum BG_AB_NodeOccupiedCredit
 #define GET_AB_WEEKEND_REP_INTERVAL (sWorld.GetWowPatch() > WOW_PATCH_109 ? AB_WEEKEND_REPUTATION_INTERVAL_POST_1_10 : AB_WEEKEND_REPUTATION_INTERVAL_PRE_1_10)
 
 // Tick intervals and given points: case 0,1,2,3,4,5 captured nodes
-uint32 const BG_AB_TickIntervals[6] = {0, 12000, 9000, 6000, 3000, 1000};
+// Intervals give 1 / 1.5 / 2 / 3.5 / 30 points per second (same rates as current retail).
+uint32 const BG_AB_TickIntervals[6] = {0, 10000, 6667, 5000, 2857, 1000};
 uint32 const BG_AB_TickPoints[6] = {0, 10, 10, 10, 10, 30};
 
 // Honor granted depending on player's level
