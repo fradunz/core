@@ -29,6 +29,7 @@ namespace ABGraph
 
     enum HubId : uint8
     {
+        // BEGIN GENERATED: ab_graph hubs (contrib/battlebot_routes/ab/gen_graph.py, do not edit by hand)
         HUB_AS = 0,
         HUB_SMB,
         HUB_M,
@@ -55,6 +56,7 @@ namespace ABGraph
         HUB_FH3,
         HUB_DDGY,
         HUB_COUNT
+        // END GENERATED: ab_graph hubs
     };
 
     struct Hub

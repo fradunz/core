@@ -21,7 +21,7 @@
 namespace ABGraph
 {
 
-// ---- Generated from the AB route map (25 hubs, 36 legs). Do not edit by hand. ----
+// BEGIN GENERATED: ab_graph data (contrib/battlebot_routes/ab/gen_graph.py, do not edit by hand)
 static BattleBotPath vPathAB_AS_SMB =
 {
     { 1291.396362f, 1288.405151f, -13.873962f, nullptr },
@@ -387,6 +387,7 @@ static Edge const aEdges[] =
     { HUB_FH3, HUB_MBF, &vPathAB_FH3_MBF, false },
     { HUB_DDGY, HUB_HS, &vPathAB_DDGY_HS, true },
 };
+// END GENERATED: ab_graph data
 
 
 static uint32 const EDGE_COUNT = sizeof(aEdges) / sizeof(aEdges[0]);
@@ -564,6 +565,7 @@ bool IsOneWayLeg(BattleBotPath const* pPath)
 } // namespace ABGraph
 
 // Every leg of the graph (used by the generic path helpers and the debug commands).
+// BEGIN GENERATED: ab_graph legs (contrib/battlebot_routes/ab/gen_graph.py, do not edit by hand)
 std::vector<BattleBotPath*> const vPaths_AB =
 {
     &ABGraph::vPathAB_AS_SMB,
@@ -603,3 +605,4 @@ std::vector<BattleBotPath*> const vPaths_AB =
     &ABGraph::vPathAB_FH3_MBF,
     &ABGraph::vPathAB_DDGY_HS,
 };
+// END GENERATED: ab_graph legs
