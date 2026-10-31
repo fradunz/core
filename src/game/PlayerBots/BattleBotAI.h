@@ -77,6 +77,7 @@ public:
     bool UseMount();
     uint32 GetMountSpellId() const;
     bool CheckForUnreachableTarget();
+    bool DropUnreachableTarget();
     float GetMaxAggroDistanceForMap() const;
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget(Unit* pExcept = nullptr) const;

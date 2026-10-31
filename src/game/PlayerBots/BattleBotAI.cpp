@@ -1241,6 +1241,29 @@ bool BattleBotAI::CheckForUnreachableTarget()
     return false;
 }
 
+// A melee bot (in any battleground) whose chase target cannot be reached (it went down a slope, over a ledge) drops it at once and
+// looks for another one or goes back to its route. If the same enemy becomes reachable again it is chosen again.
+bool BattleBotAI::DropUnreachableTarget()
+{
+    if (m_role != ROLE_MELEE_DPS && m_role != ROLE_TANK)
+        return false;
+
+    MotionMaster* pMotion = me->GetMotionMaster();
+    if (pMotion->GetCurrentMovementGeneratorType() != CHASE_MOTION_TYPE || pMotion->GetCurrent()->IsReachable())
+        return false;
+
+    Unit* pTarget = static_cast<ChaseMovementGenerator<Player> const*>(pMotion->GetCurrent())->GetTarget();
+    if (!pTarget || me->CanReachWithMeleeAutoAttack(pTarget))
+        return false;
+
+    me->AttackStop(false);
+    me->ClearTarget();
+    StopMoving();
+    if (Unit* pNewTarget = SelectAttackTarget(pTarget))
+        AttackStart(pNewTarget);
+    return true;
+}
+
 void BattleBotAI::UpdateAI(uint32 const diff)
 {
     m_updateTimer.Update(diff);
@@ -1574,6 +1597,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         UpdateWaypointMovement();
         return;
     }
+
+    if (DropUnreachableTarget())
+        return;
 
     // Escorts do not leave the carrier alone: ignore fights that do not threaten the carrier or us.
     if (m_role != ROLE_HEALER)
