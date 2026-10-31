@@ -112,10 +112,11 @@ Flag nodes (`BG_AB_Nodes`): Stables=0, Blacksmith=1, Farm=2, Lumber=3, GoldMine=
 
 Rules **[decided]**:
 - 3 slots in addition to the requester, in total, for the whole life of the request.
-- 15 s deadline; a renewal only extends the deadline and never reopens slots.
+- Defense: 15 s deadline; a renewal only extends the deadline and never reopens slots. Attack: fixed 20 s, never renewed; after
+  that it accepts nobody, and the bots that already accepted keep going to the hub.
 - One request per hub, per type and per team. The hub of a request is the **flag hub** (the destination), not the hub where the
   bot was, so the help can come from any side. A team has **only one live attack request** at a time, for any flag.
-- Defense renews with no interval while two or more enemies are near the hub or a capture is in progress; attack has a 10 s interval per hub.
+- Defense renews with no interval while two or more enemies are near the hub or a capture is in progress; attack is never renewed (fixed 20 s).
 - Chance of answering, capped at 100%:
   - defense: Defender 2× defense weight, General 1×, Capturer 0.5×;
   - attack: Defender 0.5× attack weight, General 1×, Capturer 2×.
@@ -141,8 +142,7 @@ Implementation (`ABCoordinator::RequestSupport / TryAcceptSupport / OnSupportArr
 - An answered request becomes the bot's objective with a `support` flag: it does not use the normal slots (so up to 8 attackers at
   a flag), it is not re-evaluated by a change of the flags on its way, and it keeps its flag after arriving unless the objective
   becomes invalid. A supporting defender that arrives takes a normal defense slot if one is free.
-- The 10 s attack interval is counted from the last time the request of that hub was opened or renewed, and it applies to
-  opening a new one and to renewing **[assumption]**.
+- A new attack request can only open after the previous one expired (fixed 20 s, so the old 10 s interval no longer matters).
 - Radii (60 yd to watch, 40 yd for enemies) are not in the rules **[assumption]**.
 - `.battlebot abstatus` lists the live requests of each team (`Support requests: ATTACK Farm 1/3, 9s`) and marks supporters with `[support]`.
 

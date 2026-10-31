@@ -38,7 +38,8 @@ namespace
     // The capturable flag closest to the base of the team always gets at least this many attackers.
     uint32 const HOME_FLAG_MIN_ATTACKERS = 1;
     uint32 const SUPPORT_SLOTS = 3;
-    uint32 const SUPPORT_DURATION = 15 * IN_MILLISECONDS;
+    uint32 const SUPPORT_DURATION = 15 * IN_MILLISECONDS;        // Defense requests, renewed while the threat lasts.
+    uint32 const ATTACK_REQUEST_DURATION = 20 * IN_MILLISECONDS; // Attack requests, fixed: never renewed.
     uint32 const ATTACK_REQUEST_INTERVAL = 10 * IN_MILLISECONDS;
     uint32 const SUPPORT_MAX_LEGS = 2;
     float const SUPPORT_MAX_DISTANCE = 150.0f;
@@ -466,8 +467,8 @@ void ABCoordinator::RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, 
 
     if (pRequest && IsRequestAlive(*pRequest, now))
     {
-        // Renewing only extends the deadline.
-        if (renew && allowed)
+        // Renewing only extends the deadline. Attack requests have a fixed duration and are never renewed.
+        if (renew && allowed && type == AB_SUPPORT_DEFENSE)
         {
             pRequest->deadline = now + SUPPORT_DURATION;
             pRequest->lastUse = now;
@@ -496,7 +497,7 @@ void ABCoordinator::RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, 
     pRequest->type = type;
     pRequest->node = node;
     pRequest->hub = hub;
-    pRequest->deadline = now + SUPPORT_DURATION;
+    pRequest->deadline = now + (type == AB_SUPPORT_ATTACK ? ATTACK_REQUEST_DURATION : SUPPORT_DURATION);
     pRequest->lastUse = now;
     pRequest->slotsLeft = SUPPORT_SLOTS;
     pRequest->rolled.clear();
