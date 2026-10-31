@@ -914,8 +914,9 @@ Unit* BattleBotAI::SelectFollowTarget() const
                 return pTarget;
         }
 
-        // In Warsong Gulch healers follow only the carrier: they go with the team using the paths like everybody else.
-        if (m_role == ROLE_HEALER && m_battlegroundId != BATTLEGROUND_QUEUE_WS &&
+        // In Warsong Gulch and Arathi Basin healers follow only the carrier: they go with the team using the paths like
+        // everybody else. In Arathi Basin a healer that followed a defender stayed at its flag for as long as the defender did.
+        if (m_role == ROLE_HEALER && m_battlegroundId != BATTLEGROUND_QUEUE_WS && m_battlegroundId != BATTLEGROUND_QUEUE_AB &&
            !IsHealerClass(pTarget->GetClass()) &&
            !IsStealthClass(pTarget->GetClass()) &&
            (pTarget->IsMounted() == me->IsMounted()) &&
