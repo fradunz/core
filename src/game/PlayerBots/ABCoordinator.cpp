@@ -399,6 +399,7 @@ bool ABCoordinator::GetSnapshot(uint32 instanceId, Snapshot& snapshot)
             bot.mode = entry.second.mode;
             bot.since = entry.second.since;
             bot.support = entry.second.support;
+            bot.arrived = entry.second.arrived;
             snapshot.bots[team].push_back(bot);
         }
 

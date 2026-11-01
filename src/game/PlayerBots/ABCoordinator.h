@@ -94,6 +94,7 @@ public:
         uint8 mode = AB_MODE_NONE;
         uint32 since = 0;
         bool support = false;
+        bool arrived = false; // A supporter that got to its destination.
     };
 
     struct SnapshotRequest

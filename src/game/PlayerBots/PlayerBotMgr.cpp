@@ -2469,7 +2469,7 @@ bool ChatHandler::HandleBattleBotABStatusCommand(char* args)
                 text += hub != ABGraph::HUB_NONE ? std::string("@") + ABGraph::GetHub(hub).name : "in transit";
             }
             if (bot.support)
-                text += " [support]";
+                text += bot.arrived ? " [support: arrived]" : " [support: traveling]";
             if (verbose)
                 text += " #" + std::to_string(bot.since);
             return text;
