@@ -6820,6 +6820,20 @@ bool Spell::CanAutoCast(Unit* target)
     // Dont waste mana to heal someone already full life.
     if (m_spellInfo->IsHealSpell() && target->GetMaxHealth() == target->GetHealth())
         return false;
+
+    // A buff of another rank of the same spell, with a higher rank, is already on the target: this one would be refused
+    // when applied, and the pet would cast it over and over (two imps with different Blood Pact ranks).
+    if (!m_spellInfo->HasEffect(SPELL_EFFECT_SCHOOL_DAMAGE) && m_spellInfo->IsPositiveSpell())
+    {
+        for (auto const& entry : target->GetSpellAuraHolderMap())
+        {
+            SpellAuraHolder const* pHolder = entry.second;
+            if (pHolder && pHolder->GetId() != m_spellInfo->Id && sSpellMgr.IsRankSpellDueToSpell(m_spellInfo, pHolder->GetId()) &&
+                Spells::CompareAuraRanks(m_spellInfo->Id, pHolder->GetId()) < 0)
+                return false;
+        }
+    }
+
     SpellCastResult result = CheckPetCast(target);
 
     if (result == SPELL_CAST_OK || result == SPELL_FAILED_UNIT_NOT_INFRONT)
