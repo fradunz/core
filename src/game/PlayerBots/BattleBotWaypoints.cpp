@@ -22,6 +22,7 @@
 #include "WorldPacket.h"
 #include "Opcodes.h"
 #include "Player.h"
+#include "Chat.h"
 #include "GameObject.h"
 #include "MotionMaster.h"
 #include "PathFinder.h"
@@ -2699,7 +2700,8 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
     if (arrivedAtHub && objective.mode == AB_MODE_ATTACK && !objective.support && targetHub != hub &&
         GetABNodeState(bg, objective.node) != BG_AB_NODE_TYPE_NEUTRAL &&
         ABGraph::GetRouteLegCount(hub, targetHub) == 1 && ABGraph::GetRouteLength(hub, targetHub) > ATTACK_REQUEST_MIN_DISTANCE)
-        coordinator.RequestSupport(bg, me, AB_SUPPORT_ATTACK, objective.node, targetHub, true, true);
+        if (coordinator.RequestSupport(bg, me, AB_SUPPORT_ATTACK, objective.node, targetHub, true, true))
+            ABAnnounceRequest(AB_SUPPORT_ATTACK, objective.node, 0);
 
     if (targetHub == hub)
     {
@@ -2762,8 +2764,29 @@ void BattleBotAI::ABUpdateDefense()
 
     // One enemy alone is not worth a request, two are. The request is renewed while there are two or more enemies
     // near the hub or somebody is capturing.
-    if (enemies >= 2 || capturing)
-        sPlayerBotMgr.GetABCoordinator().RequestSupport(bg, me, AB_SUPPORT_DEFENSE, m_abObjective.node, hub, enemies >= 2, true);
+    if ((enemies >= 2 || capturing) &&
+        sPlayerBotMgr.GetABCoordinator().RequestSupport(bg, me, AB_SUPPORT_DEFENSE, m_abObjective.node, hub, enemies >= 2, true))
+        ABAnnounceRequest(AB_SUPPORT_DEFENSE, m_abObjective.node, enemies);
+}
+
+// Tells the team in the battleground chat what the bot is asking for.
+// For defense, enemies is the number of enemy players near the flag.
+void BattleBotAI::ABAnnounceRequest(uint8 type, uint8 node, uint32 enemies)
+{
+    static char const* const nodeNames[5] = { "Stables", "Blacksmith", "Farm", "Lumber Mill", "Gold Mine" };
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || node >= 5)
+        return;
+
+    char text[128];
+    if (type == AB_SUPPORT_DEFENSE)
+        snprintf(text, sizeof(text), "%u enem%s at the %s, we need help defending!", enemies, enemies == 1 ? "y" : "ies", nodeNames[node]);
+    else
+        snprintf(text, sizeof(text), "Attacking the %s, we need help!", nodeNames[node]);
+
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_BATTLEGROUND, text, me->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH, me->GetChatTag(), me->GetObjectGuid(), me->GetName());
+    bg->SendPacketToTeam(me->GetTeam(), &data, me, true);
 }
 
 static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =

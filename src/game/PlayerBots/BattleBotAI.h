@@ -145,6 +145,7 @@ public:
     bool StartNewPathToObjectiveAB();
     // Defenders watch their flag: two or more enemies close to it (or an enemy capturing it) ask the team for support.
     void ABUpdateDefense();
+    void ABAnnounceRequest(uint8 type, uint8 node, uint32 enemies);
     bool ABCaptureFlag();
     void SavePathForResume();
     bool FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const;

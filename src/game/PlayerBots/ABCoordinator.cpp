@@ -41,6 +41,7 @@ namespace
     uint32 const SUPPORT_DURATION = 15 * IN_MILLISECONDS;        // Defense requests, renewed while the threat lasts.
     uint32 const ATTACK_REQUEST_DURATION = 20 * IN_MILLISECONDS; // Attack requests, fixed: never renewed.
     uint32 const ATTACK_REQUEST_INTERVAL = 10 * IN_MILLISECONDS;
+    uint32 const ANNOUNCE_INTERVAL = 15 * IN_MILLISECONDS; // A renewed request is announced again at most this often.
     uint32 const SUPPORT_MAX_LEGS = 2;
     float const SUPPORT_MAX_DISTANCE = 150.0f;
 }
@@ -441,10 +442,10 @@ float ABCoordinator::GetSupportChance(uint8 type, uint8 role, uint32 defenseWeig
     return std::min(100.0f, multiplier * float(weight));
 }
 
-void ABCoordinator::RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, uint8 node, uint8 hub, bool open, bool renew)
+bool ABCoordinator::RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, uint8 node, uint8 hub, bool open, bool renew)
 {
     if (!pBG || !pBot || pBG->GetTypeID() != BATTLEGROUND_AB || type >= AB_SUPPORT_COUNT || node >= NODE_COUNT)
-        return;
+        return false;
 
     uint8 const teamIndex = pBot->GetTeam() == HORDE ? 1 : 0;
     uint32 const now = WorldTimer::getMSTime();
@@ -472,12 +473,17 @@ void ABCoordinator::RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, 
         {
             pRequest->deadline = now + SUPPORT_DURATION;
             pRequest->lastUse = now;
+            if (int32(now - pRequest->lastAnnounce - ANNOUNCE_INTERVAL) >= 0)
+            {
+                pRequest->lastAnnounce = now;
+                return true;
+            }
         }
-        return;
+        return false;
     }
 
     if (!open || !allowed)
-        return;
+        return false;
 
     // A team has only one attack request at a time, for any flag.
     if (type == AB_SUPPORT_ATTACK)
@@ -485,7 +491,7 @@ void ABCoordinator::RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, 
         for (Request const& request : match.requests[teamIndex])
         {
             if (request.type == AB_SUPPORT_ATTACK && IsRequestAlive(request, now))
-                return;
+                return false;
         }
     }
 
@@ -502,6 +508,8 @@ void ABCoordinator::RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, 
     pRequest->slotsLeft = SUPPORT_SLOTS;
     pRequest->rolled.clear();
     pRequest->rolled.insert(pBot->GetObjectGuid());
+    pRequest->lastAnnounce = now;
+    return true;
 }
 
 bool ABCoordinator::TryAcceptSupport(BattleGround* pBG, Player* pBot, uint8 botHub)

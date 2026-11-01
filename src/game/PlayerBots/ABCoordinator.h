@@ -78,7 +78,8 @@ public:
     // A bot asks the team for support at a flag hub (rules in AB_BEHAVIOR.md). 'open' creates the request if there is no live one,
     // 'renew' extends the live one (never reopens its slots). Attack requests wait 10 s between each use of the same hub, and a
     // team has only one live attack request.
-    void RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, uint8 node, uint8 hub, bool open, bool renew);
+    // Returns true when the bot has to announce the request in the battleground chat (opened, or renewed after a while).
+    bool RequestSupport(BattleGround* pBG, Player* pBot, uint8 type, uint8 node, uint8 hub, bool open, bool renew);
     // The bot has just reached a hub: it may answer a request of its team, which becomes its objective. True if it did.
     bool TryAcceptSupport(BattleGround* pBG, Player* pBot, uint8 botHub);
     // The bot that answered a request is at its destination: a defender takes a normal defense slot if there is one.
@@ -138,6 +139,7 @@ private:
         uint8 hub = 0xFF;      // Hub of the flag (the destination): the bots are evaluated by their distance to it, from any side.
         uint32 deadline = 0;   // ms timestamp.
         uint32 lastUse = 0;    // ms timestamp of the last time it was opened or renewed.
+        uint32 lastAnnounce = 0; // ms timestamp of the last announcement in the chat.
         uint32 slotsLeft = 0;
         std::set<ObjectGuid> rolled; // Bots that already rolled for this request.
     };
