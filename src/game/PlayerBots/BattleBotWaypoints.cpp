@@ -2729,6 +2729,8 @@ void BattleBotAI::ABUpdateDefense()
 {
     // Enemies this close to the hub of the flag count as attacking it, and the defender has to be around to see them.
     static float const ENEMY_RADIUS = 40.0f;
+    // Enemies this close to the hub are counted in the announcement, to tell if more are coming behind the ones seen.
+    static float const COUNT_RADIUS = 60.0f;
     static float const WATCH_RADIUS = 60.0f;
 
     BattleGround* bg = me->GetBattleGround();
@@ -2746,14 +2748,20 @@ void BattleBotAI::ABUpdateDefense()
     if (!me->IsWithinDist3d(hubData.x, hubData.y, hubData.z, WATCH_RADIUS))
         return;
 
-    uint32 enemies = 0;
+    // The defender is at most WATCH_RADIUS from the hub, so every enemy within COUNT_RADIUS of the hub is in this range.
+    uint32 enemies = 0;      // Within ENEMY_RADIUS: decides if a request is made.
+    uint32 enemiesCount = 0; // Within COUNT_RADIUS: only announced.
     bool capturing = false;
     std::list<Player*> players;
-    me->GetAlivePlayerListInRange(me, players, WATCH_RADIUS);
+    me->GetAlivePlayerListInRange(me, players, WATCH_RADIUS + COUNT_RADIUS);
     for (Player* pPlayer : players)
     {
         if (pPlayer == me || pPlayer->IsGameMaster() || !me->IsHostileTo(pPlayer) || !pPlayer->IsVisibleForOrDetect(me, me, false) ||
-           !pPlayer->IsWithinDist3d(hubData.x, hubData.y, hubData.z, ENEMY_RADIUS))
+           !pPlayer->IsWithinDist3d(hubData.x, hubData.y, hubData.z, COUNT_RADIUS))
+            continue;
+
+        enemiesCount++;
+        if (!pPlayer->IsWithinDist3d(hubData.x, hubData.y, hubData.z, ENEMY_RADIUS))
             continue;
 
         enemies++;
@@ -2766,7 +2774,7 @@ void BattleBotAI::ABUpdateDefense()
     // near the hub or somebody is capturing.
     if ((enemies >= 2 || capturing) &&
         sPlayerBotMgr.GetABCoordinator().RequestSupport(bg, me, AB_SUPPORT_DEFENSE, m_abObjective.node, hub, enemies >= 2, true))
-        ABAnnounceRequest(AB_SUPPORT_DEFENSE, m_abObjective.node, enemies);
+        ABAnnounceRequest(AB_SUPPORT_DEFENSE, m_abObjective.node, enemiesCount);
 }
 
 // Tells the team in the battleground chat what the bot is asking for.

@@ -143,7 +143,8 @@ Implementation (`ABCoordinator::RequestSupport / TryAcceptSupport / OnSupportArr
   a flag), it is not re-evaluated by a change of the flags on its way, and it keeps its flag after arriving unless the objective
   becomes invalid. A supporting defender that arrives takes a normal defense slot if one is free.
 - A new attack request can only open after the previous one expired (fixed 20 s, so the old 10 s interval no longer matters).
-- Radii (60 yd to watch, 40 yd for enemies) are not in the rules **[assumption]**.
+- Radii (60 yd to watch, 40 yd for enemies) are not in the rules **[assumption]**. The number announced in the chat counts the
+  enemies within 60 yd of the hub, to show if more are coming behind the ones that opened the request.
 - `.battlebot abstatus` lists the live requests of each team (`Support requests: ATTACK Farm 1/3, 9s`) and marks supporters with `[support]`.
 
 ## 6. Capture and combat
