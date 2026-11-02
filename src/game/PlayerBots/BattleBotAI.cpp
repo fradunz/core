@@ -1546,6 +1546,10 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     UpdateBattleGroundAI();
 
+    // Arathi Basin: a rogue checks for enemies and uses stealth before capturing or helping an ally.
+    if (m_battlegroundId == BATTLEGROUND_QUEUE_AB && !me->IsInCombat() && me->GetClass() == CLASS_ROGUE && UpdateRogueStealth())
+        return;
+
     // Arathi Basin: stopping a capture and making one come before any fight.
     if (m_battlegroundId == BATTLEGROUND_QUEUE_AB && (ABPrioritizeCapturer() || ABPrioritizeCapture()))
         return;
@@ -3919,28 +3923,53 @@ void BattleBotAI::UpdateOutOfCombatAI_Rogue()
             return;
     }
 
-    // Stealth slows the rogue down a lot, so only use it when an enemy is around: enter with an enemy
-    // within 80 yards and leave it when there is none within 100 (the gap avoids toggling at the limit).
+    if (UpdateRogueStealth())
+        return;
+
+    if (me->GetVictim())
+        UpdateInCombatAI_Rogue();
+}
+
+// Stealth slows the rogue down a lot, so only use it when an enemy is around: enter with an enemy
+// within 80 yards and leave it when there is none within 100 (the gap avoids toggling at the limit).
+// Returns true if it cast Stealth. Also called early in Arathi Basin, so no other task (capturing, helping an ally) hides it.
+bool BattleBotAI::UpdateRogueStealth()
+{
     static float const STEALTH_ENTER_DISTANCE = 80.0f;
     static float const STEALTH_LEAVE_DISTANCE = 100.0f;
+    // Arathi Basin: a defender around the hub of its flag stays in stealth, with or without enemies (it enters within 30 yd of
+    // the hub and only leaves farther than 50 yd).
+    static float const DEFENDER_ENTER_DISTANCE = 30.0f;
+    static float const DEFENDER_LEAVE_DISTANCE = 50.0f;
     bool const stealthed = me->HasAuraType(SPELL_AURA_MOD_STEALTH);
+    bool defending = false;
+    BattleGround* pBattleGround = me->GetBattleGround();
+    if (pBattleGround && pBattleGround->GetTypeID() == BATTLEGROUND_AB && m_abObjective.mode == AB_MODE_DEFEND && m_abObjective.node != 0xFF)
+    {
+        uint8 const flagHub = ABGraph::GetFlagHub(m_abObjective.node);
+        if (flagHub != ABGraph::HUB_NONE)
+        {
+            ABGraph::Hub const& flagHubData = ABGraph::GetHub(flagHub);
+            defending = me->IsWithinDist3d(flagHubData.x, flagHubData.y, flagHubData.z, stealthed ? DEFENDER_LEAVE_DISTANCE : DEFENDER_ENTER_DISTANCE);
+        }
+    }
+
     if (stealthed)
     {
-        if (!me->GetVictim() && !HasHostilePlayerNearby(STEALTH_LEAVE_DISTANCE))
+        if (!defending && !me->GetVictim() && !HasHostilePlayerNearby(STEALTH_LEAVE_DISTANCE))
             me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
     }
     else if (m_spells.rogue.pStealth &&
              CanTryToCastSpell(me, m_spells.rogue.pStealth) &&
             !me->HasAura(AURA_WARSONG_FLAG) &&
             !me->HasAura(AURA_SILVERWING_FLAG) &&
-             HasHostilePlayerNearby(STEALTH_ENTER_DISTANCE))
+             (defending || HasHostilePlayerNearby(STEALTH_ENTER_DISTANCE)))
     {
         if (DoCastSpell(me, m_spells.rogue.pStealth) == SPELL_CAST_OK)
-            return;
+            return true;
     }
 
-    if (me->GetVictim())
-        UpdateInCombatAI_Rogue();
+    return false;
 }
 
 void BattleBotAI::UpdateInCombatAI_Rogue()

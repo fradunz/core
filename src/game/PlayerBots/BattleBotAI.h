@@ -113,6 +113,7 @@ public:
     void UpdateOutOfCombatAI_Warrior() final;
     void UpdateInCombatAI_Rogue() final;
     void UpdateOutOfCombatAI_Rogue() final;
+    bool UpdateRogueStealth();
     void UpdateInCombatAI_Druid() final;
     void UpdateOutOfCombatAI_Druid() final;
 
