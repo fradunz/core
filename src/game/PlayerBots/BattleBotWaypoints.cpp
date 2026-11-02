@@ -2545,19 +2545,26 @@ void BattleBotAI::SavePathForResume()
     m_resumeTime = WorldTimer::getMSTime();
 }
 
+static float const AB_HUB_RADIUS = 25.0f; // A bot this close to a hub without a path is considered to be at it.
+
 bool BattleBotAI::FindResumePoint(BattleBotPath* pPath, bool reverse, uint32& point) const
 {
     static uint32 const RESUME_EXPIRE_TIME = 45 * IN_MILLISECONDS;
     static float const RESUME_MAX_DISTANCE = 60.0f;
 
-    if (!pPath || pPath != m_resumePath || WorldTimer::getMSTimeDiffToNow(m_resumeTime) > RESUME_EXPIRE_TIME)
+    // Arathi Basin: a fight can take the bot far from the route, so there is no time or distance limit, and the bot never goes
+    // back to a point it had already passed: it takes the nearest point ahead of the interruption.
+    BattleGround const* pBattleGround = me->GetBattleGround();
+    bool const isAB = pBattleGround && pBattleGround->GetTypeID() == BATTLEGROUND_AB;
+
+    if (!pPath || pPath != m_resumePath || (!isAB && WorldTimer::getMSTimeDiffToNow(m_resumeTime) > RESUME_EXPIRE_TIME))
         return false;
 
-    // Nearest point from the interruption point onwards (one point back is allowed).
+    // Nearest point from the interruption point onwards (one point back is allowed, except in Arathi Basin).
     int32 const step = reverse ? -1 : 1;
     int32 const size = int32(pPath->size());
-    int32 const first = std::max(0, std::min(size - 1, int32(m_resumePoint) - step));
-    float bestDistance = RESUME_MAX_DISTANCE;
+    int32 const first = std::max(0, std::min(size - 1, int32(m_resumePoint) - (isAB ? 0 : step)));
+    float bestDistance = isAB ? FLT_MAX : RESUME_MAX_DISTANCE;
     bool found = false;
 
     for (int32 i = first; i >= 0 && i < size; i += step)
@@ -2584,10 +2591,16 @@ bool BattleBotAI::ResumeSavedPath()
         return false;
     }
 
+    // The end of the leg is a hub: if the bot is already there the leg is over, if not (a fight took it away) it walks there.
     if (m_resumeReverse ? point == 0 : point == m_resumePath->size() - 1)
     {
-        m_resumePath = nullptr;
-        return false;
+        BattleGround const* pBattleGround = me->GetBattleGround();
+        BattleBotWaypoint const& end = (*m_resumePath)[point];
+        if (!pBattleGround || pBattleGround->GetTypeID() != BATTLEGROUND_AB || me->GetDistance(end.x, end.y, end.z) < AB_HUB_RADIUS)
+        {
+            m_resumePath = nullptr;
+            return false;
+        }
     }
 
     m_currentPath = m_resumePath;
@@ -2596,8 +2609,6 @@ bool BattleBotAI::ResumeSavedPath()
     MoveToNextPoint();
     return true;
 }
-
-static float const AB_HUB_RADIUS = 25.0f; // A bot this close to a hub without a path is considered to be at it.
 
 // Standing at the hub of the flag: capture it.
 bool BattleBotAI::ABCaptureFlag()
@@ -2725,13 +2736,16 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
     return true;
 }
 
+// Enemies this close to the hub of the flag count as attacking it, and the defender has to be around to see them.
+static float const AB_ENEMY_RADIUS = 40.0f;
+static float const AB_WATCH_RADIUS = 60.0f;
+
 void BattleBotAI::ABUpdateDefense()
 {
-    // Enemies this close to the hub of the flag count as attacking it, and the defender has to be around to see them.
-    static float const ENEMY_RADIUS = 40.0f;
+    static float const ENEMY_RADIUS = AB_ENEMY_RADIUS;
     // Enemies this close to the hub are counted in the announcement, to tell if more are coming behind the ones seen.
     static float const COUNT_RADIUS = 60.0f;
-    static float const WATCH_RADIUS = 60.0f;
+    static float const WATCH_RADIUS = AB_WATCH_RADIUS;
 
     BattleGround* bg = me->GetBattleGround();
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AB || bg->GetStatus() != STATUS_IN_PROGRESS || !me->IsAlive())
@@ -2775,6 +2789,100 @@ void BattleBotAI::ABUpdateDefense()
     if ((enemies >= 2 || capturing) &&
         sPlayerBotMgr.GetABCoordinator().RequestSupport(bg, me, AB_SUPPORT_DEFENSE, m_abObjective.node, hub, enemies >= 2, true))
         ABAnnounceRequest(AB_SUPPORT_DEFENSE, m_abObjective.node, enemiesCount);
+}
+
+// The enemy (the nearest one) that is capturing the flag this bot defends, if the bot is near enough to see it.
+Player* BattleBotAI::ABFindCapturer() const
+{
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB || bg->GetStatus() != STATUS_IN_PROGRESS || !me->IsAlive())
+        return nullptr;
+
+    if (m_abObjective.mode != AB_MODE_DEFEND || m_abObjective.node == 0xFF)
+        return nullptr;
+
+    uint8 const hub = ABGraph::GetFlagHub(m_abObjective.node);
+    if (hub == ABGraph::HUB_NONE)
+        return nullptr;
+
+    ABGraph::Hub const& hubData = ABGraph::GetHub(hub);
+    if (!me->IsWithinDist3d(hubData.x, hubData.y, hubData.z, AB_WATCH_RADIUS))
+        return nullptr;
+
+    Player* pNearest = nullptr;
+    float nearestDistance = 0.0f;
+    std::list<Player*> players;
+    me->GetAlivePlayerListInRange(me, players, AB_WATCH_RADIUS + AB_ENEMY_RADIUS);
+    for (Player* pPlayer : players)
+    {
+        if (pPlayer->IsGameMaster() || !IsValidHostileTarget(pPlayer) ||
+           !pPlayer->IsWithinDist3d(hubData.x, hubData.y, hubData.z, AB_ENEMY_RADIUS))
+            continue;
+
+        Spell const* pSpell = pPlayer->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (!pSpell || pSpell->m_spellInfo->Id != SPELL_CAPTURE_BANNER)
+            continue;
+
+        float const distance = me->GetDistance(pPlayer);
+        if (!pNearest || distance < nearestDistance)
+        {
+            pNearest = pPlayer;
+            nearestDistance = distance;
+        }
+    }
+    return pNearest;
+}
+
+// A defender stops whatever it does (even if it is being attacked) to kill an enemy that is capturing its flag: damage
+// interrupts the cast. The capturer is always next to the banner, so the defender does not go away from its flag.
+bool BattleBotAI::ABPrioritizeCapturer()
+{
+    if (m_role == ROLE_HEALER)
+        return false;
+
+    Player* pCapturer = ABFindCapturer();
+    if (!pCapturer || me->GetVictim() == pCapturer)
+        return false;
+
+    return AttackStart(pCapturer);
+}
+
+// An attacker standing at the hub of its flag captures it instead of fighting, unless somebody is attacking it or an enemy is
+// very close.
+bool BattleBotAI::ABPrioritizeCapture()
+{
+    static float const ENEMY_CLOSE_DISTANCE = 10.0f;
+
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB || bg->GetStatus() != STATUS_IN_PROGRESS || !me->IsAlive() || me->IsMounted())
+        return false;
+
+    if (m_abObjective.mode != AB_MODE_ATTACK || m_abObjective.node == 0xFF || m_abObjective.support)
+        return false;
+
+    uint8 const hub = ABGraph::GetFlagHub(m_abObjective.node);
+    if (hub == ABGraph::HUB_NONE)
+        return false;
+
+    ABGraph::Hub const& hubData = ABGraph::GetHub(hub);
+    if (!me->IsWithinDist3d(hubData.x, hubData.y, hubData.z, AB_HUB_RADIUS) || IsBeingAttacked())
+        return false;
+
+    std::list<Player*> players;
+    me->GetAlivePlayerListInRange(me, players, ENEMY_CLOSE_DISTANCE);
+    for (Player* pPlayer : players)
+    {
+        if (!pPlayer->IsGameMaster() && IsValidHostileTarget(pPlayer))
+            return false;
+    }
+
+    if (me->GetVictim())
+    {
+        me->AttackStop(false);
+        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+            StopMoving();
+    }
+    return ABCaptureFlag();
 }
 
 // Tells the team in the battleground chat what the bot is asking for.

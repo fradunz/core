@@ -738,6 +738,13 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     if (ShouldIgnoreCombat())
         return nullptr;
 
+    // Arathi Basin: an enemy capturing the flag we defend comes before any other target.
+    if (Player* pCapturer = ABFindCapturer())
+    {
+        if (pCapturer != pExcept)
+            return pCapturer;
+    }
+
     bool const focused = IsObjectiveFocused();
     Player* pEscort = GetEscortCarrier();
 
@@ -1538,6 +1545,10 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         me->SetSheath(SHEATH_STATE_MELEE);
 
     UpdateBattleGroundAI();
+
+    // Arathi Basin: stopping a capture and making one come before any fight.
+    if (m_battlegroundId == BATTLEGROUND_QUEUE_AB && (ABPrioritizeCapturer() || ABPrioritizeCapture()))
+        return;
 
     if (!me->IsInCombat())
     {

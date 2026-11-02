@@ -44,7 +44,8 @@ Flag nodes (`BG_AB_Nodes`): Stables=0, Blacksmith=1, Farm=2, Lumber=3, GoldMine=
 ## 3. Decisions at hubs
 
 - The objective is re-evaluated at every hub. An intermediate hub never makes the bot wait. **[decided] [done]**
-- Waiting happens only at the last hub of an attack: 15 s or 1 ally with the same objective, whichever comes first; queue
+- Waiting happens only at the last hub of an attack, only when the last leg is longer than 100 yd and the flag is not neutral
+  (a neutral flag is not an attack: no request, no wait): 15 s or 1 ally with the same objective, whichever comes first; queue
   per objective (side does not matter); whoever arrives after the release goes straight in; defense never waits.
   **[decided] [todo: phase 2d]**
 - `DecideNextAction` cascade in AB: `ResumeSavedPath` → `StartNewPathToObjective` (→ `StartNewPathToObjectiveAB`) →
@@ -157,9 +158,13 @@ Already implemented (`ABCaptureFlag`) **[done]**:
 
 Detecting an enemy capture (an enemy casting 21651 near the hub) is done in phase 2b, only to renew defense requests.
 
-Still **[todo: phase 2c]**:
-- A defender with a slot prevents the capture at all costs and ignores "under attack" (damage interrupts the cast).
-- An attacker/capturer prioritizes the banner over combat, unless very close to an enemy or under attack.
+Phase 2c **[done, untested]**:
+- A defender (not a healer) within 60 yd of its flag hub attacks an enemy that is casting the capture (21651) within 40 yd of
+  the hub, before any other target and even if it is being attacked (damage interrupts the cast). `ABFindCapturer` /
+  `ABPrioritizeCapturer`, and the same enemy comes first in `SelectAttackTarget`.
+- An attacker (not a supporter on its way) within 25 yd of its flag hub captures instead of fighting, unless somebody is
+  attacking it or an enemy player is within 10 yd (`ABPrioritizeCapture`). **[assumption: 10 yd]** If the 21651 cast is refused
+  while the bot is in combat, see problem (C) in section 8.
 
 ## 7. Constants (ABCoordinator.cpp / BattleBotWaypoints.cpp)
 
@@ -193,7 +198,7 @@ Still **[todo: phase 2c]**:
 | 1 | Hub graph, routes, wander, radius, post-combat | done and tested |
 | 2a | Coordinator: roles, objectives, slots | done, being tested |
 | 2b | Support requests | done, untested |
-| 2c | Active defense (switch target, defense request, attacker prioritizes the banner) | todo |
+| 2c | Active defense (switch target, defense request, attacker prioritizes the banner) | done, untested |
 | 2d | Waiting for an ally on the last leg of an attack | todo |
 
 ## 10. WSG route map
