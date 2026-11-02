@@ -85,6 +85,11 @@ public:
     // The bot that answered a request is at its destination: a defender takes a normal defense slot if there is one.
     void OnSupportArrived(BattleGround* pBG, Player* pBot);
 
+    // The bot is at the last hub of an attack (far from the flag): true while it has to wait for an ally with the same objective.
+    // The wait ends when a second bot of the team joins it or after WAIT_TIME; whoever arrives right after the release goes in
+    // without waiting. Rules in AB_BEHAVIOR.md.
+    bool ShouldWaitForAlly(BattleGround* pBG, Player* pBot, uint8 node);
+
     // Copy of what the coordinator knows about a match, for the debug command (see HandleBattleBotABStatusCommand()).
     struct SnapshotBot
     {
@@ -145,8 +150,18 @@ private:
         std::set<ObjectGuid> rolled; // Bots that already rolled for this request.
     };
 
+    // Bots of a team waiting at the last hub before the flag of a node (one group per node, whatever the side they come from).
+    struct WaitGroup
+    {
+        std::map<ObjectGuid, uint32> waiters; // Guid -> ms timestamp when it was last seen waiting.
+        uint32 start = 0;                     // ms timestamp of the first bot of the group.
+        uint32 releasedAt = 0;                // ms timestamp of the last release.
+        bool released = false;
+    };
+
     struct Match
     {
+        WaitGroup waitGroups[2][5]; // Per team index and node.
         std::map<ObjectGuid, Assignment> bots[2]; // Per team index (0 Alliance, 1 Horde).
         std::vector<Request> requests[2];
         uint8 nodeStates[5] = { 0, 0, 0, 0, 0 };

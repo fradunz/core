@@ -44,10 +44,11 @@ Flag nodes (`BG_AB_Nodes`): Stables=0, Blacksmith=1, Farm=2, Lumber=3, GoldMine=
 ## 3. Decisions at hubs
 
 - The objective is re-evaluated at every hub. An intermediate hub never makes the bot wait. **[decided] [done]**
-- Waiting happens only at the last hub of an attack, only when the last leg is longer than 100 yd and the flag is not neutral
+- Waiting happens only at the last hub of the route that is still more than 100 yd (along the route) from the flag, which is not
+  necessarily the last hub before the flag (a closer hub, e.g. at 30 yd, may follow), and only when the flag is not neutral
   (a neutral flag is not an attack: no request, no wait): 15 s or 1 ally with the same objective, whichever comes first; queue
   per objective (side does not matter); whoever arrives after the release goes straight in; defense never waits.
-  **[decided] [todo: phase 2d]**
+  **[decided] [done, untested]** (`ABCoordinator::ShouldWaitForAlly`; groups per team and node; waiters not seen for 5 s are dropped; bots arriving within 30 s after a release go in without waiting; supporters answering an attack request wait too).
 - `DecideNextAction` cascade in AB: `ResumeSavedPath` → `StartNewPathToObjective` (→ `StartNewPathToObjectiveAB`) →
   `ResumeSavedPath` → `StartNewPathFromBeginning` → `StartNewPathFromAnywhere`. **[done]**
 - The arrival check also runs between the 1000 ms updates (`UpdatePathProgress`, fast branch in AB), so there is no
@@ -128,9 +129,9 @@ Rules **[decided]**:
 - Worst case at one point: 5 capturers + 3 support = 8 attackers.
 
 Triggers **[decided]**:
-- **Attack:** a bot arrives at the last hub before a flag (the next leg of its route ends at the flag hub) and that leg is
-  longer than 100 yd. The request is for that flag (its hub is the flag hub). Last legs of 100 yd or less (SH1→S 23,
-  SH2→S 54, BH1→B 72, FH2→F 31, ...) never ask. A neutral flag never gets a request (nobody defends it). If the team already has a live attack request, nothing is opened.
+- **Attack:** a bot arrives at the last hub of its route that is more than 100 yd (along the route) from the flag: the next
+  hub of the route is the flag hub or is 100 yd or less from it. The request is for that flag (its hub is the flag hub).
+  Hubs at 100 yd or less from the flag (SH1→S 23, SH2→S 54, BH1→B 72, FH2→F 31, ...) never ask. A neutral flag never gets a request (nobody defends it). If the team already has a live attack request, nothing is opened.
 - **Defense:** a defender near its flag hub (within 60 yd) sees two or more enemy players within 40 yd of the hub. One
   enemy alone does not open a request. While two or more enemies are near the hub, or one is casting the capture spell
   (21651), the request is renewed with no interval. The request is made at the flag hub.
@@ -206,7 +207,7 @@ casting). In AB the leg in progress is saved and resumed afterwards. **[done, un
 | 2a | Coordinator: roles, objectives, slots | done, being tested |
 | 2b | Support requests | done, untested |
 | 2c | Active defense (switch target, defense request, attacker prioritizes the banner) | done, untested |
-| 2d | Waiting for an ally on the last leg of an attack | todo |
+| 2d | Waiting for an ally on the last leg of an attack | done, untested |
 
 ## 10. WSG route map
 

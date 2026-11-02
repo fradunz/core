@@ -40,6 +40,9 @@ namespace
     uint32 const SUPPORT_SLOTS = 3;
     uint32 const SUPPORT_DURATION = 15 * IN_MILLISECONDS;        // Defense requests, renewed while the threat lasts.
     uint32 const ATTACK_REQUEST_DURATION = 20 * IN_MILLISECONDS; // Attack requests, fixed: never renewed.
+    uint32 const WAIT_TIME = 15 * IN_MILLISECONDS;          // Longest wait for an ally at the last hub.
+    uint32 const WAIT_STALE = 5 * IN_MILLISECONDS;          // A waiter not seen for this long left (fight, death).
+    uint32 const WAIT_RELEASE_WINDOW = 30 * IN_MILLISECONDS; // Bots arriving this soon after a release go in without waiting.
     uint32 const ATTACK_REQUEST_INTERVAL = 10 * IN_MILLISECONDS;
     uint32 const ANNOUNCE_INTERVAL = 15 * IN_MILLISECONDS; // A renewed request is announced again at most this often.
     uint32 const SUPPORT_MAX_LEGS = 2;
@@ -344,6 +347,9 @@ void ABCoordinator::Unregister(ObjectGuid guid)
     {
         itr->second.bots[0].erase(guid);
         itr->second.bots[1].erase(guid);
+        for (auto& groups : itr->second.waitGroups)
+            for (WaitGroup& group : groups)
+                group.waiters.erase(guid);
         if (itr->second.bots[0].empty() && itr->second.bots[1].empty())
             itr = m_matches.erase(itr);
         else
@@ -356,6 +362,9 @@ void ABCoordinator::OnDeath(ObjectGuid guid)
     std::lock_guard<std::mutex> guard(m_lock);
     for (auto& entry : m_matches)
     {
+        for (auto& groups : entry.second.waitGroups)
+            for (WaitGroup& group : groups)
+                group.waiters.erase(guid);
         for (auto& bots : entry.second.bots)
         {
             auto itr = bots.find(guid);
@@ -600,4 +609,49 @@ void ABCoordinator::OnSupportArrived(BattleGround* pBG, Player* pBot)
         if (defenders < GetDefenseSlots(GetDefenseWeight(match, teamIndex)))
             assignment.support = false;
     }
+}
+
+bool ABCoordinator::ShouldWaitForAlly(BattleGround* pBG, Player* pBot, uint8 node)
+{
+    if (!pBG || !pBot || pBG->GetTypeID() != BATTLEGROUND_AB || node >= NODE_COUNT)
+        return false;
+
+    uint8 const teamIndex = pBot->GetTeam() == HORDE ? 1 : 0;
+    ObjectGuid const self = pBot->GetObjectGuid();
+    uint32 const now = WorldTimer::getMSTime();
+
+    std::lock_guard<std::mutex> guard(m_lock);
+    WaitGroup& group = m_matches[pBG->GetInstanceID()].waitGroups[teamIndex][node];
+
+    for (auto itr = group.waiters.begin(); itr != group.waiters.end();)
+    {
+        if (int32(itr->second + WAIT_STALE - now) <= 0)
+            itr = group.waiters.erase(itr);
+        else
+            ++itr;
+    }
+
+    if (group.released)
+    {
+        if (int32(group.releasedAt + WAIT_RELEASE_WINDOW - now) > 0)
+        {
+            group.waiters.erase(self);
+            return false;
+        }
+        group.released = false;
+    }
+
+    if (group.waiters.empty())
+        group.start = now;
+    group.waiters[self] = now;
+
+    if (group.waiters.size() >= 2 || int32(group.start + WAIT_TIME - now) <= 0)
+    {
+        group.released = true;
+        group.releasedAt = now;
+        group.waiters.erase(self);
+        return false;
+    }
+
+    return true;
 }

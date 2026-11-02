@@ -2709,14 +2709,35 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
             return false;
     }
 
-    // Last hub before a flag that is far from it: ask for support at the flag, so the help can come from any side.
+    // Last hub of the route more than 100 yd away from the flag (other hubs may follow, closer to it): ask for support at the flag, so the help can come from any side, and wait there
+    // for an ally to go in together. A neutral flag has nobody defending it: no request and no wait.
     static float const ATTACK_REQUEST_MIN_DISTANCE = 100.0f;
-    // A neutral flag has nobody defending it, so there is nobody to ask for help against.
-    if (arrivedAtHub && objective.mode == AB_MODE_ATTACK && !objective.support && targetHub != hub &&
+    bool lastFarHub = objective.mode == AB_MODE_ATTACK && targetHub != hub &&
         GetABNodeState(bg, objective.node) != BG_AB_NODE_TYPE_NEUTRAL &&
-        ABGraph::GetRouteLegCount(hub, targetHub) == 1 && ABGraph::GetRouteLength(hub, targetHub) > ATTACK_REQUEST_MIN_DISTANCE)
-        if (coordinator.RequestSupport(bg, me, AB_SUPPORT_ATTACK, objective.node, targetHub, true, true))
+        ABGraph::GetRouteLength(hub, targetHub) > ATTACK_REQUEST_MIN_DISTANCE;
+    if (lastFarHub)
+    {
+        // It is the last hub of the route that is still far from the flag: the next hub of the route is the flag or is close to it.
+        BattleBotPath* pNextLeg = nullptr;
+        bool nextReverse = false;
+        uint8 nextHub = ABGraph::HUB_NONE;
+        if (ABGraph::GetNextLeg(hub, targetHub, pNextLeg, nextReverse) && ABGraph::GetLegEnd(pNextLeg, nextReverse, nextHub))
+            lastFarHub = nextHub == targetHub || ABGraph::GetRouteLength(nextHub, targetHub) <= ATTACK_REQUEST_MIN_DISTANCE;
+        else
+            lastFarHub = false;
+    }
+    if (lastFarHub)
+    {
+        if (arrivedAtHub && !objective.support &&
+            coordinator.RequestSupport(bg, me, AB_SUPPORT_ATTACK, objective.node, targetHub, true, true))
             ABAnnounceRequest(AB_SUPPORT_ATTACK, objective.node, 0);
+
+        if (coordinator.ShouldWaitForAlly(bg, me, objective.node))
+        {
+            WanderAroundHub(hub);
+            return true;
+        }
+    }
 
     if (targetHub == hub)
     {
