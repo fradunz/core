@@ -2673,19 +2673,9 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
     if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
         return false;
 
-    static float const HUB_RETURN_DISTANCE = 100.0f; // A bot taken away from the hubs by a fight walks back to the nearest one.
-
     uint8 const hub = ABGraph::FindNearestHub(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), AB_HUB_RADIUS);
     if (hub == ABGraph::HUB_NONE)
-    {
-        uint8 const nearHub = ABGraph::FindNearestHub(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), HUB_RETURN_DISTANCE);
-        if (nearHub == ABGraph::HUB_NONE)
-            return false;
-
-        ABGraph::Hub const& nearHubData = ABGraph::GetHub(nearHub);
-        me->GetMotionMaster()->MovePoint(0, nearHubData.x, nearHubData.y, nearHubData.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
-        return true;
-    }
+        return false;
 
     ABCoordinator& coordinator = sPlayerBotMgr.GetABCoordinator();
     ABObjective objective = coordinator.GetObjective(bg, me);

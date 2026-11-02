@@ -172,8 +172,6 @@ Phase 2c **[done, untested]**:
 if it does not see the enemies yet. It is used in WSG (defender and general modes) and in AB (every update, except while
 casting). In AB the leg in progress is saved and resumed afterwards. **[done, untested in AB]**
 
-A bot that a fight took more than 25 yd away from every hub (and has no leg to resume) walks straight to the nearest hub within
-100 yd, and takes its decision there; farther than that it keeps the old cascade (`StartNewPathFromAnywhere`). **[done, untested]**
 
 ## 7. Constants (ABCoordinator.cpp / BattleBotWaypoints.cpp)
 
