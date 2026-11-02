@@ -1550,6 +1550,10 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     if (m_battlegroundId == BATTLEGROUND_QUEUE_AB && (ABPrioritizeCapturer() || ABPrioritizeCapture()))
         return;
 
+    // Arathi Basin: go and help an ally that is fighting nearby, like in Warsong Gulch.
+    if (m_battlegroundId == BATTLEGROUND_QUEUE_AB && !me->IsNonMeleeSpellCasted(false) && HelpFightingAlly())
+        return;
+
     if (!me->IsInCombat())
     {
         if (CheckForUnreachableTarget())

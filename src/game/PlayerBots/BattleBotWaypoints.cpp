@@ -1866,9 +1866,8 @@ void BattleBotAI::WanderAroundHub(uint8 hub)
 // Go and help an ally that is fighting, even if we do not see his enemies yet.
 bool BattleBotAI::HelpFightingAlly()
 {
-    static float const HELP_RANGE = 60.0f;          // Allies fighting further than this are not our business.
+    static float const HELP_RANGE = 40.0f;          // Allies fighting further than this are not our business.
     static float const HELP_CLOSE_DISTANCE = 15.0f; // Close enough: our own combat detection takes over.
-    static float const HELP_PATH_DISTANCE = 40.0f;  // Further than this, use the paths instead of walking straight.
 
     if (me->IsInCombat() || me->IsMounted() || !me->IsAlive())
         return false;
@@ -1897,8 +1896,13 @@ bool BattleBotAI::HelpFightingAlly()
     if (!pAlly || allyDistance <= HELP_CLOSE_DISTANCE)
         return false;
 
-    if (allyDistance >= HELP_PATH_DISTANCE && StartNewPathToPosition(pAlly->GetPosition(), vPaths_WS))
-        return true;
+    // Arathi Basin: the leg is resumed afterwards (see ResumeSavedPath).
+    BattleGround* pBattleGround = me->GetBattleGround();
+    if (pBattleGround && pBattleGround->GetTypeID() == BATTLEGROUND_AB)
+    {
+        SavePathForResume();
+        ClearPath();
+    }
 
     me->GetMotionMaster()->MovePoint(0, pAlly->GetPositionX(), pAlly->GetPositionY(), pAlly->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
     return true;
@@ -2669,9 +2673,19 @@ bool BattleBotAI::StartNewPathToObjectiveAB()
     if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
         return false;
 
+    static float const HUB_RETURN_DISTANCE = 100.0f; // A bot taken away from the hubs by a fight walks back to the nearest one.
+
     uint8 const hub = ABGraph::FindNearestHub(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), AB_HUB_RADIUS);
     if (hub == ABGraph::HUB_NONE)
-        return false;
+    {
+        uint8 const nearHub = ABGraph::FindNearestHub(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), HUB_RETURN_DISTANCE);
+        if (nearHub == ABGraph::HUB_NONE)
+            return false;
+
+        ABGraph::Hub const& nearHubData = ABGraph::GetHub(nearHub);
+        me->GetMotionMaster()->MovePoint(0, nearHubData.x, nearHubData.y, nearHubData.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+        return true;
+    }
 
     ABCoordinator& coordinator = sPlayerBotMgr.GetABCoordinator();
     ABObjective objective = coordinator.GetObjective(bg, me);
