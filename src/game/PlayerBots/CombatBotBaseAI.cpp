@@ -3292,6 +3292,19 @@ bool CombatBotBaseAI::CanTryToCastSpell(Unit const* pTarget, SpellEntry const* p
         }
         else if (pTarget->HasAura(pSpellEntry->Id))
             return false;
+
+        // A buff of another rank of the same spell, with a higher rank, is already on the target (a player's Retribution Aura,
+        // for example): this one would be refused when applied, and the bot would cast it over and over.
+        if (pSpellEntry->IsPositiveSpell())
+        {
+            for (auto const& entry : pTarget->GetSpellAuraHolderMap())
+            {
+                SpellAuraHolder const* pHolder = entry.second;
+                if (pHolder && pHolder->GetId() != pSpellEntry->Id && sSpellMgr.IsRankSpellDueToSpell(pSpellEntry, pHolder->GetId()) &&
+                    Spells::CompareAuraRanks(pSpellEntry->Id, pHolder->GetId()) < 0)
+                    return false;
+            }
+        }
     }
 
     SpellRangeEntry const* srange = sSpellRangeStore.LookupEntry(pSpellEntry->rangeIndex);
