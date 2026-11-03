@@ -142,8 +142,15 @@ Implementation (`ABCoordinator::RequestSupport / TryAcceptSupport / OnSupportArr
   legs are counted along the shortest route between hubs (`GetRouteLegCount`), yards are straight line from the bot to the hub.
 - A bot that already has the requested flag as its objective (any mode) does not roll, and the requester never answers itself.
 - An answered request becomes the bot's objective with a `support` flag: it does not use the normal slots (so up to 8 attackers at
-  a flag), it is not re-evaluated by a change of the flags on its way, and it keeps its flag after arriving unless the objective
-  becomes invalid. A supporting defender that arrives takes a normal defense slot if one is free.
+  a flag), it is not re-evaluated by a change of the flags on its way, and it keeps its flag after arriving while its request
+  is alive (and unless the objective becomes invalid).
+- A supporting defender that arrives takes a normal defense slot only if one is free and its role wants to defend (the same roll as
+  when choosing an objective: defender always, capturer only at 100% defense weight, general by the defense weight).
+- When the request of a supporter that already arrived is over (a defense request is renewed while the threat lasts), the bot is a
+  normal one again. A defending supporter stays only if the same flag has a free normal defense slot and its role rolls for defense
+  (defender always, capturer only at 100% defense weight, general by the defense weight); otherwise it goes to attack. The bots that
+  held normal slots before keep them. An attacking supporter keeps its flag if there is a free capture slot there, otherwise it
+  chooses again. **[decided] [done, untested]**
 - A new attack request can only open after the previous one expired (fixed 20 s, so the old 10 s interval no longer matters).
 - Radii (60 yd to watch, 40 yd for enemies) are not in the rules **[assumption]**. The number announced in the chat counts the
   enemies within 60 yd of the hub, to show if more are coming behind the ones that opened the request.

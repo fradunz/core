@@ -176,11 +176,13 @@ private:
     // Weight of the defense in % (the weight of the attack is the rest) and the defenders each held flag has room for.
     static uint32 GetDefenseWeight(Match const& match, uint8 teamIndex);
     static uint32 GetDefenseSlots(uint32 defenseWeight);
+    // Does a bot of this role want to defend? Rolled by the role, given the defense weight of the team (in %).
+    static bool RollWantDefend(uint8 role, uint32 defenseWeight);
     // Can this be done with the flag in its current state?
     static bool IsObjectiveValid(Match const& match, uint8 teamIndex, uint8 node, uint8 mode);
     // After a change of the flags: a valid objective is kept, unless there are more bots than slots (the newest lose).
     static bool KeepObjective(Match const& match, uint8 teamIndex, ObjectGuid self, Assignment const& assignment);
-    static void PickObjective(Match& match, uint8 teamIndex, ObjectGuid self, Assignment& assignment);
+    static void PickObjective(Match& match, uint8 teamIndex, ObjectGuid self, Assignment& assignment, bool forceAttack = false);
     // Chance in % that a bot of this role answers a request, given the defense weight of its team.
     static float GetSupportChance(uint8 type, uint8 role, uint32 defenseWeight);
     static bool IsRequestAlive(Request const& request, uint32 now);

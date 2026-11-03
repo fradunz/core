@@ -117,6 +117,16 @@ uint32 ABCoordinator::GetDefenseSlots(uint32 defenseWeight)
     return DEFENSE_SLOTS_AT_FULL_WEIGHT * defenseWeight / 100;
 }
 
+bool ABCoordinator::RollWantDefend(uint8 role, uint32 defenseWeight)
+{
+    switch (role)
+    {
+        case AB_ROLE_DEFENDER: return true;
+        case AB_ROLE_CAPTURER: return defenseWeight >= 100;
+        default:               return urand(0, 99) < defenseWeight;
+    }
+}
+
 // Holding is still valid for a flag that the enemy is converting: it can only be one that the bot was already holding
 // (new defenders are never sent to it, see PickObjective()).
 bool ABCoordinator::IsObjectiveValid(Match const& match, uint8 teamIndex, uint8 node, uint8 mode)
@@ -157,7 +167,7 @@ bool ABCoordinator::KeepObjective(Match const& match, uint8 teamIndex, ObjectGui
 
 // Chooses a flag and what to do there. Defense weight is 20% for each flag held by the team (a flag being converted
 // counts for both teams), attack weight is the rest. A held flag has 5 defense slots at full weight, a flag to capture has 5.
-void ABCoordinator::PickObjective(Match& match, uint8 teamIndex, ObjectGuid self, Assignment& assignment)
+void ABCoordinator::PickObjective(Match& match, uint8 teamIndex, ObjectGuid self, Assignment& assignment, bool forceAttack)
 {
     assignment.support = false;
     assignment.arrived = false;
@@ -197,13 +207,7 @@ void ABCoordinator::PickObjective(Match& match, uint8 teamIndex, ObjectGuid self
         return nodes.empty() ? uint8(0xFF) : nodes[urand(0, nodes.size() - 1)];
     };
 
-    bool wantDefend;
-    switch (assignment.role)
-    {
-        case AB_ROLE_DEFENDER: wantDefend = true; break;
-        case AB_ROLE_CAPTURER: wantDefend = defenseWeight >= 100; break;
-        default:               wantDefend = urand(0, 99) < defenseWeight; break;
-    }
+    bool const wantDefend = !forceAttack && RollWantDefend(assignment.role, defenseWeight);
 
     uint8 node = pickFree(wantDefend);
     if (node != 0xFF)
@@ -323,6 +327,47 @@ ABObjective ABCoordinator::GetObjective(BattleGround* pBG, Player* pBot)
     }
 
     Assignment& assignment = itr->second;
+    // A supporter that got to its flag stays while its request is alive (it is renewed while the threat lasts). When the request
+    // is over it is a normal bot again: a defender stays only with a free normal slot at the same flag and a defense roll of its role,
+    // otherwise it goes to attack; an attacker keeps its flag if there is a capture slot, otherwise it chooses again.
+    if (assignment.support && assignment.arrived)
+    {
+        uint8 const requestType = assignment.mode == AB_MODE_DEFEND ? AB_SUPPORT_DEFENSE : AB_SUPPORT_ATTACK;
+        bool requestAlive = false;
+        for (Request const& request : match.requests[teamIndex])
+        {
+            if (request.type == requestType && request.node == assignment.node && IsRequestAlive(request, now))
+            {
+                requestAlive = true;
+                break;
+            }
+        }
+        if (!requestAlive)
+        {
+            bool const wasDefending = assignment.mode == AB_MODE_DEFEND;
+            assignment.support = false;
+            assignment.arrived = false;
+            if (wasDefending)
+            {
+                // It stays only if there is a normal defense slot at the same flag and its role rolls for defense; otherwise it attacks.
+                uint32 defenders = 0;
+                for (auto const& entry : bots)
+                {
+                    if (entry.first != itr->first && !entry.second.support && entry.second.node == assignment.node && entry.second.mode == AB_MODE_DEFEND)
+                        defenders++;
+                }
+                uint32 const defenseWeight = GetDefenseWeight(match, teamIndex);
+                if (IsObjectiveValid(match, teamIndex, assignment.node, AB_MODE_DEFEND) && defenders < GetDefenseSlots(defenseWeight) &&
+                    RollWantDefend(assignment.role, defenseWeight))
+                    assignment.epoch = match.epoch;
+                else
+                    PickObjective(match, teamIndex, itr->first, assignment, true);
+            }
+            else
+                assignment.epoch = 0; // Forces the normal check below (slots of the flag it was attacking).
+        }
+    }
+
     // A supporter goes to its destination, even if the request is over and the flags changed, and chooses again there.
     bool const traveling = assignment.support && !assignment.arrived;
     if (assignment.epoch != match.epoch && !traveling)
@@ -597,7 +642,8 @@ void ABCoordinator::OnSupportArrived(BattleGround* pBG, Player* pBot)
     Assignment& assignment = botItr->second;
     assignment.arrived = true;
 
-    // A defender that arrives can take a normal defense slot, if there is one left.
+    // A bot that arrives can take a normal defense slot, if there is one left and its role wants to defend. Otherwise it stays
+    // as a supporter until the request is over (see GetObjective()).
     if (assignment.mode == AB_MODE_DEFEND)
     {
         uint32 defenders = 0;
@@ -606,7 +652,8 @@ void ABCoordinator::OnSupportArrived(BattleGround* pBG, Player* pBot)
             if (entry.first != botItr->first && !entry.second.support && entry.second.node == assignment.node && entry.second.mode == AB_MODE_DEFEND)
                 defenders++;
         }
-        if (defenders < GetDefenseSlots(GetDefenseWeight(match, teamIndex)))
+        uint32 const defenseWeight = GetDefenseWeight(match, teamIndex);
+        if (defenders < GetDefenseSlots(defenseWeight) && RollWantDefend(assignment.role, defenseWeight))
             assignment.support = false;
     }
 }
