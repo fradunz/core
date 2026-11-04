@@ -69,6 +69,7 @@ void AuctionHouseBotMgr::Load()
     m_config->enable         = sConfig.GetBoolDefault("AHBot.Enable", false);
     m_config->ahfid          = sConfig.GetIntDefault("AHBot.ah.fid", 120);
     m_config->itemcount      = sConfig.GetIntDefault("AHBot.itemcount", 2);
+    m_config->maxPerCycle    = sConfig.GetIntDefault("AHBot.MaxPerCycle", 150);
 
     m_auctionHouseEntry = sAuctionMgr.GetAuctionHouseEntry(m_config->ahfid);
     if (!m_auctionHouseEntry)
@@ -106,8 +107,11 @@ void AuctionHouseBotMgr::Update(bool force /* = false */)
     uint32 auctions     = auctionHouse->GetCount();
     uint32 items        = m_config->itemcount;
     uint32 entriesCount = m_items.size();
+    // The listings are created inside the world update: a large gap is filled over several cycles, so the server does not freeze.
+    uint32 const maxPerCycle = m_config->maxPerCycle ? m_config->maxPerCycle : UINT32_MAX;
+    uint32 created = 0;
 
-    while (auctions < items)
+    while (auctions < items && created < maxPerCycle)
     {
         AuctionHouseBotEntry item = m_items[urand(0, entriesCount - 1)];
         // Makes single items and the most expensive appear at half the rate
@@ -116,6 +120,7 @@ void AuctionHouseBotMgr::Update(bool force /* = false */)
             continue;
         AddItem(item, auctionHouse);
         auctions++;
+        created++;
     }
 }
 

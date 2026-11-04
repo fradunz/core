@@ -3151,11 +3151,18 @@ CharDelete.KeepDays = 30
 #        The AH bot will add items until this number of listings is reached in the auction house (this includes potential player listings).
 #        Default: 50
 #
+#    AHBot.MaxPerCycle
+#        Most listings the AH bot creates in one update (the update runs every minute). A large gap to AHBot.itemcount is
+#        filled over several updates, so the server does not freeze creating thousands of listings at once.
+#        Default: 150
+#                 0 - no limit
+#
 ###################################################################################################################
 
 AHBot.Enable = 0
 AHBot.ah.fid = 120
 AHBot.itemcount = 50
+AHBot.MaxPerCycle = 150
 
 ###################################################################################################################
 # PLAYER BOTS

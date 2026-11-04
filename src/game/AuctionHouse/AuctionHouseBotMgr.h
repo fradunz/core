@@ -20,6 +20,7 @@ struct AuctionHouseBotEntry
 struct AuctionHouseBotConfig
 {
     uint32 itemcount;
+    uint32 maxPerCycle; // Listings created at most in one update (0 = no limit).
     uint32 ahfid;
 
     bool enable;
