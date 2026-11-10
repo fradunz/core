@@ -465,7 +465,7 @@ namespace MMAP
         float agentHeight = 1.5f;
         float agentRadius = 0.2f; // Check here: .go xyz -4985 -861 501 0
         // Fences should not be passable
-        static const float agentMaxClimbModelTerrainTransition = 1.2f;
+        static const float agentMaxClimbModelTerrainTransition = 1.3f;
         static const float agentMaxClimbTerrain = 1.8f;
 
         if (!continent)
@@ -480,7 +480,8 @@ namespace MMAP
         if (config.walkableHeight == 0)
             config.walkableHeight = (int)ceilf(agentHeight / config.ch);
         if (config.walkableClimb == 0)
-            config.walkableClimb = (int)floorf(agentMaxClimbModelTerrainTransition / config.ch); // For models
+            // Rounded (not floored): 1.3f / 0.1f is 12.999999 in float. Continents (ch 0.25) get 5 voxels, i.e. 1.25.
+            config.walkableClimb = (int)roundf(agentMaxClimbModelTerrainTransition / config.ch); // For models
         uint32 walkableClimbTerrain = (int)floorf(agentMaxClimbTerrain / config.ch);
         uint32 walkableClimbModelTransition = config.walkableClimb; // follows walkableClimb unless overridden below
         if (int const climbOverride = jsonTileConfig["walkableClimbModelTransition"].get<int>())
